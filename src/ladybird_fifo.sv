@@ -57,7 +57,7 @@ module ladybird_fifo
       if (~nrst) begin
         full <= 'b0;
       end else begin
-        unique case (instruction)
+        case (instruction)
           FIFO_R: begin // only read === release full flag
             full <= 'b0;
           end
