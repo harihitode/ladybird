@@ -7,6 +7,7 @@ module ladybird_top
    input logic        clk,
    input logic        uart_txd_in,
    output logic       uart_rxd_out,
+   ladybird_bus       inst_bus,
    input logic [3:0]  btn,
    output logic [3:0] led,
    input logic        anrst
@@ -22,6 +23,8 @@ module ladybird_top
   logic [7:0]         data;
   logic               receive;
   logic               nrst;
+
+  ladybird_bus data_bus();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -48,19 +51,65 @@ module ladybird_top
     nrst <= anrst_i;
   end
 
+  logic [XLEN-1:0] addr;
+  logic            re;
+  logic            we;
+  logic            addr_valid;
+  logic            addr_ready;
+
+  logic [XLEN-1:0] wr_data;
+  logic            wr_data_valid;
+  logic            wr_data_ready;
+
+  logic [XLEN-1:0] rd_data;
+  logic            rd_data_valid;
+  logic            rd_data_ready;
+
+  logic [XLEN-1:0] register [32];
+
+  logic            uart_pop, uart_push;
+
+  always_comb begin
+    if (addr_valid && addr == {XLEN{1'b1}}) begin
+      if (re) begin
+        uart_pop = 'b1;
+      end else begin
+        uart_pop = 'b0;
+      end
+      if (we) begin
+        uart_push = 'b1;
+      end else begin
+        uart_push = 'b0;
+      end
+    end else begin
+      uart_pop = 'b0;
+      uart_push = 'b0;
+    end
+  end
+
+  ladybird_core DUT
+    (
+     .clk(clk_i),
+     .inst(inst_bus),
+     .data(data_bus),
+     .nrst(nrst),
+     .anrst(anrst)
+     );
+
   ladybird_serial_interface #(.I_BYTES(1), .O_BYTES(1), .WTIME(16'h364))
-  SERIAL_IF (
-             .clk(clk_i),
-             .uart_txd_in(uart_txd_in),
-             .uart_rxd_out(uart_rxd_out_i),
-             .i_data(data),
-             .i_valid(receive),
-             .i_ready(),
-             .o_data(data),
-             .o_valid(receive),
-             .o_ready('b1),
-             .nrst(nrst),
-             .anrst(anrst_i)
-             );
+  SERIAL_IF
+    (
+     .clk(clk_i),
+     .uart_txd_in(uart_txd_in),
+     .uart_rxd_out(uart_rxd_out_i),
+     .i_data(rd_data[7:0]),
+     .i_valid(uart_pop),
+     .i_ready(),
+     .o_data(wr_data[7:0]),
+     .o_valid(uart_push),
+     .o_ready('b1),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
 
 endmodule
