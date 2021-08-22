@@ -2,5 +2,5 @@
 
 package ladybird_config;
   localparam logic [31:0] VERSION = 32'h0000_0000;
-  localparam logic        XLEN = 32;
+  localparam              XLEN = 32;
 endpackage
