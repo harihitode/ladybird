@@ -19,11 +19,6 @@ module ladybird_bus_arbitrator_beh
     logic [31:0] data;
   } bus_request_s;
 
-  typedef struct packed {
-    logic        gnt;
-    logic [31:0] data;
-  } bus_response;
-
   bus_request_s  bus_requests [N_INPUT];
   int            selected_bus;
   logic [31:0]   selected_data;
@@ -57,13 +52,14 @@ module ladybird_bus_arbitrator_beh
     out_bus.req = bus_requests[selected_bus].req;
     out_bus.wstrb = bus_requests[selected_bus].wstrb;
     out_bus.addr = bus_requests[selected_bus].addr;
-    selected_data = bus_requests[selected_bus].data;
+    selected_data = (bus_requests[selected_bus].req & (|bus_requests[selected_bus].wstrb)) ? bus_requests[selected_bus].data : 'z;
   end
   assign out_bus.data = selected_data;
 
   generate for (genvar i = 0; i < N_INPUT; i++) begin
     assign in_bus[i].secondary.data = (i == current_bus && in_bus[i].wstrb == '0) ? out_bus.data : 'z;
     assign in_bus[i].secondary.gnt = (i == current_bus) ? out_bus.gnt : '0;
+    assign in_bus[i].secondary.data_gnt = (i == current_bus) ? out_bus.data_gnt : '0;
   end endgenerate
 
 endmodule
