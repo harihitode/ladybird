@@ -87,6 +87,10 @@ module ladybird_top
     end
   end
 
+  assign data_bus.secondary.gnt = '0;
+  assign data_bus.secondary.data_gnt = '0;
+  assign data_bus.secondary.data = 'z;
+
   ladybird_core DUT
     (
      .clk(clk_i),
