@@ -2,31 +2,6 @@
 
 module tb_ladybird;
   import ladybird_config::*;
-
-  function automatic logic [19:0] HI(input logic [31:0] immediate);
-    return immediate[31:12];
-  endfunction
-
-  function automatic logic [11:0] LO(input logic [31:0] immediate);
-    return immediate[11:0];
-  endfunction
-
-  function automatic logic [31:0] ADDI(input logic [4:0] rd, input logic [4:0] rs, input logic [11:0] immediate);
-    return {immediate, rs, 3'b000, rd, 7'b00100_11};
-  endfunction
-
-  function automatic logic [31:0] LB(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
-    return {offset, rt, 3'b000, rd, 7'b00000_11};
-  endfunction
-
-  function automatic logic [31:0] SB(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
-    return {offset[11:5], rd, rt, 3'b000, offset[4:0], 7'b01000_11};
-  endfunction
-
-  function automatic logic [31:0] JAL(input logic [4:0] rd, input logic [20:0] offset);
-    return {offset[20], offset[10:1], offset[11], offset[19:12], rd, 7'b11011_11};
-  endfunction
-
   logic clk = '0;
   logic anrst = '0;
   logic anrst_c = '0;
@@ -107,6 +82,7 @@ module tb_ladybird;
   always_ff @(posedge clk) begin
     if (host_data_valid) begin
       $display($time, " %d", host_data);
+      $finish;
     end
   end
 
