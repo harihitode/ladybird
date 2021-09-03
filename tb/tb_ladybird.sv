@@ -2,6 +2,35 @@
 
 module tb_ladybird;
   import ladybird_config::*;
+
+  function automatic logic [19:0] HI(input logic [31:0] immediate);
+    return immediate[31:12];
+  endfunction
+
+  function automatic logic [11:0] LO(input logic [31:0] immediate);
+    return immediate[11:0];
+  endfunction
+
+  function automatic logic [31:0] ADDI(input logic [4:0] rd, input logic [4:0] rs, input logic [11:0] immediate);
+    return {immediate, rs, 3'b000, rd, 7'b0010011};
+  endfunction
+
+  function automatic logic [31:0] LUI(input logic [4:0] rd, input logic [19:0] immediate);
+    return {immediate, rd, 7'b0110111};
+  endfunction
+
+  function automatic logic [31:0] LW(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset, rt, 3'b010, rd, 7'b0000011};
+  endfunction
+
+  function automatic logic [31:0] SW(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset[11:5], rd, rt, 3'b010, offset[4:0], 7'b0100011};
+  endfunction
+
+  function automatic logic [31:0] JAL(input logic [4:0] rd, input logic [20:0] offset);
+    return {offset[20], offset[10:1], offset[11], offset[19:12], rd, 7'b1101111};
+  endfunction
+
   logic clk = '0;
   logic anrst = '0;
   logic anrst_c = '0;
@@ -16,14 +45,11 @@ module tb_ladybird;
   ladybird_bus inst_bus();
 
   logic [31:0] iram [] = '{
-                           32'h0a0a_0a0a,
-                           32'hbeaf_cafe,
-                           32'hcccc_cccc,
-                           32'h8888_8888,
-                           32'h0b0b_0b0b,
-                           32'hcafe_beaf,
-                           32'h2222_2222,
-                           32'h7777_7777
+                           LUI(5'd1, HI(32'hFFFF_FFFF)),
+                           LW(5'd2, 12'h000, 5'd1),
+                           ADDI(5'd2, 5'd2, 12'h001),
+                           SW(5'd2, 12'h000, 5'd1),
+                           JAL(5'd1, -21'd12)
                            };
   logic [31:0] iram_data;
   assign inst_ram_writer.primary.data = iram_data;
