@@ -20,8 +20,6 @@ module ladybird_top
   logic [3:0]         btn_i;
   logic [3:0]         led_i;
   //
-  logic [7:0]         data;
-  logic               receive;
   logic               nrst;
 
   ladybird_bus data_bus();
@@ -51,45 +49,62 @@ module ladybird_top
     nrst <= anrst_i;
   end
 
-  logic [XLEN-1:0] addr;
-  logic            re;
-  logic            we;
-  logic            addr_valid;
-  logic            addr_ready;
+  logic [XLEN-1:0] addr, addr_l, data_l, rd_data, wr_data;
+  logic            re, re_l;
+  logic            we, we_l;
 
-  logic [XLEN-1:0] wr_data;
-  logic            wr_data_valid;
-  logic            wr_data_ready;
+  logic [7:0]      uart_push_data;
+  logic            uart_ready;
+  logic            uart_push;
 
-  logic [XLEN-1:0] rd_data;
-  logic            rd_data_valid;
-  logic            rd_data_ready;
+  logic [7-1:0]    uart_pop_data;
+  logic            uart_valid;
+  logic            uart_pop;
 
-  logic [XLEN-1:0] register [32];
+  assign data_bus.secondary.gnt = ~re_l & ~we_l;
+  assign data_bus.secondary.data_gnt = uart_pop & uart_valid;
+  assign data_bus.secondary.data = (uart_pop & uart_valid) ? rd_data : 'z;
+  assign addr = data_bus.secondary.addr;
+  assign re = data_bus.secondary.req & ~(|data_bus.secondary.wstrb);
+  assign we = data_bus.secondary.req & (|data_bus.secondary.wstrb);
+  assign uart_push_data = data_bus.secondary.data[7:0];
+  assign rd_data = {24'd0, uart_pop_data};
+  assign wr_data = data_bus.secondary.data;
 
-  logic            uart_pop, uart_push;
+  assign uart_pop = ((addr_l == '1) && re_l) ? 'b1 : 'b0;
+  assign uart_push = ((addr_l == '1) && we_l) ? 'b1 : 'b0;
 
-  always_comb begin
-    if (addr_valid && addr == {XLEN{1'b1}}) begin
-      if (re) begin
-        uart_pop = 'b1;
-      end else begin
-        uart_pop = 'b0;
-      end
-      if (we) begin
-        uart_push = 'b1;
-      end else begin
-        uart_push = 'b0;
-      end
+  always_ff @(posedge clk, negedge anrst) begin
+    if (~anrst) begin
+      addr_l <= '0;
+      re_l <= '0;
+      we_l <= '0;
     end else begin
-      uart_pop = 'b0;
-      uart_push = 'b0;
+      if (~nrst) begin
+        addr_l <= '0;
+        re_l <= '0;
+        we_l <= '0;
+      end else begin
+        if (re_l) begin
+          if (uart_pop & uart_valid) begin
+            re_l <= '0;
+          end
+        end else begin
+          addr_l <= addr;
+          re_l <= re;
+        end
+        if (we_l) begin
+          if (uart_push & uart_ready) begin
+            we_l <= '0;
+          end
+        end else begin
+          addr_l <= addr;
+          data_l <= wr_data;
+          we_l <= we;
+        end
+      end
     end
   end
-
-  assign data_bus.secondary.gnt = '0;
-  assign data_bus.secondary.data_gnt = '0;
-  assign data_bus.secondary.data = 'z;
 
   ladybird_core DUT
     (
@@ -106,12 +121,12 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     .i_data(rd_data[7:0]),
-     .i_valid(uart_pop),
-     .i_ready(),
-     .o_data(wr_data[7:0]),
-     .o_valid(uart_push),
-     .o_ready('b1),
+     .i_data(uart_push_data),
+     .i_valid(uart_push),
+     .i_ready(uart_ready),
+     .o_data(uart_pop_data),
+     .o_valid(uart_valid),
+     .o_ready(uart_pop),
      .nrst(nrst),
      .anrst(anrst_i)
      );
