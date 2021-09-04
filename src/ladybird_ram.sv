@@ -1,4 +1,5 @@
 module ladybird_ram
+  import ladybird_config::*;
   #(
     parameter DATA_W = 32,
     parameter ADDR_W = 10
