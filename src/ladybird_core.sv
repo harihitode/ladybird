@@ -220,9 +220,6 @@ module ladybird_core
         if ((state == I_FETCH) && inst_valid) begin
           inst_l <= inst_data;
         end
-        if (inst_valid) begin
-          $display(">> %x", inst_data);
-        end
       end
     end
   end
