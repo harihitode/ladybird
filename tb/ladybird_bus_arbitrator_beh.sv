@@ -6,8 +6,8 @@ module ladybird_bus_arbitrator_beh
   (
    input logic  clk,
    output logic o_data,
-   interface in_bus [N_INPUT],
-   interface out_bus,
+   interface.secondary in_bus [N_INPUT],
+   interface.primary out_bus,
    input logic  nrst,
    input logic  anrst
    );
@@ -57,9 +57,9 @@ module ladybird_bus_arbitrator_beh
   assign out_bus.data = selected_data;
 
   generate for (genvar i = 0; i < N_INPUT; i++) begin
-    assign in_bus[i].secondary.data = (i == current_bus && in_bus[i].wstrb == '0) ? out_bus.data : 'z;
-    assign in_bus[i].secondary.gnt = (i == current_bus) ? out_bus.gnt : '0;
-    assign in_bus[i].secondary.data_gnt = (i == current_bus) ? out_bus.data_gnt : '0;
+    assign in_bus[i].data = (i == current_bus && in_bus[i].wstrb == '0) ? out_bus.data : 'z;
+    assign in_bus[i].gnt = (i == current_bus) ? out_bus.gnt : '0;
+    assign in_bus[i].data_gnt = (i == current_bus) ? out_bus.data_gnt : '0;
   end endgenerate
 
 endmodule

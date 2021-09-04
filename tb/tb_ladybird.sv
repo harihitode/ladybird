@@ -25,18 +25,18 @@ module tb_ladybird;
   ladybird_bus inst_bus();
   ladybird_bus core_ibus();
   logic [31:0] iram_data;
-  assign inst_ram_writer.primary.data = iram_data;
+  assign inst_ram_writer.data = iram_data;
   task write_instruction ();
     for (int i = 0; i < $size(iram); i++) begin
       @(negedge clk);
-      inst_ram_writer.primary.req = 'b1;
-      inst_ram_writer.primary.addr = (i << 2);
-      inst_ram_writer.primary.wstrb = '1;
+      inst_ram_writer.req = 'b1;
+      inst_ram_writer.addr = (i << 2);
+      inst_ram_writer.wstrb = '1;
       iram_data = iram[i];
       @(posedge clk);
       wait (inst_ram_writer.req && inst_ram_writer.gnt);
     end
-    inst_ram_writer.primary.req = 'b0;
+    inst_ram_writer.req = 'b0;
     $display("instruction has been written.");
   endtask
 
