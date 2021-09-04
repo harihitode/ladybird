@@ -14,10 +14,6 @@ module tb_ladybird;
   logic       host_data_valid;
   logic       host_push;
 
-  ladybird_bus inst_ram_writer();
-  ladybird_bus core_ibus();
-  ladybird_bus inst_bus();
-
   logic [31:0] iram [] = '{
                            ADDI(5'd1, 5'd0, 12'hfff),
                            LB(5'd2, 12'h000, 5'd1),
@@ -25,6 +21,9 @@ module tb_ladybird;
                            SB(5'd2, 12'h000, 5'd1),
                            JAL(5'd0, -21'd12)
                            };
+  ladybird_bus inst_ram_writer();
+  ladybird_bus inst_bus();
+  ladybird_bus core_ibus();
   logic [31:0] iram_data;
   assign inst_ram_writer.primary.data = iram_data;
   task write_instruction ();
@@ -56,7 +55,6 @@ module tb_ladybird;
   ladybird_top #(.SIMULATION(1))
   DUT (
        .*,
-       .inst_bus(core_ibus),
        .anrst(anrst_c)
        );
 

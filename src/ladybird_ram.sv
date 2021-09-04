@@ -28,12 +28,26 @@ module ladybird_ram
     if (~anrst) begin
       rdValid <= 'b0;
       rdData <= 'z;
-      ram <= '{default:'0};
+      ram <= '{
+               0:ADDI(5'd1, 5'd0, 12'hfff),
+               1:LB(5'd2, 12'h000, 5'd1),
+               2:ADDI(5'd2, 5'd2, 12'h001),
+               3:SB(5'd2, 12'h000, 5'd1),
+               4:JAL(5'd0, -21'd12),
+               default:32'd0
+               };
     end else begin
       if (~nrst) begin
         rdValid <= 'b0;
         rdData <= 'z;
-        ram <= '{default:'0};
+        ram <= '{
+                 0:ADDI(5'd1, 5'd0, 12'hfff),
+                 1:LB(5'd2, 12'h000, 5'd1),
+                 2:ADDI(5'd2, 5'd2, 12'h001),
+                 3:SB(5'd2, 12'h000, 5'd1),
+                 4:JAL(5'd0, -21'd12),
+                 default:32'd0
+                 };
       end else begin
         if (bus.req && (bus.wstrb != '0)) begin
           rdValid <= 'b0;
