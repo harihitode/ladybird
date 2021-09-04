@@ -13,7 +13,7 @@ module ladybird_mmu
    output logic             o_valid,
    input logic              o_ready,
    output logic [XLEN-1:0]  o_data,
-   interface bus,
+   interface.primary        bus,
    input logic              anrst,
    input logic              nrst
    );

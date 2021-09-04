@@ -7,7 +7,6 @@ module ladybird_top
    input logic        clk,
    input logic        uart_txd_in,
    output logic       uart_rxd_out,
-   ladybird_bus       inst_bus,
    input logic [3:0]  btn,
    output logic [3:0] led,
    input logic        anrst
@@ -23,6 +22,7 @@ module ladybird_top
   logic               nrst;
 
   ladybird_bus data_bus();
+  ladybird_bus inst_bus();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -57,25 +57,25 @@ module ladybird_top
   logic            uart_ready;
   logic            uart_push;
 
-  logic [7-1:0]    uart_pop_data;
+  logic [7:0]      uart_pop_data;
   logic            uart_valid;
   logic            uart_pop;
 
-  assign data_bus.secondary.gnt = ~re_l & ~we_l;
-  assign data_bus.secondary.data_gnt = uart_pop & uart_valid;
-  assign data_bus.secondary.data = (uart_pop & uart_valid) ? rd_data : 'z;
-  assign addr = data_bus.secondary.addr;
-  assign re = data_bus.secondary.req & ~(|data_bus.secondary.wstrb);
-  assign we = data_bus.secondary.req & (|data_bus.secondary.wstrb);
-  assign uart_push_data = data_bus.secondary.data[7:0];
+  assign data_bus.gnt = ~re_l & ~we_l;
+  assign data_bus.data_gnt = uart_pop & uart_valid;
+  assign data_bus.data = (uart_pop & uart_valid) ? rd_data : 'z;
+  assign addr = data_bus.addr;
+  assign re = data_bus.req & ~(|data_bus.wstrb);
+  assign we = data_bus.req & (|data_bus.wstrb);
+  assign uart_push_data = data_bus.data[7:0];
   assign rd_data = {24'd0, uart_pop_data};
-  assign wr_data = data_bus.secondary.data;
+  assign wr_data = data_bus.data;
 
   assign uart_pop = ((addr_l == '1) && re_l) ? 'b1 : 'b0;
   assign uart_push = ((addr_l == '1) && we_l) ? 'b1 : 'b0;
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk_i, negedge anrst_i) begin
+    if (~anrst_i) begin
       addr_l <= '0;
       re_l <= '0;
       we_l <= '0;
@@ -112,7 +112,7 @@ module ladybird_top
      .inst(inst_bus),
      .data(data_bus),
      .nrst(nrst),
-     .anrst(anrst)
+     .anrst(anrst_i)
      );
 
   ladybird_serial_interface #(.I_BYTES(1), .O_BYTES(1), .WTIME(16'h364))
@@ -127,6 +127,15 @@ module ladybird_top
      .o_data(uart_pop_data),
      .o_valid(uart_valid),
      .o_ready(uart_pop),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
+
+  ladybird_ram #(.ADDR_W(3))
+  IRAM
+    (
+     .clk(clk_i),
+     .bus(inst_bus),
      .nrst(nrst),
      .anrst(anrst_i)
      );

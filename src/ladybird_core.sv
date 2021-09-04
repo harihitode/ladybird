@@ -5,8 +5,8 @@ module ladybird_core
   #(parameter SIMULATION = 0)
   (
    input logic       clk,
-   interface inst,
-   interface data,
+   interface.primary inst,
+   interface.primary data,
    input logic       anrst,
    input logic       nrst
    );
@@ -25,10 +25,10 @@ module ladybird_core
   logic [XLEN-1:0]   src1, src2, commit_data, immediate;
   logic [4:0]        rd_addr, rs1_addr, rs2_addr;
 
-  assign inst.primary.data = 'z;
-  assign inst.primary.wstrb = '0;
-  assign inst_valid = inst.primary.data_gnt;
-  assign inst_data = inst.primary.data;
+  assign inst.data = 'z;
+  assign inst.wstrb = '0;
+  assign inst_valid = inst.data_gnt;
+  assign inst_data = inst.data;
 
   typedef enum       logic [1:0] {
                                   I_FETCH,
@@ -51,7 +51,7 @@ module ladybird_core
      .i_wstrb(mmu_wstrb),
      .o_valid(mmu_finish),
      .o_data(mmu_lw_data),
-     .o_ready('b1),
+     .o_ready(1'b1),
      .bus(data),
      .anrst(anrst),
      .nrst(nrst)
@@ -147,11 +147,11 @@ module ladybird_core
     end else begin
       pc_increment = 'b0;
     end
-    inst.primary.addr = pc;
+    inst.addr = pc;
     if ((state == I_FETCH) & state_progress) begin
-      inst.primary.req = 'b1;
+      inst.req = 'b1;
     end else begin
-      inst.primary.req = 'b0;
+      inst.req = 'b0;
     end
     if (state == COMMIT) begin
       if (inst_l[6:0] == 7'b00000_11) begin
