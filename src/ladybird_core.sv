@@ -23,7 +23,9 @@ module ladybird_core
   logic              inst_valid, commit_valid, write_back;
   logic [XLEN-1:0]   inst_l, inst_data;
   logic [XLEN-1:0]   src1, src2, commit_data, immediate;
+  logic [XLEN-1:0]   alu_res;
   logic [4:0]        rd_addr, rs1_addr, rs2_addr;
+  logic [XLEN-1:0]   rs1_data, rs2_data;
 
   assign inst.data = 'z;
   assign inst.wstrb = '0;
@@ -125,9 +127,41 @@ module ladybird_core
     end
   end
 
+  always_comb begin: ALU_SOURCE_MUX
+    src1 = rs1_data;
+    if (inst_l[6:0] == 7'b00100_11) begin
+      src2 = immediate;
+    end else begin: OPCODE_01100_11
+      src2 = rs2_data;
+    end
+  end
+
+  logic alternate;
+  always_comb begin: ALTERNATE_INSTRUCTION
+    if (inst_l[6:0] == 7'b00100_11) begin: operation_is_imm_arithmetic
+      if (inst_l[14:12] == 3'b101) begin: operation_is_imm_shift_right
+        alternate = inst_l[30];
+      end else begin
+        alternate = 1'b0;
+      end
+    end else if (inst_l[6:0] == 7'b01100_11) begin: operation_is_arithmetic
+      alternate = inst_l[30];
+    end else begin
+      alternate = 1'b0;
+    end
+  end
+  ladybird_alu ALU
+    (
+     .OPERATION(inst_l[14:12]),
+     .ALTERNATE(alternate),
+     .SRC1(src1),
+     .SRC2(src2),
+     .Q(alu_res)
+     );
+
   always_comb begin
-    mmu_addr = src1 + immediate;
-    mmu_sw_data = src2;
+    mmu_addr = rs1_data + immediate;
+    mmu_sw_data = rs2_data;
     if ((state == EXEC) && ((inst_l[6:0] == 7'b01000_11) ||
                             (inst_l[6:0] == 7'b00000_11))) begin
       mmu_req = 'b1;
@@ -170,7 +204,7 @@ module ladybird_core
 
   always_comb begin
     if (inst_l[6:0] == 7'b00100_11) begin
-      commit_data = src1 + immediate;
+      commit_data = alu_res;
     end else if (inst_l[6:0] == 7'b00000_11) begin
       commit_data = mmu_lw_data;
     end else begin
@@ -180,18 +214,18 @@ module ladybird_core
 
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
-      src1 <= '0;
-      src2 <= '0;
+      rs1_data <= '0;
+      rs2_data <= '0;
       gpr <= '{default:'0};
     end else begin
       if (~nrst) begin
-        src1 <= '0;
-        src2 <= '0;
+        rs1_data <= '0;
+        rs2_data <= '0;
         gpr <= '{default:'0};
       end else begin
         if (state == D_FETCH) begin
-          src1 <= gpr[rs1_addr];
-          src2 <= gpr[rs2_addr];
+          rs1_data <= gpr[rs1_addr];
+          rs2_data <= gpr[rs2_addr];
         end else if (state == COMMIT) begin
           if (write_back & commit_valid) begin
             gpr[rd_addr] <= commit_data;
