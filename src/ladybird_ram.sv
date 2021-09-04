@@ -35,7 +35,7 @@ module ladybird_ram
                2:ADDI(5'd2, 5'd2, 12'h001),
                3:SB(5'd2, 12'h000, 5'd1),
                4:JAL(5'd0, -21'd12),
-               default:32'd0
+               default:NOP()
                };
     end else begin
       if (~nrst) begin
@@ -47,7 +47,7 @@ module ladybird_ram
                  2:ADDI(5'd2, 5'd2, 12'h001),
                  3:SB(5'd2, 12'h000, 5'd1),
                  4:JAL(5'd0, -21'd12),
-                 default:32'd0
+                 default:NOP()
                  };
       end else begin
         if (bus.req && (bus.wstrb != '0)) begin

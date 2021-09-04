@@ -28,4 +28,9 @@ package ladybird_config;
   function automatic logic [31:0] JAL(input logic [4:0] rd, input logic [20:0] offset);
     return {offset[20], offset[10:1], offset[11], offset[19:12], rd, 7'b11011_11};
   endfunction
+
+  // pseudo
+  function automatic logic [31:0] NOP();
+    return ADDI(5'd0, 5'd0, 12'd0);
+  endfunction
 endpackage
