@@ -123,12 +123,12 @@ module ladybird_core
     rs2_addr = inst_data[24:20];
     //
     rd_addr = inst_l[11:7];
-    if (inst_l[6:0] == 7'b01000_11) begin: BRANCH_IMMEDIATE
+    if (inst_l[6:0] == 7'b01000_11) begin: STORE_OFFSET
       immediate = {{20{inst_l[31]}}, inst_l[31:25], inst_l[11:7]};
     end else if ((inst_l[6:0] == 7'b00101_11) ||
                  (inst_l[6:0] == 7'b01101_11)) begin: LUI_AUIPC_IMMEDIATE
       immediate = {inst_l[31:12], 12'h000};
-    end else if (inst_l[6:0] == 7'b11011_11) begin: JAL_IMMEDIATE
+    end else if (inst_l[6:0] == 7'b11011_11) begin: JAL_OFFSET
       immediate = {{12{inst_l[31]}}, inst_l[19:12], inst_l[20], inst_l[30:21], 1'b0};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
