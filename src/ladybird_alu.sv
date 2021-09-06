@@ -63,7 +63,7 @@ module ladybird_alu
                               );
     end
     always_comb begin
-      CARRY = CARRY_I[32];
+      CARRY = CARRY_I[32]; // CARRY FLAG
     end
   end else begin
     always_comb begin
@@ -74,7 +74,8 @@ module ladybird_alu
   always_comb begin: ADDER
     SUBTRACT = ALTERNATE | COMPARISON;
     SRC2_ALT = SUBTRACT ? ~SRC2 : SRC2;
-    OVERFLOW = ~(SRC1[31] ^ SRC2_ALT[31]) & (Q_ADD[31] ^ CARRY);
+    // OVERFLOW = ~(SRC1[31] ^ SRC2_ALT[31]) & (Q_ADD[31] ^ CARRY); // OVERFLOW FLAG
+    OVERFLOW = (SRC1[31] & SRC2_ALT[31] & ~Q_ADD[31]) | (~SRC1[31] & ~SRC2_ALT[31] & Q_ADD[31]); // OVERFLOW FLAG
   end
 
   always_comb begin: BARREL_SHIFTER_LEFT
