@@ -115,6 +115,30 @@ package ladybird_config;
     return {offset[20], offset[10:1], offset[11], offset[19:12], rd, 7'b11011_11};
   endfunction
 
+  function automatic logic [31:0] BEQ(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b000, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
+  function automatic logic [31:0] BNE(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b001, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
+  function automatic logic [31:0] BLT(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b100, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
+  function automatic logic [31:0] BGE(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b101, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
+  function automatic logic [31:0] BLTU(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b110, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
+  function automatic logic [31:0] BGEU(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
+    return {offset[12], offset[10:5], rs2, rs1, 3'b111, offset[4:1], offset[11], 7'b11000_11};
+  endfunction
+
   // pseudo
   function automatic logic [31:0] NOP();
     return ADDI(5'd0, 5'd0, 12'd0);
