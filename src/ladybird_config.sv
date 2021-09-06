@@ -107,6 +107,10 @@ package ladybird_config;
     return {offset[11:5], rd, rt, 3'b000, offset[4:0], 7'b01000_11};
   endfunction
 
+  function automatic logic [31:0] JALR(input logic [4:0] rd, input logic [4:0] base, input logic [11:0] offset);
+    return {offset[11:0], base, rd, 3'b000, 7'b11001_11};
+  endfunction
+
   function automatic logic [31:0] JAL(input logic [4:0] rd, input logic [20:0] offset);
     return {offset[20], offset[10:1], offset[11], offset[19:12], rd, 7'b11011_11};
   endfunction

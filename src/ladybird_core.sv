@@ -109,8 +109,10 @@ module ladybird_core
   end
 
   always_comb begin
-    if (inst_l[6:0] == 7'b11011_11) begin
-      pc_n = pc + PC_OFFSET(inst_l);
+    if ((inst_l[6:0] == 7'b11001_11) ||
+        (inst_l[6:0] == 7'b11011_11)
+        ) begin
+      pc_n = alu_res;
     end else begin
       pc_n = pc + 'h4;
     end
@@ -126,6 +128,8 @@ module ladybird_core
     end else if ((inst_l[6:0] == 7'b00101_11) ||
                  (inst_l[6:0] == 7'b01101_11)) begin: LUI_AUIPC_IMMEDIATE
       immediate = {inst_l[31:12], 12'h000};
+    end else if (inst_l[6:0] == 7'b11011_11) begin: JAL_IMMEDIATE
+      immediate = {{12{inst_l[31]}}, inst_l[19:12], inst_l[20], inst_l[30:21], 1'b0};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
     end
@@ -140,6 +144,7 @@ module ladybird_core
           (inst_l[6:0] == 7'b00101_11) || // AUIPC
           (inst_l[6:0] == 7'b01101_11) || // LUI
           (inst_l[6:0] == 7'b01100_11) || // OP
+          (inst_l[6:0] == 7'b11001_11) || // JALR
           (inst_l[6:0] == 7'b11011_11)    // JAL
           ) begin
         write_back = 'b1;
@@ -236,6 +241,10 @@ module ladybird_core
   always_comb begin
     if (inst_l[6:0] == 7'b00000_11) begin
       commit_data = mmu_lw_data;
+    end else if ((inst_l[6:0] == 7'b11001_11) ||
+                 (inst_l[6:0] == 7'b11011_11)
+                 ) begin
+      commit_data = pc + 'h4;
     end else begin
       commit_data = alu_res_l;
     end
@@ -255,7 +264,10 @@ module ladybird_core
         if (state == D_FETCH) begin
           if (inst_data[6:0] == 7'b01101_11) begin
             rs1_data <= '0;
-          end else if (inst_data[6:0] == 7'b00101_11) begin
+          end else if ((inst_data[6:0] == 7'b00101_11) || // AUIPC
+                       (inst_data[6:0] == 7'b11001_11) || // JALR
+                       (inst_data[6:0] == 7'b11011_11)    // JAL
+                       ) begin
             rs1_data <= pc;
           end else begin
             rs1_data <= gpr[rs1_addr];
