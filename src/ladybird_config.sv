@@ -14,7 +14,7 @@ package ladybird_config;
   endfunction
 
   function automatic logic [31:0] LUI(input logic [4:0] rd, input logic [19:0] immediate);
-    return {immediate, rd, 7'b00101_11};
+    return {immediate, rd, 7'b01101_11};
   endfunction
 
   // OP IMM
