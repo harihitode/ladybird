@@ -215,7 +215,8 @@ module ladybird_core
       alu_alternate = 1'b0;
     end
   end
-  ladybird_alu ALU
+  ladybird_alu #(.USE_FA_MODULE(0))
+  ALU
     (
      .OPERATION(alu_operation),
      .ALTERNATE(alu_alternate),
