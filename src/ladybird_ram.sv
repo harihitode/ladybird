@@ -1,3 +1,5 @@
+`timescale 1 ns / 1 ps
+
 module ladybird_ram
   import ladybird_config::*;
   #(
@@ -30,11 +32,14 @@ module ladybird_ram
       rdValid <= 'b0;
       rdData <= 'z;
       ram <= '{
-               0:ADDI(5'd1, 5'd0, 12'hfff),
-               1:LB(5'd2, 12'h000, 5'd1),
-               2:ADDI(5'd2, 5'd2, 12'h001),
-               3:SB(5'd2, 12'h000, 5'd1),
-               4:JAL(5'd0, -21'd12),
+               0:LUI(5'd1, 20'hfffff),
+               1:SRAI(5'd1, 5'd1, 5'd12),
+               2:LB(5'd2, 12'h000, 5'd1),
+               3:ANDI(5'd2, 5'd2, 12'hffe),
+               4:SLLI(5'd2, 5'd2, 5'd1),
+               5:SRLI(5'd2, 5'd2, 5'd1),
+               6:SB(5'd2, 12'h000, 5'd1),
+               7:JAL(5'd0, -21'd20),
                default:NOP()
                };
     end else begin
@@ -42,11 +47,14 @@ module ladybird_ram
         rdValid <= 'b0;
         rdData <= 'z;
         ram <= '{
-                 0:ADDI(5'd1, 5'd0, 12'hfff),
-                 1:LB(5'd2, 12'h000, 5'd1),
-                 2:ADDI(5'd2, 5'd2, 12'h001),
-                 3:SB(5'd2, 12'h000, 5'd1),
-                 4:JAL(5'd0, -21'd12),
+                 0:LUI(5'd1, 20'hfffff),
+                 1:SRAI(5'd1, 5'd1, 5'd12),
+                 2:LB(5'd2, 12'h000, 5'd1),
+                 3:ANDI(5'd2, 5'd2, 12'hffe),
+                 4:SLLI(5'd2, 5'd2, 5'd1),
+                 5:SRLI(5'd2, 5'd2, 5'd1),
+                 6:SB(5'd2, 12'h000, 5'd1),
+                 7:JAL(5'd0, -21'd20),
                  default:NOP()
                  };
       end else begin
