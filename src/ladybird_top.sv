@@ -53,7 +53,7 @@ module ladybird_top
   logic            re, re_l;
   logic            we, we_l;
 
-  logic [7:0]      uart_push_data;
+  logic [7:0]      uart_push_data, uart_push_data_l;
   logic            uart_ready;
   logic            uart_push;
 
@@ -79,11 +79,13 @@ module ladybird_top
       addr_l <= '0;
       re_l <= '0;
       we_l <= '0;
+      uart_push_data_l <= '0;
     end else begin
       if (~nrst) begin
         addr_l <= '0;
         re_l <= '0;
         we_l <= '0;
+        uart_push_data_l <= '0;
       end else begin
         if (re_l) begin
           if (uart_pop & uart_valid) begin
@@ -101,6 +103,7 @@ module ladybird_top
           addr_l <= addr;
           data_l <= wr_data;
           we_l <= we;
+          uart_push_data_l <= uart_push_data;
         end
       end
     end
@@ -121,7 +124,7 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     .i_data(uart_push_data),
+     .i_data(uart_push_data_l),
      .i_valid(uart_push),
      .i_ready(uart_ready),
      .o_data(uart_pop_data),
