@@ -103,8 +103,32 @@ package ladybird_config;
     return {offset, rt, 3'b000, rd, 7'b00000_11};
   endfunction
 
+  function automatic logic [31:0] LH(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset, rt, 3'b001, rd, 7'b00000_11};
+  endfunction
+
+  function automatic logic [31:0] LW(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset, rt, 3'b010, rd, 7'b00000_11};
+  endfunction
+
+  function automatic logic [31:0] LBU(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset, rt, 3'b100, rd, 7'b00000_11};
+  endfunction
+
+  function automatic logic [31:0] LHU(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset, rt, 3'b101, rd, 7'b00000_11};
+  endfunction
+
   function automatic logic [31:0] SB(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
     return {offset[11:5], rd, rt, 3'b000, offset[4:0], 7'b01000_11};
+  endfunction
+
+  function automatic logic [31:0] SH(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset[11:5], rd, rt, 3'b001, offset[4:0], 7'b01000_11};
+  endfunction
+
+  function automatic logic [31:0] SW(input logic [4:0] rd, input logic [11:0] offset, input logic [4:0] rt);
+    return {offset[11:5], rd, rt, 3'b010, offset[4:0], 7'b01000_11};
   endfunction
 
   function automatic logic [31:0] JALR(input logic [4:0] rd, input logic [4:0] base, input logic [11:0] offset);
