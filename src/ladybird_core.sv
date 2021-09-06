@@ -167,8 +167,6 @@ module ladybird_core
                  (inst_l[6:0] == 7'b11011_11)    // JAL
                  ) begin
       src1 = pc;
-    end else if ((inst_l[6:0] == 7'b11000_11) && ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111))) begin: BGE_BGEU_flipping_src1
-      src1 = rs2_data;
     end else begin
       src1 = rs1_data;
     end
@@ -181,8 +179,6 @@ module ladybird_core
         (inst_l[6:0] == 7'b11011_11)    // JAL
         ) begin
       src2 = immediate;
-    end else if ((inst_l[6:0] == 7'b11000_11) && ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111))) begin: BGE_BGEU_flipping_src2
-      src2 = rs1_data;
     end else begin: OPCODE_01100_11
       src2 = rs2_data;
     end
@@ -249,6 +245,8 @@ module ladybird_core
       branch_flag = ~(|alu_res);
     end else if (inst_l[14:12] == 3'b001) begin: BNE_impl
       branch_flag = |alu_res;
+    end else if ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111)) begin: BGE_BGEU_is_NOT
+      branch_flag = ~alu_res[0];
     end else begin
       branch_flag = alu_res[0];
     end
