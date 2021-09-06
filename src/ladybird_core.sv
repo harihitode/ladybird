@@ -11,14 +11,10 @@ module ladybird_core
    input logic       nrst
    );
 
-  function automatic logic [31:0] PC_OFFSET(logic [31:0] inst);
-    return {{12{inst[31]}}, inst[19:12], inst[20], inst[30:21], 1'b0};
-  endfunction
-
   logic [XLEN-1:0]   pc, pc_n, mmu_addr;
   logic [XLEN-1:0]   mmu_lw_data, mmu_sw_data;
   logic              mmu_req, mmu_gnt, mmu_finish;
-  logic [XLEN/8-1:0] mmu_wstrb;
+  logic              mmu_we;
   logic              inst_gnt, inst_data_gnt, commit_valid, write_back;
   logic [XLEN-1:0]   inst_l, inst_data;
   logic [XLEN-1:0]   src1, src2, commit_data, immediate;
@@ -52,7 +48,8 @@ module ladybird_core
      .i_ready(mmu_gnt),
      .i_addr(mmu_addr),
      .i_data(mmu_sw_data),
-     .i_wstrb(mmu_wstrb),
+     .i_we(mmu_we),
+     .i_funct(inst_l[14:12]),
      .o_valid(mmu_finish),
      .o_data(mmu_lw_data),
      .o_ready(1'b1),
@@ -234,10 +231,10 @@ module ladybird_core
     end else begin
       mmu_req = 'b0;
     end
-    if (inst_l[6:0] == 7'b01000_11) begin
-      mmu_wstrb = 4'b0001;
+    if ((inst_l[6:0] == 7'b01000_11)) begin
+      mmu_we = 'b1;
     end else begin
-      mmu_wstrb = 4'b0000;
+      mmu_we = 'b0;
     end
   end
 
