@@ -119,4 +119,8 @@ package ladybird_config;
   function automatic logic [31:0] NOP();
     return ADDI(5'd0, 5'd0, 12'd0);
   endfunction
+
+  function automatic logic [31:0] J(input logic [20:0] offset);
+    return JAL(5'd0, offset);
+  endfunction
 endpackage
