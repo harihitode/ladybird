@@ -123,7 +123,8 @@ module ladybird_core
     rd_addr = inst_l[11:7];
     if (inst_l[6:0] == 7'b01000_11) begin: BRANCH_IMMEDIATE
       immediate = {{20{inst_l[31]}}, inst_l[31:25], inst_l[11:7]};
-    end else if (inst_l[6:0] == 7'b01101_11) begin: LUI_IMMEDIATE
+    end else if ((inst_l[6:0] == 7'b00101_11) ||
+                 (inst_l[6:0] == 7'b01101_11)) begin: LUI_AUIPC_IMMEDIATE
       immediate = {inst_l[31:12], 12'h000};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
@@ -136,6 +137,7 @@ module ladybird_core
     end else begin
       if ((inst_l[6:0] == 7'b00000_11) || // LOAD
           (inst_l[6:0] == 7'b00100_11) || // OP_IMM
+          (inst_l[6:0] == 7'b00101_11) || // AUIPC
           (inst_l[6:0] == 7'b01101_11) || // LUI
           (inst_l[6:0] == 7'b01100_11) || // OP
           (inst_l[6:0] == 7'b11011_11)    // JAL
@@ -151,7 +153,8 @@ module ladybird_core
     src1 = rs1_data;
     if ((inst_l[6:0] == 7'b00000_11) || // LOAD
         (inst_l[6:0] == 7'b00100_11) || // OP_IMM
-        (inst_l[6:0] == 7'b01101_11) || // OP_LUI
+        (inst_l[6:0] == 7'b00101_11) || // AUIPC
+        (inst_l[6:0] == 7'b01101_11) || // LUI
         (inst_l[6:0] == 7'b01000_11)    // STORE
         ) begin
       src2 = immediate;
@@ -252,6 +255,8 @@ module ladybird_core
         if (state == D_FETCH) begin
           if (inst_data[6:0] == 7'b01101_11) begin
             rs1_data <= '0;
+          end else if (inst_data[6:0] == 7'b00101_11) begin
+            rs1_data <= pc;
           end else begin
             rs1_data <= gpr[rs1_addr];
           end

@@ -13,6 +13,10 @@ package ladybird_config;
     return immediate[11:0];
   endfunction
 
+  function automatic logic [31:0] AUIPC(input logic [4:0] rd, input logic [19:0] immediate);
+    return {immediate, rd, 7'b00101_11};
+  endfunction
+
   function automatic logic [31:0] LUI(input logic [4:0] rd, input logic [19:0] immediate);
     return {immediate, rd, 7'b01101_11};
   endfunction
