@@ -39,7 +39,7 @@ module ladybird_ram
                4:SLLI(5'd2, 5'd2, 5'd1),
                5:SRLI(5'd2, 5'd2, 5'd1),
                6:SB(5'd2, 12'h000, 5'd1),
-               7:JAL(5'd0, -21'd20),
+               7:J(-21'd20),
                default:NOP()
                };
     end else begin
@@ -54,7 +54,7 @@ module ladybird_ram
                  4:SLLI(5'd2, 5'd2, 5'd1),
                  5:SRLI(5'd2, 5'd2, 5'd1),
                  6:SB(5'd2, 12'h000, 5'd1),
-                 7:JAL(5'd0, -21'd20),
+                 7:J(-21'd20),
                  default:NOP()
                  };
       end else begin
