@@ -23,6 +23,7 @@ module ladybird_core
   logic [XLEN-1:0]   inst_l, inst_data;
   logic [XLEN-1:0]   src1, src2, commit_data, immediate;
   logic [XLEN-1:0]   alu_res, alu_res_l;
+  logic              branch_flag;
   logic [4:0]        rd_addr, rs1_addr, rs2_addr;
   logic [XLEN-1:0]   rs1_data, rs2_data;
 
@@ -113,6 +114,8 @@ module ladybird_core
         (inst_l[6:0] == 7'b11011_11)
         ) begin
       pc_n = alu_res;
+    end else if ((inst_l[6:0] == 7'b11000_11) && branch_flag) begin
+      pc_n = pc + immediate;
     end else begin
       pc_n = pc + 'h4;
     end
@@ -130,6 +133,8 @@ module ladybird_core
       immediate = {inst_l[31:12], 12'h000};
     end else if (inst_l[6:0] == 7'b11011_11) begin: JAL_OFFSET
       immediate = {{12{inst_l[31]}}, inst_l[19:12], inst_l[20], inst_l[30:21], 1'b0};
+    end else if (inst_l[6:0] == 7'b11000_11) begin: BRANCH_OFFSET
+      immediate = {{19{inst_l[31]}}, inst_l[31], inst_l[8], inst_l[30:25], inst_l[11:8], 1'b0};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
     end
@@ -155,14 +160,29 @@ module ladybird_core
   end
 
   always_comb begin: ALU_SOURCE_MUX
-    src1 = rs1_data;
+    if (inst_l[6:0] == 7'b01101_11) begin: LUI_src1
+      src1 = '0;
+    end else if ((inst_l[6:0] == 7'b00101_11) || // AUIPC
+                 (inst_l[6:0] == 7'b11001_11) || // JALR
+                 (inst_l[6:0] == 7'b11011_11)    // JAL
+                 ) begin
+      src1 = pc;
+    end else if ((inst_l[6:0] == 7'b11000_11) && ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111))) begin: BGE_BGEU_flipping_src1
+      src1 = rs2_data;
+    end else begin
+      src1 = rs1_data;
+    end
     if ((inst_l[6:0] == 7'b00000_11) || // LOAD
         (inst_l[6:0] == 7'b00100_11) || // OP_IMM
         (inst_l[6:0] == 7'b00101_11) || // AUIPC
         (inst_l[6:0] == 7'b01101_11) || // LUI
-        (inst_l[6:0] == 7'b01000_11)    // STORE
+        (inst_l[6:0] == 7'b01000_11) || // STORE
+        (inst_l[6:0] == 7'b11001_11) || // JALR
+        (inst_l[6:0] == 7'b11011_11)    // JAL
         ) begin
       src2 = immediate;
+    end else if ((inst_l[6:0] == 7'b11000_11) && ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111))) begin: BGE_BGEU_flipping_src2
+      src2 = rs1_data;
     end else begin: OPCODE_01100_11
       src2 = rs2_data;
     end
@@ -172,6 +192,14 @@ module ladybird_core
   always_comb begin: ALU_OPERATION_DECODER
     if ((inst_l[6:0] == 7'b00100_11) || (inst_l[6:0] == 7'b01100_11)) begin
       alu_operation = inst_l[14:12];
+    end else if (inst_l[6:0] == 7'b11000_11) begin
+      if ((inst_l[14:12] == 3'b000) || (inst_l[14:12] == 3'b001)) begin: BEQ_BNE__XOR
+        alu_operation = 3'b100;
+      end else if ((inst_l[14:12] == 3'b100) || (inst_l[14:12] == 3'b101)) begin: BLT_BGE__SLT
+        alu_operation = 3'b010;
+      end else begin: BLTU_BGEU__SLTU
+        alu_operation = 3'b011;
+      end
     end else begin
       alu_operation = 3'b000; // ADD
     end
@@ -213,6 +241,16 @@ module ladybird_core
       mmu_wstrb = 4'b0001;
     end else begin
       mmu_wstrb = 4'b0000;
+    end
+  end
+
+  always_comb begin: branch_impls
+    if (inst_l[14:12] == 3'b000) begin: BEQ_impl
+      branch_flag = ~(|alu_res);
+    end else if (inst_l[14:12] == 3'b001) begin: BNE_impl
+      branch_flag = |alu_res;
+    end else begin
+      branch_flag = alu_res[0];
     end
   end
 
@@ -262,16 +300,7 @@ module ladybird_core
         gpr <= '{default:'0};
       end else begin
         if (state == D_FETCH) begin
-          if (inst_data[6:0] == 7'b01101_11) begin
-            rs1_data <= '0;
-          end else if ((inst_data[6:0] == 7'b00101_11) || // AUIPC
-                       (inst_data[6:0] == 7'b11001_11) || // JALR
-                       (inst_data[6:0] == 7'b11011_11)    // JAL
-                       ) begin
-            rs1_data <= pc;
-          end else begin
-            rs1_data <= gpr[rs1_addr];
-          end
+          rs1_data <= gpr[rs1_addr];
           rs2_data <= gpr[rs2_addr];
         end else if (state == COMMIT) begin
           if (write_back & commit_valid) begin
