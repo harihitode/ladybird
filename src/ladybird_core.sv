@@ -225,7 +225,7 @@ module ladybird_core
      );
 
   always_comb begin
-    mmu_addr = alu_res;
+    mmu_addr = alu_res_l;
     mmu_sw_data = rs2_data;
     if ((state == MEMORY) && ((inst_l[6:0] == 7'b01000_11) ||
                               (inst_l[6:0] == 7'b00000_11))) begin
