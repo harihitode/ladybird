@@ -19,23 +19,24 @@ module ladybird_core
   logic [XLEN-1:0]   mmu_lw_data, mmu_sw_data;
   logic              mmu_req, mmu_gnt, mmu_finish;
   logic [XLEN/8-1:0] mmu_wstrb;
-  logic              pc_increment;
-  logic              inst_valid, commit_valid, write_back;
+  logic              inst_gnt, inst_data_gnt, commit_valid, write_back;
   logic [XLEN-1:0]   inst_l, inst_data;
   logic [XLEN-1:0]   src1, src2, commit_data, immediate;
-  logic [XLEN-1:0]   alu_res;
+  logic [XLEN-1:0]   alu_res, alu_res_l;
   logic [4:0]        rd_addr, rs1_addr, rs2_addr;
   logic [XLEN-1:0]   rs1_data, rs2_data;
 
   assign inst.data = 'z;
   assign inst.wstrb = '0;
-  assign inst_valid = inst.data_gnt;
+  assign inst_data_gnt = inst.data_gnt;
   assign inst_data = inst.data;
+  assign inst_gnt = inst.gnt;
 
-  typedef enum       logic [1:0] {
+  typedef enum       logic [2:0] {
                                   I_FETCH,
                                   D_FETCH,
                                   EXEC,
+                                  MEMORY,
                                   COMMIT
                                   } state_t;
   state_t            state, state_n;
@@ -62,7 +63,7 @@ module ladybird_core
   always_comb begin
     case (state)
       I_FETCH: begin
-        if (inst_valid) begin
+        if (inst_gnt) begin
           state_n = D_FETCH;
           state_progress_n = 1'b1;
         end else begin
@@ -71,12 +72,25 @@ module ladybird_core
         end
       end
       D_FETCH: begin
-        state_n = EXEC;
-        state_progress_n = 1'b1;
+        if (inst_data_gnt) begin
+          state_n = EXEC;
+          state_progress_n = 1'b1;
+        end else begin
+          state_n = D_FETCH;
+          state_progress_n = 1'b0;
+        end
       end
       EXEC: begin
-        state_n = COMMIT;
+        state_n = MEMORY;
         state_progress_n = 1'b1;
+      end
+      MEMORY: begin
+        state_n = COMMIT;
+        if ((inst_l[6:0] == 7'b00000_11) || (inst_l[6:0] == 7'b01000_11)) begin
+          state_progress_n = mmu_req & mmu_gnt;
+        end else begin
+          state_progress_n = 1'b1;
+        end
       end
       COMMIT: begin
         if (commit_valid) begin
@@ -87,27 +101,30 @@ module ladybird_core
           state_progress_n = 1'b0;
         end
       end
+      default: begin
+        state_n = COMMIT;
+        state_progress_n = 1'b1;
+      end
     endcase
   end
 
   always_comb begin
-    if (state == EXEC) begin
-      if (inst_l[6:0] == 7'b11011_11) begin
-        pc_n = pc + PC_OFFSET(inst_l);
-      end else begin
-        pc_n = pc + 'h4;
-      end
+    if (inst_l[6:0] == 7'b11011_11) begin
+      pc_n = pc + PC_OFFSET(inst_l);
     end else begin
-      pc_n = pc;
+      pc_n = pc + 'h4;
     end
   end
 
   always_comb begin
-    rs1_addr = inst_l[19:15];
-    rs2_addr = inst_l[24:20];
+    rs1_addr = inst_data[19:15];
+    rs2_addr = inst_data[24:20];
+    //
     rd_addr = inst_l[11:7];
-    if (inst_l[6:0] == 7'b01000_11) begin
+    if (inst_l[6:0] == 7'b01000_11) begin: BRANCH_IMMEDIATE
       immediate = {{20{inst_l[31]}}, inst_l[31:25], inst_l[11:7]};
+    end else if (inst_l[6:0] == 7'b00101_11) begin: LUI_IMMEDIATE
+      immediate = {inst_l[31:12], 12'h000};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
     end
@@ -117,9 +134,12 @@ module ladybird_core
     if (rd_addr == 5'd0) begin
       write_back = 'b0;
     end else begin
-      if ((inst_l[6:0] == 7'b00000_11) ||
-          (inst_l[6:0] == 7'b00100_11) ||
-          (inst_l[6:0] == 7'b11011_11)) begin
+      if ((inst_l[6:0] == 7'b00000_11) || // LOAD
+          (inst_l[6:0] == 7'b00100_11) || // OP_IMM
+          (inst_l[6:0] == 7'b00101_11) || // LUI
+          (inst_l[6:0] == 7'b01100_11) || // OP
+          (inst_l[6:0] == 7'b11011_11)    // JAL
+          ) begin
         write_back = 'b1;
       end else begin
         write_back = 'b0;
@@ -129,41 +149,54 @@ module ladybird_core
 
   always_comb begin: ALU_SOURCE_MUX
     src1 = rs1_data;
-    if (inst_l[6:0] == 7'b00100_11) begin
+    if ((inst_l[6:0] == 7'b00000_11) || // LOAD
+        (inst_l[6:0] == 7'b00100_11) || // OP_IMM
+        (inst_l[6:0] == 7'b00101_11) || // OP_LUI
+        (inst_l[6:0] == 7'b01000_11)    // STORE
+        ) begin
       src2 = immediate;
     end else begin: OPCODE_01100_11
       src2 = rs2_data;
     end
   end
 
-  logic alternate;
+  logic [2:0] alu_operation;
+  always_comb begin: ALU_OPERATION_DECODER
+    if ((inst_l[6:0] == 7'b00100_11) || (inst_l[6:0] == 7'b01100_11)) begin
+      alu_operation = inst_l[14:12];
+    end else begin
+      alu_operation = 3'b000; // ADD
+    end
+  end
+
+  logic alu_alternate;
   always_comb begin: ALTERNATE_INSTRUCTION
     if (inst_l[6:0] == 7'b00100_11) begin: operation_is_imm_arithmetic
       if (inst_l[14:12] == 3'b101) begin: operation_is_imm_shift_right
-        alternate = inst_l[30];
+        alu_alternate = inst_l[30];
       end else begin
-        alternate = 1'b0;
+        alu_alternate = 1'b0;
       end
     end else if (inst_l[6:0] == 7'b01100_11) begin: operation_is_arithmetic
-      alternate = inst_l[30];
+      alu_alternate = inst_l[30];
     end else begin
-      alternate = 1'b0;
+      alu_alternate = 1'b0;
     end
   end
   ladybird_alu ALU
     (
-     .OPERATION(inst_l[14:12]),
-     .ALTERNATE(alternate),
+     .OPERATION(alu_operation),
+     .ALTERNATE(alu_alternate),
      .SRC1(src1),
      .SRC2(src2),
      .Q(alu_res)
      );
 
   always_comb begin
-    mmu_addr = rs1_data + immediate;
+    mmu_addr = alu_res;
     mmu_sw_data = rs2_data;
-    if ((state == EXEC) && ((inst_l[6:0] == 7'b01000_11) ||
-                            (inst_l[6:0] == 7'b00000_11))) begin
+    if ((state == MEMORY) && ((inst_l[6:0] == 7'b01000_11) ||
+                              (inst_l[6:0] == 7'b00000_11))) begin
       mmu_req = 'b1;
     end else begin
       mmu_req = 'b0;
@@ -176,13 +209,8 @@ module ladybird_core
   end
 
   always_comb begin
-    if (inst_valid == 'b1) begin
-      pc_increment = 'b1;
-    end else begin
-      pc_increment = 'b0;
-    end
     inst.addr = pc;
-    if ((state == I_FETCH) & state_progress) begin
+    if (state == I_FETCH) begin
       inst.req = 'b1;
     end else begin
       inst.req = 'b0;
@@ -203,12 +231,10 @@ module ladybird_core
   end
 
   always_comb begin
-    if (inst_l[6:0] == 7'b00100_11) begin
-      commit_data = alu_res;
-    end else if (inst_l[6:0] == 7'b00000_11) begin
+    if (inst_l[6:0] == 7'b00000_11) begin
       commit_data = mmu_lw_data;
     end else begin
-      commit_data = '0;
+      commit_data = alu_res_l;
     end
   end
 
@@ -224,7 +250,11 @@ module ladybird_core
         gpr <= '{default:'0};
       end else begin
         if (state == D_FETCH) begin
-          rs1_data <= gpr[rs1_addr];
+          if (inst_data[6:0] == 7'b00101_11) begin
+            rs1_data <= '0;
+          end else begin
+            rs1_data <= gpr[rs1_addr];
+          end
           rs2_data <= gpr[rs2_addr];
         end else if (state == COMMIT) begin
           if (write_back & commit_valid) begin
@@ -238,21 +268,28 @@ module ladybird_core
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
       pc <= '0;
-      state <= COMMIT;
+      state <= I_FETCH;
       state_progress <= 'b1;
       inst_l <= '0;
+      alu_res_l <= '0;
     end else begin
       if (~nrst) begin
         pc <= '0;
-        state <= COMMIT;
+        state <= I_FETCH;
         state_progress <= 'b1;
         inst_l <= '0;
+        alu_res_l <= '0;
       end else begin
-        pc <= pc_n;
+        if ((state == COMMIT) && commit_valid) begin
+          pc <= pc_n;
+        end
         state <= state_n;
         state_progress <= state_progress_n;
-        if ((state == I_FETCH) && inst_valid) begin
+        if ((state == D_FETCH) && inst_data_gnt) begin
           inst_l <= inst_data;
+        end
+        if (state == EXEC) begin
+          alu_res_l <= alu_res;
         end
       end
     end
