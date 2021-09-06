@@ -113,7 +113,7 @@ module ladybird_core
     if ((inst_l[6:0] == 7'b11001_11) ||
         (inst_l[6:0] == 7'b11011_11)
         ) begin
-      pc_n = alu_res;
+      pc_n = alu_res_l;
     end else if ((inst_l[6:0] == 7'b11000_11) && branch_flag) begin
       pc_n = pc + immediate;
     end else begin
@@ -242,13 +242,13 @@ module ladybird_core
 
   always_comb begin: branch_impls
     if (inst_l[14:12] == 3'b000) begin: BEQ_impl
-      branch_flag = ~(|alu_res);
+      branch_flag = ~(|alu_res_l);
     end else if (inst_l[14:12] == 3'b001) begin: BNE_impl
-      branch_flag = |alu_res;
+      branch_flag = |alu_res_l;
     end else if ((inst_l[14:12] == 3'b101) || (inst_l[14:12] == 3'b111)) begin: BGE_BGEU_is_NOT
-      branch_flag = ~alu_res[0];
+      branch_flag = ~alu_res_l[0];
     end else begin
-      branch_flag = alu_res[0];
+      branch_flag = alu_res_l[0];
     end
   end
 
