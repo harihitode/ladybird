@@ -4,42 +4,42 @@ module ladybird_core
   import ladybird_config::*;
   #(parameter SIMULATION = 0)
   (
-   input logic       clk,
-   interface.primary inst,
-   interface.primary data,
-   input logic       anrst,
-   input logic       nrst
+   input logic            clk,
+   interface.primary i_bus,
+   interface.primary d_bus,
+   input logic            start,
+   input logic [XLEN-1:0] start_pc,
+   input logic            anrst,
+   input logic            nrst
    );
 
-  logic [XLEN-1:0]   pc, pc_n, mmu_addr;
-  logic [XLEN-1:0]   mmu_lw_data, mmu_sw_data;
-  logic              mmu_req, mmu_gnt, mmu_finish;
-  logic              mmu_we;
-  logic              inst_gnt, inst_data_gnt, commit_valid, write_back;
-  logic [XLEN-1:0]   inst_l, inst_data;
-  logic [XLEN-1:0]   src1, src2, commit_data, immediate;
-  logic [XLEN-1:0]   alu_res, alu_res_l;
-  logic              branch_flag;
-  logic [4:0]        rd_addr, rs1_addr, rs2_addr;
-  logic [XLEN-1:0]   rs1_data, rs2_data;
+  logic [XLEN-1:0]        pc, pc_n, mmu_addr;
+  logic [XLEN-1:0]        mmu_lw_data, mmu_sw_data;
+  logic                   mmu_req, mmu_gnt, mmu_finish;
+  logic                   mmu_we;
+  logic                   pc_valid, pc_ready;
+  logic                   inst_valid, commit_valid, write_back;
+  logic [XLEN-1:0]        inst, inst_l;
+  logic [XLEN-1:0]        src1, src2, commit_data, immediate;
+  logic [2:0]             alu_operation;
+  logic                   alu_alternate;
+  logic [XLEN-1:0]        alu_res, alu_res_l;
+  logic                   branch_flag;
+  logic [4:0]             rd_addr, rs1_addr, rs2_addr;
+  logic [XLEN-1:0]        rs1_data, rs2_data;
 
-  assign inst.data = 'z;
-  assign inst.wstrb = '0;
-  assign inst_data_gnt = inst.data_gnt;
-  assign inst_data = inst.data;
-  assign inst_gnt = inst.gnt;
+  typedef enum            logic [2:0] {
+                                       IDLE, // initial state
+                                       I_FETCH,
+                                       D_FETCH,
+                                       EXEC,
+                                       MEMORY,
+                                       COMMIT
+                                       } state_t;
+  state_t                 state, state_n;
+  logic                   state_progress, state_progress_n;
 
-  typedef enum       logic [2:0] {
-                                  I_FETCH,
-                                  D_FETCH,
-                                  EXEC,
-                                  MEMORY,
-                                  COMMIT
-                                  } state_t;
-  state_t            state, state_n;
-  logic              state_progress, state_progress_n;
-
-  logic [31:0]       gpr [32];
+  logic [31:0]            gpr [32];
 
   ladybird_mmu MMU
     (
@@ -53,7 +53,13 @@ module ladybird_core
      .o_valid(mmu_finish),
      .o_data(mmu_lw_data),
      .o_ready(1'b1),
-     .bus(data),
+     .d_bus(d_bus),
+     .i_bus(i_bus),
+     .pc(pc),
+     .pc_valid(pc_valid),
+     .pc_ready(pc_ready),
+     .inst(inst),
+     .inst_valid(inst_valid),
      .anrst(anrst),
      .nrst(nrst)
      );
@@ -61,7 +67,7 @@ module ladybird_core
   always_comb begin
     case (state)
       I_FETCH: begin
-        if (inst_gnt) begin
+        if (pc_valid & pc_ready) begin
           state_n = D_FETCH;
           state_progress_n = 1'b1;
         end else begin
@@ -70,7 +76,7 @@ module ladybird_core
         end
       end
       D_FETCH: begin
-        if (inst_data_gnt) begin
+        if (inst_valid) begin
           state_n = EXEC;
           state_progress_n = 1'b1;
         end else begin
@@ -100,8 +106,13 @@ module ladybird_core
         end
       end
       default: begin
-        state_n = COMMIT;
-        state_progress_n = 1'b1;
+        if (start) begin
+          state_n = I_FETCH;
+          state_progress_n = 1'b1;
+        end else begin
+          state_n = IDLE;
+          state_progress_n = 1'b0;
+        end
       end
     endcase
   end
@@ -119,8 +130,8 @@ module ladybird_core
   end
 
   always_comb begin
-    rs1_addr = inst_data[19:15];
-    rs2_addr = inst_data[24:20];
+    rs1_addr = inst[19:15];
+    rs2_addr = inst[24:20];
     //
     rd_addr = inst_l[11:7];
     if (inst_l[6:0] == 7'b01000_11) begin: STORE_OFFSET
@@ -181,7 +192,6 @@ module ladybird_core
     end
   end
 
-  logic [2:0] alu_operation;
   always_comb begin: ALU_OPERATION_DECODER
     if ((inst_l[6:0] == 7'b00100_11) || (inst_l[6:0] == 7'b01100_11)) begin
       alu_operation = inst_l[14:12];
@@ -198,7 +208,6 @@ module ladybird_core
     end
   end
 
-  logic alu_alternate;
   always_comb begin: ALTERNATE_INSTRUCTION
     if (inst_l[6:0] == 7'b00100_11) begin: operation_is_imm_arithmetic
       if (inst_l[14:12] == 3'b101) begin: operation_is_imm_shift_right
@@ -251,11 +260,10 @@ module ladybird_core
   end
 
   always_comb begin
-    inst.addr = pc;
     if (state == I_FETCH) begin
-      inst.req = 'b1;
+      pc_valid = 'b1;
     end else begin
-      inst.req = 'b0;
+      pc_valid = 'b0;
     end
     if (state == COMMIT) begin
       if (inst_l[6:0] == 7'b00000_11) begin
@@ -310,25 +318,27 @@ module ladybird_core
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
       pc <= '0;
-      state <= I_FETCH;
-      state_progress <= 'b1;
+      state <= IDLE;
+      state_progress <= 'b0;
       inst_l <= '0;
       alu_res_l <= '0;
     end else begin
       if (~nrst) begin
         pc <= '0;
-        state <= I_FETCH;
-        state_progress <= 'b1;
+        state <= IDLE;
+        state_progress <= 'b0;
         inst_l <= '0;
         alu_res_l <= '0;
       end else begin
-        if ((state == COMMIT) && commit_valid) begin
+        if ((state == IDLE) && start) begin
+          pc <= start_pc;
+        end else if ((state == COMMIT) && commit_valid) begin
           pc <= pc_n;
         end
         state <= state_n;
         state_progress <= state_progress_n;
-        if ((state == D_FETCH) && inst_data_gnt) begin
-          inst_l <= inst_data;
+        if ((state == D_FETCH) && inst_valid) begin
+          inst_l <= inst;
         end
         if (state == EXEC) begin
           alu_res_l <= alu_res;
