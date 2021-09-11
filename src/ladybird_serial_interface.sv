@@ -10,15 +10,7 @@ module ladybird_serial_interface
    // serial ports
    input logic                  uart_txd_in,
    output logic                 uart_rxd_out,
-   //
-   input logic [I_BYTES*8-1:0]  i_data,
-   input logic                  i_valid,
-   output logic                 i_ready,
-
-   output logic [O_BYTES*8-1:0] o_data,
-   output logic                 o_valid,
-   input logic                  o_ready,
-
+   ladybird_bus.secondary       bus,
    input logic                  anrst,
    input logic                  nrst
    );
@@ -35,23 +27,21 @@ module ladybird_serial_interface
   logic                         trns_ready, trns_valid;
   logic [7:0]                   trns_data;
 
-  generate
-    for (genvar i = 0; i < O_BYTES; i++) begin
-      always_ff @(posedge clk, negedge anrst) begin
-        if (~anrst) begin
+  generate for (genvar i = 0; i < O_BYTES; i++) begin: recieve_buffer_packing
+    always_ff @(posedge clk, negedge anrst) begin
+      if (~anrst) begin
+        recv_data_buf[i*8+:8] <= '0;
+      end else begin
+        if (~nrst) begin
           recv_data_buf[i*8+:8] <= '0;
         end else begin
-          if (~nrst) begin
-            recv_data_buf[i*8+:8] <= '0;
-          end else begin
-            if (i == recv_cnt) begin
-              recv_data_buf[i*8+:8] <= recv_data;
-            end
+          if (i == recv_cnt) begin
+            recv_data_buf[i*8+:8] <= recv_data;
           end
         end
       end
     end
-  endgenerate
+  end endgenerate
 
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
@@ -104,6 +94,36 @@ module ladybird_serial_interface
     end
   end
 
+  // interface control
+  logic read_req, read_ready;
+  logic read_data_req, read_data_valid;
+  logic write_req, write_ready;
+  logic [I_BYTES*8-1:0] read_data, write_data;
+
+  assign write_data = bus.data[I_BYTES*8-1:0];
+  assign bus.data = (read_data_req & read_data_valid) ? {24'd0, read_data} : 'z;
+  assign read_req = bus.req & ~(|bus.wstrb);
+  assign write_req = bus.req & (|bus.wstrb);
+  assign bus.gnt = (read_req & read_ready) | (write_req & write_ready);
+  assign bus.data_gnt = (read_data_req & read_data_valid);
+  assign read_data_req = ~read_ready;
+
+  always_ff @(posedge clk, negedge anrst) begin
+    if (~anrst) begin
+      read_ready <= '1;
+    end else begin
+      if (~nrst) begin
+        read_ready <= '1;
+      end else begin
+        if (read_req & read_ready) begin
+          read_ready <= '0;
+        end else if (bus.data_gnt) begin
+          read_ready <= '1;
+        end
+      end
+    end
+  end
+
   ladybird_uart_receiver #(.WTIME(WTIME))
   RECV
     (
@@ -123,9 +143,9 @@ module ladybird_serial_interface
      .a_data(recv_data_buf),
      .a_valid(recv_fifo_valid),
      .a_ready(recv_ready),
-     .b_data(o_data),
-     .b_valid(o_valid),
-     .b_ready(o_ready),
+     .b_data(read_data),
+     .b_valid(read_data_valid),
+     .b_ready(read_data_req),
      .anrst(anrst),
      .nrst(nrst)
      );
@@ -146,9 +166,9 @@ module ladybird_serial_interface
   TRNS_FIFO
     (
      .clk(clk),
-     .a_data(i_data),
-     .a_valid(i_valid),
-     .a_ready(i_ready),
+     .a_data(write_data),
+     .a_valid(write_req),
+     .a_ready(write_ready),
      .b_data(trns_data_buf),
      .b_valid(trns_valid),
      .b_ready(trns_fifo_ready),
