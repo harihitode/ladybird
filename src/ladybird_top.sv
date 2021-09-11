@@ -21,8 +21,36 @@ module ladybird_top
   //
   logic               nrst;
 
-  ladybird_bus data_bus();
-  ladybird_bus inst_bus();
+  // from core 2 bus data/instruction
+  ladybird_bus i_bus();
+  ladybird_bus d_bus();
+
+  // access type
+  typedef enum        logic [1:0] {
+                                   DISTRIBUTED_RAM,
+                                   BLOCK_RAM,
+                                   DYNAMIC_RAM,
+                                   UART
+                                   } access_t;
+
+  function automatic access_t access_type(input logic [XLEN-1:0] addr);
+    case (addr[31:27])
+      4'hF:    return UART;
+      4'h8:    return DISTRIBUTED_RAM;
+      4'h9:    return BLOCK_RAM;
+      default: return DYNAMIC_RAM;
+    endcase
+  endfunction
+  access_t                    dbus_access;
+  access_t                    ibus_access;
+  assign dbus_access = access_type(d_bus.addr);
+  assign ibus_access = access_type(i_bus.addr);
+
+  // internal bus
+  ladybird_bus uart_bus();
+  ladybird_bus block_ram_bus();
+  ladybird_bus distributed_ram_bus();
+  // ladybird_bus dynamic_ram_bus();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -49,62 +77,16 @@ module ladybird_top
     nrst <= anrst_i;
   end
 
-  logic [XLEN-1:0] addr, addr_l, data_l, rd_data, wr_data;
-  logic            re, re_l;
-  logic            we, we_l;
-
-  logic [7:0]      uart_push_data, uart_push_data_l;
-  logic            uart_ready;
-  logic            uart_push;
-
-  logic [7:0]      uart_pop_data;
-  logic            uart_valid;
-  logic            uart_pop;
-
-  assign data_bus.gnt = ~re_l & ~we_l;
-  assign data_bus.data_gnt = uart_pop & uart_valid;
-  assign data_bus.data = (uart_pop & uart_valid) ? rd_data : 'z;
-  assign addr = data_bus.addr;
-  assign re = data_bus.req & ~(|data_bus.wstrb);
-  assign we = data_bus.req & (|data_bus.wstrb);
-  assign uart_push_data = data_bus.data[7:0];
-  assign rd_data = {24'd0, uart_pop_data};
-  assign wr_data = data_bus.data;
-
-  assign uart_pop = ((addr_l == '1) && re_l) ? 'b1 : 'b0;
-  assign uart_push = ((addr_l == '1) && we_l) ? 'b1 : 'b0;
+  logic              start;
 
   always_ff @(posedge clk_i, negedge anrst_i) begin
     if (~anrst_i) begin
-      addr_l <= '0;
-      re_l <= '0;
-      we_l <= '0;
-      uart_push_data_l <= '0;
+      start <= '0;
     end else begin
       if (~nrst) begin
-        addr_l <= '0;
-        re_l <= '0;
-        we_l <= '0;
-        uart_push_data_l <= '0;
+        start <= '0;
       end else begin
-        if (re_l) begin
-          if (uart_pop & uart_valid) begin
-            re_l <= '0;
-          end
-        end else begin
-          addr_l <= addr;
-          re_l <= re;
-        end
-        if (we_l) begin
-          if (uart_push & uart_ready) begin
-            we_l <= '0;
-          end
-        end else begin
-          addr_l <= addr;
-          data_l <= wr_data;
-          we_l <= we;
-          uart_push_data_l <= uart_push_data;
-        end
+        start <= 'b1;
       end
     end
   end
@@ -112,11 +94,23 @@ module ladybird_top
   ladybird_core DUT
     (
      .clk(clk_i),
-     .inst(inst_bus),
-     .data(data_bus),
+     .i_bus(i_bus),
+     .d_bus(d_bus),
+     .start(start),
+     .start_pc(32'h9000_0000),
      .nrst(nrst),
      .anrst(anrst_i)
      );
+
+  // scratch_pad_memory SPM
+  //   (
+  //    .clka(clk_i),
+  //    .ena(re | we),
+  //    .wea(wstrb_l),
+  //    .addra(addr_l[11:2]),
+  //    .dina(data_l),
+  //    .douta(spm_rd_data)
+  //    );
 
   ladybird_serial_interface #(.I_BYTES(1), .O_BYTES(1), .WTIME(16'h364))
   SERIAL_IF
@@ -124,21 +118,16 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     .i_data(uart_push_data_l),
-     .i_valid(uart_push),
-     .i_ready(uart_ready),
-     .o_data(uart_pop_data),
-     .o_valid(uart_valid),
-     .o_ready(uart_pop),
+     .bus(d_bus),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
-  ladybird_ram #(.ADDR_W(3))
+  ladybird_ram #(.ADDR_W(4))
   IRAM
     (
      .clk(clk_i),
-     .bus(inst_bus),
+     .bus(i_bus),
      .nrst(nrst),
      .anrst(anrst_i)
      );

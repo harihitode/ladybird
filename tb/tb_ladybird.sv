@@ -10,9 +10,6 @@ module tb_ladybird;
   logic uart_rxd_out;
   logic [3:0] btn = '0;
   logic [3:0] led;
-  logic [7:0] host_data;
-  logic       host_data_valid;
-  logic       host_push;
 
   logic [31:0] iram [] = '{
                            ADDI(5'd1, 5'd0, 12'hfff),
@@ -24,6 +21,7 @@ module tb_ladybird;
   ladybird_bus inst_ram_writer();
   ladybird_bus inst_bus();
   ladybird_bus core_ibus();
+  ladybird_bus host_uart_bus();
   logic [31:0] iram_data;
   assign inst_ram_writer.data = iram_data;
   task write_instruction ();
@@ -42,14 +40,22 @@ module tb_ladybird;
 
   initial forever #5 clk = ~clk;
 
+  assign host_uart_bus.data = (host_uart_bus.data_gnt) ? 'z : 32'h63;
+  assign host_uart_bus.addr = '1;
   initial begin
     #100 anrst = 'b1;
     write_instruction();
     @(negedge clk);
-    host_push = 'b1;
+    host_uart_bus.req = 'b1;
+    host_uart_bus.wstrb = '1;
     @(posedge clk);
-    host_push = 'b0;
+    host_uart_bus.req = '0;
     #10 anrst_c = 'b1;
+    @(negedge clk);
+    host_uart_bus.req = 'b1;
+    host_uart_bus.wstrb = '0;
+    @(posedge clk);
+    host_uart_bus.req = '0;
   end
 
   ladybird_top #(.SIMULATION(1))
@@ -78,8 +84,8 @@ module tb_ladybird;
      );
 
   always_ff @(posedge clk) begin
-    if (host_data_valid) begin
-      $display($time, " %d", host_data);
+    if (host_uart_bus.data_gnt) begin
+      $display($time, " %d", host_uart_bus.data);
       $finish;
     end
   end
@@ -90,12 +96,7 @@ module tb_ladybird;
      .clk(clk),
      .uart_txd_in(uart_rxd_out),
      .uart_rxd_out(uart_txd_in),
-     .i_data(8'd63),
-     .i_valid(host_push),
-     .i_ready(),
-     .o_data(host_data),
-     .o_valid(host_data_valid),
-     .o_ready('b1),
+     .bus(host_uart_bus),
      .nrst(nrst),
      .anrst(anrst)
      );
