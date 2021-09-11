@@ -5,7 +5,6 @@ module ladybird_bus_arbitrator_beh
     )
   (
    input logic  clk,
-   output logic o_data,
    interface.secondary in_bus [N_INPUT],
    interface.primary out_bus,
    input logic  nrst,
