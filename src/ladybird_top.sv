@@ -25,42 +25,15 @@ module ladybird_top
   ladybird_bus i_bus();
   ladybird_bus d_bus();
 
-  // access type
-  typedef enum        logic [1:0] {
-                                   DISTRIBUTED_RAM,
-                                   BLOCK_RAM,
-                                   DYNAMIC_RAM,
-                                   UART
-                                   } access_t;
-
-  function automatic access_t access_type(input logic [XLEN-1:0] addr);
-    case (addr[31:28])
-      4'hF:    return UART;
-      4'h8:    return DISTRIBUTED_RAM;
-      4'h9:    return BLOCK_RAM;
-      default: return DYNAMIC_RAM;
-    endcase
-  endfunction
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
-  access_t                    dbus_access; // access type of data
-  access_t                    ibus_access; // access type of inst
   //////////////////////////////////////////////////////////////////////
-
-  assign dbus_access = access_type(d_bus.addr);
-  assign ibus_access = access_type(i_bus.addr);
 
   // internal bus
   ladybird_bus uart_bus();
   ladybird_bus distributed_ram_bus();
-
-  assign uart_bus.req = d_bus.req;
-  assign d_bus.gnt = uart_bus.gnt;
-  assign d_bus.data = (uart_bus.data_gnt) ? uart_bus.data : 'z;
-  assign uart_bus.data = (uart_bus.data_gnt) ? 'z : d_bus.data;
-  assign d_bus.data_gnt = uart_bus.data_gnt;
-  assign uart_bus.wstrb = d_bus.wstrb;
-  assign uart_bus.addr = d_bus.addr;
+  ladybird_bus block_ram_bus();
+  ladybird_bus dynamic_ram_bus();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -124,12 +97,39 @@ module ladybird_top
      );
 
   ladybird_ram #(.ADDR_W(4))
-  I_RAM
+  BLOCK_RAM_MOCK
     (
      .clk(clk_i),
-     .bus(i_bus),
+     .bus(block_ram_bus),
      .nrst(nrst),
      .anrst(anrst_i)
+     );
+
+  ladybird_ram #(.ADDR_W(4))
+  DISTRIBUTED_RAM
+    (
+     .clk(clk_i),
+     .bus(distributed_ram_bus),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
+
+  ladybird_ram #(.ADDR_W(4))
+  DYNAMIC_RAM_MOCK
+    (
+     .clk(clk_i),
+     .bus(dynamic_ram_bus),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
+
+  ladybird_crossbar CROSS_BAR
+    (
+     .clk(clk_i),
+     .core_ports('{d_bus, i_bus}),
+     .peripheral_ports('{distributed_ram_bus, block_ram_bus, dynamic_ram_bus, uart_bus}),
+     .nrst(nrst),
+     .anrst(anrst)
      );
 
 endmodule
