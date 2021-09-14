@@ -87,7 +87,8 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     .bus(peripheral_bus[UART]),
+     // .bus(peripheral_bus[UART]),
+     .bus(core_bus[D_BUS]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -96,7 +97,8 @@ module ladybird_top
   BLOCK_RAM_INST
     (
      .clk(clk_i),
-     .bus(peripheral_bus[BLOCK_RAM]),
+     // .bus(peripheral_bus[BLOCK_RAM]),
+     .bus(core_bus[I_BUS]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -119,13 +121,13 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_crossbar CROSS_BAR
-    (
-     .clk(clk_i),
-     .core_ports(core_bus),
-     .peripheral_ports(peripheral_bus),
-     .nrst(nrst),
-     .anrst(anrst)
-     );
+  // ladybird_crossbar CROSS_BAR
+  //   (
+  //    .clk(clk_i),
+  //    .core_ports(core_bus),
+  //    .peripheral_ports(peripheral_bus),
+  //    .nrst(nrst),
+  //    .anrst(anrst)
+  //    );
 
 endmodule
