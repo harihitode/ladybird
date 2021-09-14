@@ -22,18 +22,14 @@ module ladybird_top
   logic               nrst;
 
   // from core 2 bus data/instruction
-  ladybird_bus i_bus();
-  ladybird_bus d_bus();
+  ladybird_bus core_bus[0:1]();
 
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
-  ladybird_bus uart_bus();
-  ladybird_bus distributed_ram_bus();
-  ladybird_bus block_ram_bus();
-  ladybird_bus dynamic_ram_bus();
+  ladybird_bus peripheral_bus[0:3]();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -77,8 +73,8 @@ module ladybird_top
   ladybird_core DUT
     (
      .clk(clk_i),
-     .i_bus(i_bus),
-     .d_bus(d_bus),
+     .i_bus(core_bus[I_BUS]),
+     .d_bus(core_bus[D_BUS]),
      .start(start),
      .start_pc(32'h8000_0000),
      .nrst(nrst),
@@ -91,34 +87,34 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     .bus(uart_bus),
+     .bus(peripheral_bus[UART]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
   ladybird_ram #(.ADDR_W(4))
-  BLOCK_RAM_MOCK
+  BLOCK_RAM_INST
     (
      .clk(clk_i),
-     .bus(block_ram_bus),
+     .bus(peripheral_bus[BLOCK_RAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
   ladybird_ram #(.ADDR_W(4))
-  DISTRIBUTED_RAM
+  DISTRIBUTED_RAM_INST
     (
      .clk(clk_i),
-     .bus(distributed_ram_bus),
+     .bus(peripheral_bus[DISTRIBUTED_RAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
   ladybird_ram #(.ADDR_W(4))
-  DYNAMIC_RAM_MOCK
+  DYNAMIC_RAM_INST
     (
      .clk(clk_i),
-     .bus(dynamic_ram_bus),
+     .bus(peripheral_bus[DYNAMIC_RAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -126,8 +122,8 @@ module ladybird_top
   ladybird_crossbar CROSS_BAR
     (
      .clk(clk_i),
-     .core_ports('{d_bus, i_bus}),
-     .peripheral_ports('{distributed_ram_bus, block_ram_bus, dynamic_ram_bus, uart_bus}),
+     .core_ports(core_bus),
+     .peripheral_ports(peripheral_bus),
      .nrst(nrst),
      .anrst(anrst)
      );

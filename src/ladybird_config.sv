@@ -4,6 +4,19 @@ package ladybird_config;
   localparam logic [31:0] VERSION = 32'h0000_0000;
   localparam              XLEN = 32;
 
+  // core bus type
+  typedef enum            logic {
+                                 D_BUS = 1'b0,
+                                 I_BUS = 1'b1
+                                 } core_bus_t;
+  // access type
+  typedef enum            logic [1:0] {
+                                       DISTRIBUTED_RAM = 2'b00,
+                                       BLOCK_RAM = 2'b01,
+                                       DYNAMIC_RAM = 2'b10,
+                                       UART = 2'b11
+                                       } access_t;
+
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);
     return immediate[31:12];

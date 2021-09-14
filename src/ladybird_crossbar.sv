@@ -12,15 +12,6 @@ module ladybird_crossbar
    input logic nrst,
    input logic anrst
    );
-  localparam   D_BUS = 0;
-  localparam   I_BUS = 1;
-  // access type
-  typedef enum logic [1:0] {
-                            DISTRIBUTED_RAM = 2'b00,
-                            BLOCK_RAM = 2'b01,
-                            DYNAMIC_RAM = 2'b10,
-                            UART = 2'b11
-                            } access_t;
 
   function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
     case (addr[31:28])
