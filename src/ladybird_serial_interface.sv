@@ -98,7 +98,8 @@ module ladybird_serial_interface
   logic read_req, read_ready;
   logic read_data_req, read_data_valid;
   logic write_req, write_ready;
-  logic [I_BYTES*8-1:0] read_data, write_data;
+  logic [O_BYTES*8-1:0] read_data;
+  logic [I_BYTES*8-1:0] write_data;
 
   assign write_data = bus.data[I_BYTES*8-1:0];
   assign bus.data = (read_data_req & read_data_valid) ? {24'd0, read_data} : 'z;
