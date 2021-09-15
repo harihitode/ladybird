@@ -25,40 +25,12 @@ module ladybird_fifo
   logic [0:(2**FIFO_DEPTH_W)-1][DATA_W-1:0] mem;
   logic                                     full;
   logic [1:0]                               instruction;
-  logic [((FIFO_DEPTH_W > 0) ? FIFO_DEPTH_W : 1)-1:0] read_pos, read_pos_n, write_pos, write_pos_n;
-  logic                                               last, fall_through;
+  logic [((FIFO_DEPTH_W > 0) ? FIFO_DEPTH_W : 1)-1:0] read_pos, write_pos;
 
   assign a_ready = ~full;
   assign b_valid = (write_pos == read_pos) ? full : 1'b1;
+  assign b_data = mem[read_pos];
   assign instruction = {a_valid & a_ready, b_valid & b_ready};
-
-  always_comb begin
-    if (|(instruction & FIFO_W)) begin
-      write_pos_n = write_pos_n + NEXT_POS;
-    end else begin
-      write_pos_n = write_pos;
-    end
-    if (|(instruction & FIFO_R)) begin
-      read_pos_n = read_pos_n + NEXT_POS;
-    end else begin
-      read_pos_n = read_pos;
-    end
-  end
-
-  always_comb begin
-    if (write_pos_n == (read_pos_n + NEXT_POS)) begin
-      last = 1'b1;
-    end else begin
-      last = 1'b0;
-    end
-    if (~b_valid & |(instruction & FIFO_W)) begin
-      fall_through = 1'b1;
-    end else if (&(instruction & FIFO_WR) & last) begin
-      fall_through = 1'b1;
-    end else begin
-      fall_through = 1'b0;
-    end
-  end
 
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
@@ -71,16 +43,9 @@ module ladybird_fifo
         write_pos <= 'd0;
         mem <= '{default:'0};
       end else begin
-        read_pos <= read_pos_n;
-        write_pos <= write_pos_n;
-        if (fall_through) begin
-          b_data <= a_data;
-        end else begin
-          b_data <= mem[read_pos];
-        end
-        if (instruction & FIFO_W) begin
-          mem[write_pos] <= a_data;
-        end
+        if (instruction & FIFO_R) read_pos <= read_pos + NEXT_POS;
+        if (instruction & FIFO_W) write_pos <= write_pos + NEXT_POS;
+        if (instruction & FIFO_W) mem[write_pos] <= a_data;
       end
     end
   end
