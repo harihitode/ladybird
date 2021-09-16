@@ -5,10 +5,10 @@ package ladybird_config;
   localparam              XLEN = 32;
 
   // core bus type
-  typedef enum            logic {
-                                 D_BUS = 1'b0,
-                                 I_BUS = 1'b1
-                                 } core_bus_t;
+  typedef enum            logic [0:0] {
+                                       D_BUS = 1'b0,
+                                       I_BUS = 1'b1
+                                       } core_bus_t;
   // access type
   typedef enum            logic [1:0] {
                                        DISTRIBUTED_RAM = 2'b00,
