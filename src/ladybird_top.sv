@@ -22,14 +22,14 @@ module ladybird_top
   logic               nrst;
 
   // from core 2 bus data/instruction
-  ladybird_bus core_bus[0:1]();
+  ladybird_bus core_bus[2]();
 
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
-  ladybird_bus peripheral_bus[0:3]();
+  ladybird_bus peripheral_bus[4]();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -76,7 +76,7 @@ module ladybird_top
      .i_bus(core_bus[I_BUS]),
      .d_bus(core_bus[D_BUS]),
      .start(start),
-     .start_pc(32'h8000_0000),
+     .start_pc(32'h9000_0000),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -87,8 +87,7 @@ module ladybird_top
      .clk(clk_i),
      .uart_txd_in(uart_txd_in),
      .uart_rxd_out(uart_rxd_out_i),
-     // .bus(peripheral_bus[UART]),
-     .bus(core_bus[D_BUS]),
+     .bus(peripheral_bus[UART]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -97,8 +96,7 @@ module ladybird_top
   BLOCK_RAM_INST
     (
      .clk(clk_i),
-     // .bus(peripheral_bus[BLOCK_RAM]),
-     .bus(core_bus[I_BUS]),
+     .bus(peripheral_bus[BLOCK_RAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -121,13 +119,13 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  // ladybird_crossbar CROSS_BAR
-  //   (
-  //    .clk(clk_i),
-  //    .core_ports(core_bus),
-  //    .peripheral_ports(peripheral_bus),
-  //    .nrst(nrst),
-  //    .anrst(anrst)
-  //    );
+  ladybird_crossbar CROSS_BAR
+    (
+     .clk(clk_i),
+     .core_ports(core_bus),
+     .peripheral_ports(peripheral_bus),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
 
 endmodule
