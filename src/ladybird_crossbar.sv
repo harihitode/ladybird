@@ -83,15 +83,6 @@ module ladybird_crossbar
     end
   end endgenerate
 
-  function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
-    case (addr[31:28])
-      4'hF:    return UART;
-      4'h8:    return DISTRIBUTED_RAM;
-      4'h9:    return BLOCK_RAM;
-      default: return DYNAMIC_RAM;
-    endcase
-  endfunction
-
   generate for (genvar i = 0; i < N_CORE_BUS; i++) begin
     assign core_ports_access[i] = ACCESS_TYPE(requests[i].addr);
     assign core_ports[i].gnt = ~requests[i].valid;

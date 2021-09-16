@@ -10,12 +10,23 @@ package ladybird_config;
                                        I_BUS = 1'b1
                                        } core_bus_t;
   // access type
-  typedef enum            logic [1:0] {
-                                       DISTRIBUTED_RAM = 2'b00,
-                                       BLOCK_RAM = 2'b01,
-                                       DYNAMIC_RAM = 2'b10,
-                                       UART = 2'b11
+  typedef enum            logic [2:0] {
+                                       IRAM = 3'b000,
+                                       BRAM = 3'b001,
+                                       DRAM = 3'b010,
+                                       UART = 3'b011,
+                                       GPIO = 3'b100
                                        } access_t;
+
+  function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
+    case (addr[XLEN-1-:4])
+      4'hF:    return UART;
+      4'hE:    return GPIO;
+      4'h8:    return BRAM;
+      4'h9:    return IRAM;
+      default: return DRAM;
+    endcase
+  endfunction
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);

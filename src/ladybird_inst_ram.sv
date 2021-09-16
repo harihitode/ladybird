@@ -1,0 +1,110 @@
+`timescale 1 ns / 1 ps
+
+module ladybird_inst_ram
+  import ladybird_config::*;
+  #(
+    parameter DISTRIBUTED_RAM = 1
+    )
+  (
+   input logic clk,
+   ladybird_bus.secondary bus,
+   input logic nrst,
+   input logic anrst
+   );
+
+  logic [XLEN-1:0] data_out;
+  logic [XLEN-1:0] data_in;
+  assign bus.gnt = 'b1;
+  assign bus.data = (bus.data_gnt) ? data_out : 'z;
+  assign data_in = bus.data;
+
+  generate if (DISTRIBUTED_RAM == 1) begin
+    localparam   ADDR_W = 4;
+    logic [XLEN-1:0] ram [2**ADDR_W];
+    logic            data_gnt;
+
+    assign bus.data_gnt = data_gnt;
+    always_ff @(posedge clk, negedge anrst) begin
+      if (~anrst) begin
+        data_gnt <= '0;
+        data_out <= '0;
+        ram <= '{
+                 0:LUI(5'd1, 20'hfffff),
+                 1:SRAI(5'd1, 5'd1, 5'd12),
+                 2:LB(5'd2, 12'h000, 5'd1),
+                 3:LUI(5'd3, 20'h90000),
+                 4:LW(5'd4, 12'h000, 5'd3),
+                 5:ADDI(5'd5, 5'd4, 12'h001),
+                 6:LUI(5'd6, 20'h80000),
+                 7:SW(5'd5, 12'h000, 5'd6),
+                 8:LW(5'd7, 12'h000, 5'd6),
+                 9:LUI(5'd8, 20'he0000),
+                 10:ADDI(5'd8, 5'd8, 12'h008),
+                 11:SB(5'd2, 12'h000, 5'd8),
+                 12:SB(5'd7, 12'h000, 5'd1),
+                 13:J(-21'd44),
+                 default:NOP()
+                 };
+      end else begin
+        if (~nrst) begin
+          data_gnt <= '0;
+          data_out <= '0;
+          ram <= '{
+                   0:LUI(5'd1, 20'hfffff),
+                   1:SRAI(5'd1, 5'd1, 5'd12),
+                   2:LB(5'd2, 12'h000, 5'd1),
+                   3:LUI(5'd3, 20'h90000),
+                   4:LW(5'd4, 12'h000, 5'd3),
+                   5:ADDI(5'd5, 5'd4, 12'h001),
+                   6:LUI(5'd6, 20'h80000),
+                   7:SW(5'd5, 12'h000, 5'd6),
+                   8:LW(5'd7, 12'h000, 5'd6),
+                   9:LUI(5'd8, 20'he0000),
+                   10:ADDI(5'd8, 5'd8, 12'h008),
+                   11:SB(5'd2, 12'h000, 5'd8),
+                   12:SB(5'd7, 12'h000, 5'd1),
+                   13:J(-21'd44),
+                   default:NOP()
+                   };
+        end else begin
+          if (bus.req & (|bus.wstrb)) begin
+            data_gnt <= '0;
+            for (int i = 0; i < 4; i++) begin
+              if (bus.wstrb[i]) ram[bus.addr[ADDR_W+2-1:2]][8*i+:8] <= data_in[8*i+:8];
+            end
+          end else if (bus.req) begin
+            data_gnt <= 'b1;
+            data_out <= ram[bus.addr[ADDR_W+2-1:2]];
+          end else begin
+            data_gnt <= 'b0;
+          end
+        end
+      end
+    end
+
+  end else begin: DIST_IMPL
+    // 2 read latency
+    localparam   READ_LATENCY = 2;
+    logic [READ_LATENCY-1:0] req_l;
+    always_ff @(posedge clk, negedge anrst) begin
+      if (~anrst) begin
+        req_l <= '0;
+      end else begin
+        if (~nrst) begin
+          req_l <= {bus.req & ~|bus.wstrb, req_l[$high(req_l):1]};
+        end
+      end
+    end
+    // IRAM_IMPL in order to write instructions at first
+    blk_mem_gen_0_iram IRAM
+      (
+       .addra(bus.addr[9+2:2]),
+       .clka(clk),
+       .dina(data_in),
+       .douta(data_out),
+       .ena(bus.req),
+       .wea(bus.wstrb)
+       );
+  end endgenerate
+
+endmodule

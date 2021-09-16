@@ -29,7 +29,7 @@ module ladybird_top
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
-  ladybird_bus peripheral_bus[4]();
+  ladybird_bus peripheral_bus[5]();
 
   IBUF clock_buf (.I(clk), .O(clk_i));
   IBUF txd_in_buf (.I(uart_txd_in), .O(uart_txd_in_i));
@@ -40,19 +40,6 @@ module ladybird_top
     IBUF btn_in_buf (.I(btn[i]), .O(btn_i[i]));
     OBUF led_out_buf (.I(led_i[i]), .O(led[i]));
   end endgenerate
-
-  always_ff @(posedge clk_i, negedge anrst_i) begin
-    if (~anrst_i) begin
-      led_i <= '0;
-    end else begin
-      // push each button to turn on each led
-      if (~nrst) begin
-        led_i <= '0;
-      end else begin
-        led_i <= btn_i;
-      end
-    end
-  end
 
   always_ff @(posedge clk_i) begin: synchronous_reset
     nrst <= anrst_i;
@@ -92,34 +79,48 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_ram #(.ADDR_W(4))
-  BLOCK_RAM_INST
+  ladybird_block_ram SPM_RAM_INST
     (
      .clk(clk_i),
-     .bus(peripheral_bus[BLOCK_RAM]),
+     .bus(peripheral_bus[BRAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
-  ladybird_ram #(.ADDR_W(4))
-  DISTRIBUTED_RAM_INST
+  ladybird_inst_ram #(.DISTRIBUTED_RAM(1))
+  INST_RAM_INST
     (
      .clk(clk_i),
-     .bus(peripheral_bus[DISTRIBUTED_RAM]),
+     .bus(peripheral_bus[IRAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
+  // current implementation is distributed ram
   ladybird_ram #(.ADDR_W(4))
   DYNAMIC_RAM_INST
     (
      .clk(clk_i),
-     .bus(peripheral_bus[DYNAMIC_RAM]),
+     .bus(peripheral_bus[DRAM]),
      .nrst(nrst),
      .anrst(anrst_i)
      );
 
-  ladybird_crossbar CROSS_BAR
+  ladybird_gpio GPIO_INST
+    (
+     .clk(clk_i),
+     .bus(peripheral_bus[GPIO]),
+     .SWITCH('0),
+     .BUTTON(btn_i),
+     .LED(led_i),
+     .switch_int(),
+     .button_int(),
+     .nrst(nrst),
+     .anrst(anrst_i)
+     );
+
+  ladybird_crossbar #(.N_PERIPHERAL_BUS(5))
+  CROSS_BAR
     (
      .clk(clk_i),
      .core_ports(core_bus),

@@ -14,82 +14,36 @@ module ladybird_ram
    );
 
   logic [DATA_W-1:0] ram [2**ADDR_W];
-  logic [DATA_W-1:0] rdData;
-  logic [DATA_W-1:0] wrData;
-  logic              rdValid;
-  logic [DATA_W/8-1:0] wrStrb;
-  logic [ADDR_W-1:0] addr;
+  logic [DATA_W-1:0] data_out;
+  logic [DATA_W-1:0] data_in;
+  logic              data_gnt;
 
-  assign addr = bus.addr[ADDR_W+2-1:2];
-  assign wrData = bus.data;
-  assign wrStrb = bus.wstrb;
-  assign bus.data = rdData;
   assign bus.gnt = 'b1;
-  assign bus.data_gnt = rdValid;
+  assign bus.data = (bus.data_gnt) ? data_out : 'z;
+  assign bus.data_gnt = data_gnt;
+  assign data_in = bus.data;
 
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
-      rdValid <= 'b0;
-      rdData <= 'z;
-      ram <= '{
-               0:LUI(5'd1, 20'hfffff),
-               1:SRAI(5'd1, 5'd1, 5'd12),
-               2:LB(5'd2, 12'h000, 5'd1),
-               3:ANDI(5'd3, 5'd2, 12'hffe),
-               4:SLLI(5'd3, 5'd3, 5'd1),
-               5:SRLI(5'd3, 5'd3, 5'd1),
-               6:SB(5'd3, 12'h000, 5'd1),
-               7:J(-21'd20),
-               // 0:LUI(5'd1, 20'hfffff),
-               // 1:SRAI(5'd1, 5'd1, 5'd12),
-               // 2:LB(5'd2, 12'h000, 5'd1),
-               // 3:SW(5'd2, 12'h000, 5'd0),
-               // 4:LW(5'd3, 12'h000, 5'd0),
-               // 5:ANDI(5'd3, 5'd3, 12'hffe),
-               // 6:SLLI(5'd3, 5'd3, 5'd1),
-               // 7:SRLI(5'd3, 5'd3, 5'd1),
-               // 8:SB(5'd3, 12'h000, 5'd1),
-               // 9:J(-21'd28),
-               default:NOP()
-               };
+      data_gnt <= '0;
+      data_out <= '0;
+      ram <= '{default:'0};
     end else begin
       if (~nrst) begin
-        rdValid <= 'b0;
-        rdData <= 'z;
-        ram <= '{
-                 0:LUI(5'd1, 20'hfffff),
-                 1:SRAI(5'd1, 5'd1, 5'd12),
-                 2:LB(5'd2, 12'h000, 5'd1),
-                 3:ANDI(5'd3, 5'd2, 12'hffe),
-                 4:SLLI(5'd3, 5'd3, 5'd1),
-                 5:SRLI(5'd3, 5'd3, 5'd1),
-                 6:SB(5'd3, 12'h000, 5'd1),
-                 7:J(-21'd20),
-                 // 0:LUI(5'd1, 20'hfffff),
-                 // 1:SRAI(5'd1, 5'd1, 5'd12),
-                 // 2:LB(5'd2, 12'h000, 5'd1),
-                 // 3:SW(5'd2, 12'h000, 5'd0),
-                 // 4:LW(5'd3, 12'h000, 5'd0),
-                 // 5:ANDI(5'd3, 5'd3, 12'hffe),
-                 // 6:SLLI(5'd3, 5'd3, 5'd1),
-                 // 7:SRLI(5'd3, 5'd3, 5'd1),
-                 // 8:SB(5'd3, 12'h000, 5'd1),
-                 // 9:J(-21'd28),
-                 default:NOP()
-                 };
+        data_gnt <= '0;
+        data_out <= '0;
+        ram <= '{default:'0};
       end else begin
-        if (bus.req && (bus.wstrb != '0)) begin
-          rdValid <= 'b0;
-          rdData <= 'z;
+        if (bus.req & (|bus.wstrb)) begin
+          data_gnt <= 'b0;
           for (int i = 0; i < 4; i++) begin
-            if (wrStrb[i]) ram[addr][8*i+:8] <= wrData[8*i+:8];
+            if (bus.wstrb[i]) ram[bus.addr[ADDR_W+2-1:2]][8*i+:8] <= data_in[8*i+:8];
           end
         end else if (bus.req) begin
-          rdValid <= 'b1;
-          rdData <= ram[addr];
+          data_gnt <= 'b1;
+          data_out <= ram[bus.addr[ADDR_W+2-1:2]];
         end else begin
-          rdValid <= 'b0;
-          rdData <= 'z;
+          data_gnt <= 'b0;
         end
       end
     end
