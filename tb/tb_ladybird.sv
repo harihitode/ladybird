@@ -51,11 +51,17 @@ module tb_ladybird;
     @(posedge clk);
     host_uart_bus.req = '0;
     #10 anrst_c = 'b1;
-    @(negedge clk);
-    host_uart_bus.req = 'b1;
-    host_uart_bus.wstrb = '0;
-    @(posedge clk);
-    host_uart_bus.req = '0;
+    forever begin
+      @(negedge clk);
+      host_uart_bus.req = 'b1;
+      host_uart_bus.wstrb = '0;
+      @(posedge clk);
+      host_uart_bus.req = '0;
+      wait (host_uart_bus.data_gnt == 'b1);
+      @(posedge clk);
+      $display($time, " %d (%08x) (%c)", host_uart_bus.data, host_uart_bus.data, host_uart_bus.data);
+      $finish;
+    end
   end
 
   ladybird_top #(.SIMULATION(1))
@@ -82,13 +88,6 @@ module tb_ladybird;
      .nrst(nrst),
      .anrst(anrst)
      );
-
-  always_ff @(posedge clk) begin
-    if (host_uart_bus.data_gnt) begin
-      $display($time, " %d", host_uart_bus.data);
-      $finish;
-    end
-  end
 
   ladybird_serial_interface #(.I_BYTES(1), .O_BYTES(1), .WTIME(16'h364))
   SERIAL_IF
