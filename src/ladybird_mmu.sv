@@ -38,7 +38,7 @@ module ladybird_mmu
   logic                request_done;
   logic [XLEN-1:0]     o_addr;
   logic [XLEN/8-1:0]   o_wstrb;
-
+  logic [XLEN-1:0]     d_bus_data;
 
   // data bus
   assign i_ready = ~request_buffer.valid;
@@ -46,18 +46,46 @@ module ladybird_mmu
   assign d_bus.req = ~request_done & request_buffer.valid;
   assign d_bus.addr = o_addr;
   assign d_bus.wstrb = o_wstrb;
+  assign d_bus_data = d_bus.data;
 
   assign o_valid = d_bus.data_gnt;
-  assign o_data = d_bus.data;
+
+  always_comb begin
+    if (request_buffer.funct[1:0] == 2'b00) begin: RD_LOAD_BYTE
+      case (request_buffer.addr[1:0])
+        2'b00: o_data = {{24{~request_buffer.funct[2] & d_bus_data[7]}}, d_bus_data[7:0]};
+        2'b01: o_data = {{24{~request_buffer.funct[2] & d_bus_data[15]}}, d_bus_data[15:8]};
+        2'b10: o_data = {{24{~request_buffer.funct[2] & d_bus_data[23]}}, d_bus_data[23:16]};
+        default: o_data = {{24{~request_buffer.funct[2] & d_bus_data[31]}}, d_bus_data[31:24]};
+      endcase
+    end else if (request_buffer.funct[1:0] == 2'b01) begin: RD_LOAD_HALF
+      if (request_buffer.addr[1] == 1'b0) begin
+        o_data = {{16{~request_buffer.funct[2] & d_bus_data[15]}}, d_bus_data[15:0]};
+      end else begin
+        o_data = {{16{~request_buffer.funct[2] & d_bus_data[31]}}, d_bus_data[31:16]};
+      end
+    end else begin: RD_LOAD_WORD
+      o_data = d_bus_data;
+    end
+  end
 
   always_comb begin
     o_addr = request_buffer.addr;
     if (request_buffer.we) begin
-      if (request_buffer.funct == 3'b000) begin
-        o_wstrb = 4'b0001;
-      end else if (request_buffer.funct == 3'b001) begin
-        o_wstrb = 4'b0011;
-      end else begin
+      if (request_buffer.funct[1:0] == 2'b00) begin: WE_STORE_BYTE
+        case (request_buffer.addr[1:0])
+          2'b00: o_wstrb = 4'b0001;
+          2'b01: o_wstrb = 4'b0010;
+          2'b10: o_wstrb = 4'b0100;
+          default: o_wstrb = 4'b1000;
+        endcase
+      end else if (request_buffer.funct[1:0] == 2'b01) begin: WE_STORE_HALF
+        if (request_buffer.addr[1] == 1'b0) begin
+          o_wstrb = 4'b0011;
+        end else begin
+          o_wstrb = 4'b1100;
+        end
+      end else begin: WE_STORE_WORD
         o_wstrb = 4'b1111;
       end
     end else begin
@@ -82,7 +110,13 @@ module ladybird_mmu
         if (i_ready & i_valid) begin
           request_buffer.valid <= i_ready & i_valid;
           request_buffer.addr <= i_addr;
-          request_buffer.data <= i_data;
+          if (i_funct[1:0] == 2'b00) begin
+            request_buffer.data <= {i_data[7:0], i_data[7:0], i_data[7:0], i_data[7:0]};
+          end else if (i_funct[1:0] == 2'b01) begin
+            request_buffer.data <= {i_data[15:0], i_data[15:0]};
+          end else begin
+            request_buffer.data <= i_data;
+          end
           request_buffer.funct <= i_funct;
           request_buffer.we <= i_we;
         end else if (request_done) begin
