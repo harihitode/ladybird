@@ -26,6 +26,8 @@ module ladybird_top
 
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
+  logic                       switch_int; // switch interrupt
+  logic                       button_int; // button interrupt
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
@@ -42,7 +44,7 @@ module ladybird_top
   end endgenerate
 
   always_ff @(posedge clk_i) begin: synchronous_reset
-    nrst <= anrst_i;
+    nrst <= anrst_i & ~(switch_int | button_int); // any_interrupt
   end
 
   always_ff @(posedge clk_i, negedge anrst_i) begin: waking_core_up
@@ -114,8 +116,8 @@ module ladybird_top
      .SWITCH('0),
      .BUTTON(btn_i),
      .LED(led_i),
-     .switch_int(),
-     .button_int(),
+     .switch_int(switch_int),
+     .button_int(button_int),
      .nrst(nrst),
      .anrst(anrst_i)
      );
