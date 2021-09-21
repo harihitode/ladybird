@@ -57,7 +57,8 @@ module ladybird_top
     end
   end
 
-  ladybird_core DUT
+  ladybird_core #(.SIMULATION(SIMULATION))
+  DUT
     (
      .clk(clk_i),
      .i_bus(core_bus[I_BUS]),
@@ -87,7 +88,7 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_inst_ram #(.DISTRIBUTED_RAM(1))
+  ladybird_inst_ram #(.DISTRIBUTED_RAM(0))
   INST_RAM_INST
     (
      .clk(clk_i),
