@@ -15,14 +15,13 @@ module ladybird_inst_ram
   logic [XLEN-1:0] data_out;
   logic [XLEN-1:0] data_in;
   assign bus.gnt = 'b1;
-  assign bus.data = (bus.data_gnt) ? data_out : 'z;
-  assign data_in = bus.data;
 
   generate if (DISTRIBUTED_RAM == 1) begin
+    assign bus.data = (bus.data_gnt) ? data_out : 'z;
+    assign data_in = bus.data;
     localparam   ADDR_W = 4;
     logic [XLEN-1:0] ram [2**ADDR_W];
     logic            data_gnt;
-
     assign bus.data_gnt = data_gnt;
     always_ff @(posedge clk, negedge anrst) begin
       if (~anrst) begin
@@ -83,14 +82,22 @@ module ladybird_inst_ram
     end
 
   end else begin: DIST_IMPL
+    assign bus.data = (bus.data_gnt) ? {data_out[7:0], data_out[15:8], data_out[23:16], data_out[31:24]} : 'z;
+    assign data_in = {bus.data[7:0], bus.data[15:8], bus.data[23:16], bus.data[31:24]};
     // 2 read latency
-    localparam   READ_LATENCY = 2;
+    localparam ADDR_W = 16;
+    localparam READ_LATENCY = 2;
     logic [READ_LATENCY-1:0] req_l;
+    logic [3:0]              wstrb;
+    assign wstrb = (bus.req & bus.gnt) ? {bus.wstrb[0], bus.wstrb[1], bus.wstrb[2], bus.wstrb[3]} : '0;
+    assign bus.data_gnt = req_l[0];
     always_ff @(posedge clk, negedge anrst) begin
       if (~anrst) begin
         req_l <= '0;
       end else begin
         if (~nrst) begin
+          req_l <= '0;
+        end else begin
           req_l <= {bus.req & ~|bus.wstrb, req_l[$high(req_l):1]};
         end
       end
@@ -98,12 +105,12 @@ module ladybird_inst_ram
     // IRAM_IMPL in order to write instructions at first
     blk_mem_gen_0_iram IRAM
       (
-       .addra(bus.addr[9+2:2]),
+       .addra(bus.addr[ADDR_W+2-1:2]),
        .clka(clk),
        .dina(data_in),
        .douta(data_out),
-       .ena(bus.req),
-       .wea(bus.wstrb)
+       .ena(1'b1),
+       .wea(wstrb)
        );
   end endgenerate
 

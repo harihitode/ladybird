@@ -13,11 +13,13 @@ module ladybird_block_ram
   logic [READ_LATENCY-1:0] req_l;
   logic [XLEN-1:0]         data_out;
   logic [XLEN-1:0]         data_in;
+  logic [3:0]              wstrb;
 
   assign bus.gnt = 'b1;
   assign bus.data_gnt = req_l[0];
-  assign bus.data = (bus.data_gnt) ? data_out : 'z;
-  assign data_in = bus.data;
+  assign bus.data = (bus.data_gnt) ? {data_out[7:0], data_out[15:8], data_out[23:16], data_out[31:24]} : 'z;
+  assign data_in = {bus.data[7:0], bus.data[15:8], bus.data[23:16], bus.data[31:24]};
+  assign wstrb = (bus.req & bus.gnt) ? {bus.wstrb[0], bus.wstrb[1], bus.wstrb[2], bus.wstrb[3]} : '0;
 
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
@@ -36,8 +38,8 @@ module ladybird_block_ram
      .clka(clk),
      .dina(data_in),
      .douta(data_out),
-     .ena(bus.req),
-     .wea(bus.wstrb)
+     .ena(1'b1),
+     .wea(wstrb)
      );
 
 endmodule
