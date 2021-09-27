@@ -9,6 +9,7 @@ module ladybird_block_ram
    input logic anrst
    );
   // 2 read latency
+  localparam   ADDR_W = 11;
   localparam   READ_LATENCY = 2;
   logic [READ_LATENCY-1:0] req_l;
   logic [XLEN-1:0]         data_out;
@@ -34,7 +35,7 @@ module ladybird_block_ram
   end
   blk_mem_gen_0_spm BRAM_INST
     (
-     .addra(bus.addr[9+2:2]),
+     .addra(bus.addr[ADDR_W+2-1:2]),
      .clka(clk),
      .dina(data_in),
      .douta(data_out),
