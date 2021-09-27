@@ -90,7 +90,7 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_inst_ram #(.DISTRIBUTED_RAM(0))
+  ladybird_inst_ram #(.DISTRIBUTED_RAM(SIMULATION))
   INST_RAM_INST
     (
      .clk(clk_i),
