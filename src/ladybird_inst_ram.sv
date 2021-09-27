@@ -23,48 +23,26 @@ module ladybird_inst_ram
     logic [XLEN-1:0] ram [2**ADDR_W];
     logic            data_gnt;
     assign bus.data_gnt = data_gnt;
+
+    automatic logic [XLEN-1:0] ram_vector [2**ADDR_W]
+      = '{
+          0:LUI(5'd1, 20'hfffff),
+          1:SRAI(5'd1, 5'd1, 5'd12),
+          2:LB(5'd2, 12'h000, 5'd1),
+          3:LUI(5'd3, 20'h90000),
+          4:EBREAK(),
+          default:NOP()
+          };
     always_ff @(posedge clk, negedge anrst) begin
       if (~anrst) begin
         data_gnt <= '0;
         data_out <= '0;
-        ram <= '{
-                 0:LUI(5'd1, 20'hfffff),
-                 1:SRAI(5'd1, 5'd1, 5'd12),
-                 2:LB(5'd2, 12'h000, 5'd1),
-                 3:LUI(5'd3, 20'h90000),
-                 4:LW(5'd4, 12'h000, 5'd3),
-                 5:ADDI(5'd5, 5'd4, 12'h001),
-                 6:LUI(5'd6, 20'h80000),
-                 7:SW(5'd5, 12'h000, 5'd6),
-                 8:LW(5'd7, 12'h000, 5'd6),
-                 9:LUI(5'd8, 20'he0000),
-                 10:ADDI(5'd8, 5'd8, 12'h008),
-                 11:SB(5'd2, 12'h000, 5'd8),
-                 12:SB(5'd7, 12'h000, 5'd1),
-                 13:J(-21'd44),
-                 default:NOP()
-                 };
+        ram <= ram_vector;
       end else begin
         if (~nrst) begin
           data_gnt <= '0;
           data_out <= '0;
-          ram <= '{
-                   0:LUI(5'd1, 20'hfffff),
-                   1:SRAI(5'd1, 5'd1, 5'd12),
-                   2:LB(5'd2, 12'h000, 5'd1),
-                   3:LUI(5'd3, 20'h90000),
-                   4:LW(5'd4, 12'h000, 5'd3),
-                   5:ADDI(5'd5, 5'd4, 12'h001),
-                   6:LUI(5'd6, 20'h80000),
-                   7:SW(5'd5, 12'h000, 5'd6),
-                   8:LW(5'd7, 12'h000, 5'd6),
-                   9:LUI(5'd8, 20'he0000),
-                   10:ADDI(5'd8, 5'd8, 12'h008),
-                   11:SB(5'd2, 12'h000, 5'd8),
-                   12:SB(5'd7, 12'h000, 5'd1),
-                   13:J(-21'd44),
-                   default:NOP()
-                   };
+          ram <= ram_vector;
         end else begin
           if (bus.req & (|bus.wstrb)) begin
             data_gnt <= '0;
@@ -85,7 +63,7 @@ module ladybird_inst_ram
     assign bus.data = (bus.data_gnt) ? {data_out[7:0], data_out[15:8], data_out[23:16], data_out[31:24]} : 'z;
     assign data_in = {bus.data[7:0], bus.data[15:8], bus.data[23:16], bus.data[31:24]};
     // 2 read latency
-    localparam ADDR_W = 16;
+    localparam ADDR_W = 17;
     localparam READ_LATENCY = 2;
     logic [READ_LATENCY-1:0] req_l;
     logic [3:0]              wstrb;
