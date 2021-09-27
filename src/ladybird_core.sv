@@ -18,7 +18,7 @@ module ladybird_core
   logic                   mmu_req, mmu_gnt, mmu_finish;
   logic                   mmu_we;
   logic                   pc_valid, pc_ready;
-  logic                   inst_valid, commit_valid, write_back, trap_flag;
+  logic                   inst_valid, commit_valid, write_back, requested_trap;
   logic [XLEN-1:0]        inst, inst_l;
   logic [XLEN-1:0]        src1, src2, commit_data, immediate;
   logic [2:0]             alu_operation;
@@ -167,14 +167,6 @@ module ladybird_core
         // Other opcodes have no effect for their commit
         write_back = 'b0;
       end
-    end
-  end
-
-  always_comb begin
-    if (inst_l[6:0] == OPCODE_SYSTEM) begin
-      trap_flag = 'b1; // ECALL and EBREAK
-    end else begin
-      trap_flag = 'b0;
     end
   end
 
@@ -357,6 +349,19 @@ module ladybird_core
     end
   end
 
+  // SYSTEM STATUS REGISTERS
+  always_comb begin: REQUESTED_TRAP_BY_SOFTWARE
+    if (inst_l[6:0] == OPCODE_SYSTEM) begin
+      if ((inst_l[24:20] == 5'd0) || (inst_l[24:20] == 5'd1)) begin
+        requested_trap = 'b1; // ECALL and EBREAK
+      end else begin
+        requested_trap = 'b0; // Other System Function
+      end
+    end else begin
+      requested_trap = 'b0;
+    end
+  end
+
   generate if (SIMULATION) begin: INSTRUCTION_DUMPER
     always_ff @(posedge clk) begin
       automatic string nm;
@@ -377,8 +382,8 @@ module ladybird_core
       if ((state == D_FETCH) && inst_valid) begin
         $display($time, " %08x, %08x, %s", pc, inst, nm);
       end
-      if ((state == COMMIT) && trap_flag) begin
-        $display($time, " trap");
+      if ((state == COMMIT) && requested_trap) begin
+        $display($time, " REQUESTED TRAP");
         $finish;
       end
     end
