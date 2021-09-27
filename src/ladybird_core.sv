@@ -18,7 +18,7 @@ module ladybird_core
   logic                   mmu_req, mmu_gnt, mmu_finish;
   logic                   mmu_we;
   logic                   pc_valid, pc_ready;
-  logic                   inst_valid, commit_valid, write_back;
+  logic                   inst_valid, commit_valid, write_back, trap_flag;
   logic [XLEN-1:0]        inst, inst_l;
   logic [XLEN-1:0]        src1, src2, commit_data, immediate;
   logic [2:0]             alu_operation;
@@ -134,7 +134,6 @@ module ladybird_core
   always_comb begin
     rs1_addr = inst[19:15];
     rs2_addr = inst[24:20];
-    //
     rd_addr = inst_l[11:7];
     if (inst_l[6:0] == OPCODE_STORE) begin: STORE_OFFSET
       immediate = {{20{inst_l[31]}}, inst_l[31:25], inst_l[11:7]};
@@ -164,8 +163,18 @@ module ladybird_core
           ) begin
         write_back = 'b1;
       end else begin
+        // FENCE is treated as a NOP
+        // Other opcodes have no effect for their commit
         write_back = 'b0;
       end
+    end
+  end
+
+  always_comb begin
+    if (inst_l[6:0] == OPCODE_SYSTEM) begin
+      trap_flag = 'b1; // ECALL and EBREAK
+    end else begin
+      trap_flag = 'b0;
     end
   end
 
@@ -353,7 +362,8 @@ module ladybird_core
       automatic string nm;
       case (inst[6:0])
         OPCODE_LOAD: nm = "LOAD";
-        OPCODE_OP_IMM: nm = "OP_IMM";
+        OPCODE_MISC_MEM: nm = "MISC-MEM";
+        OPCODE_OP_IMM: nm = "OP-IMM";
         OPCODE_AUIPC: nm = "AUIPC";
         OPCODE_STORE: nm = "STORE";
         OPCODE_OP: nm = "OP";
@@ -361,10 +371,15 @@ module ladybird_core
         OPCODE_BRANCH: nm = "BRANCH";
         OPCODE_JALR: nm = "JALR";
         OPCODE_JAL: nm = "JAL";
+        OPCODE_SYSTEM: nm = "SYSTEM";
         default: nm = "unknown op";
       endcase
-      if ((state == D_FETCH) && (inst_valid)) begin
+      if ((state == D_FETCH) && inst_valid) begin
         $display($time, " %08x, %08x, %s", pc, inst, nm);
+      end
+      if ((state == COMMIT) && trap_flag) begin
+        $display($time, " trap");
+        $finish;
       end
     end
   end endgenerate

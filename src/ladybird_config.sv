@@ -29,6 +29,7 @@ package ladybird_config;
   endfunction
 
   localparam logic [6:0]      OPCODE_LOAD = 7'b00000_11;
+  localparam logic [6:0]      OPCODE_MISC_MEM = 7'b00011_11;
   localparam logic [6:0]      OPCODE_OP_IMM = 7'b00100_11;
   localparam logic [6:0]      OPCODE_AUIPC = 7'b00101_11;
   localparam logic [6:0]      OPCODE_STORE = 7'b01000_11;
@@ -37,6 +38,7 @@ package ladybird_config;
   localparam logic [6:0]      OPCODE_BRANCH = 7'b11000_11;
   localparam logic [6:0]      OPCODE_JALR = 7'b11001_11;
   localparam logic [6:0]      OPCODE_JAL = 7'b11011_11;
+  localparam logic [6:0]      OPCODE_SYSTEM = 7'b11100_11;
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);
@@ -195,6 +197,21 @@ package ladybird_config;
 
   function automatic logic [31:0] BGEU(input logic [4:0] rs1, input logic [4:0] rs2, input logic [12:0] offset);
     return {offset[12], offset[10:5], rs2, rs1, 3'b111, offset[4:1], offset[11], OPCODE_BRANCH};
+  endfunction
+
+  // System Functions
+  function automatic logic [31:0] ECALL();
+    return {12'h000, 5'd0, 3'b0, 5'd0, OPCODE_SYSTEM};
+  endfunction
+
+  function automatic logic [31:0] EBREAK();
+    return {12'h001, 5'd0, 3'b0, 5'd0, OPCODE_SYSTEM};
+  endfunction
+
+  // FENCE
+  function automatic logic [31:0] FENCE(input logic [3:0] PRED, input logic [3:0] SUCC);
+    automatic logic [3:0] FM = 3'b000; // NORMAL FENCE
+    return {FM, PRED, SUCC, 5'd0, 3'b000, 5'd0, OPCODE_MISC_MEM};
   endfunction
 
   // pseudo
