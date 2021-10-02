@@ -8,7 +8,7 @@ module tb_ladybird;
   logic nrst = 'b1;
   logic uart_txd_in;
   logic uart_rxd_out;
-  logic [3:0] btn = '0;
+  logic [3:0] btn;
   logic [3:0] led;
 
   logic [31:0] iram [] = '{
@@ -61,6 +61,15 @@ module tb_ladybird;
       @(posedge clk);
       $display($time, " %d (%08x) (%c)", host_uart_bus.data, host_uart_bus.data, host_uart_bus.data);
       $finish;
+    end
+  end
+
+  initial begin
+    forever begin
+      btn = 4'b0000;
+      #1000;
+      btn = 4'b0001;
+      #200;
     end
   end
 
