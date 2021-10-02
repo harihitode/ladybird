@@ -2,13 +2,16 @@
 
 module ladybird_core
   import ladybird_config::*;
-  #(parameter SIMULATION = 0)
+  #(parameter SIMULATION = 0,
+    parameter logic [XLEN-1:0] TVEC = 'd0)
   (
    input logic            clk,
    interface.primary i_bus,
    interface.primary d_bus,
    input logic            start,
    input logic [XLEN-1:0] start_pc,
+   input logic            interrupt,
+   output logic           accept,
    input logic            anrst,
    input logic            nrst
    );
@@ -18,7 +21,7 @@ module ladybird_core
   logic                   mmu_req, mmu_gnt, mmu_finish;
   logic                   mmu_we;
   logic                   pc_valid, pc_ready;
-  logic                   inst_valid, commit_valid, write_back, requested_trap;
+  logic                   inst_valid, commit_valid, write_back;
   logic [XLEN-1:0]        inst, inst_l;
   logic [XLEN-1:0]        src1, src2, commit_data, immediate;
   logic [2:0]             alu_operation;
@@ -39,7 +42,14 @@ module ladybird_core
   state_t                 state, state_n;
   logic                   state_progress, state_progress_n;
 
-  logic [31:0]            gpr [32];
+  // GENERAL PURPOSE REGISTER
+  logic [XLEN-1:0]        gpr [32];
+
+  // SYSTEM TRAP CONTROL
+  logic                   trap_occur, trap_ret, requested_trap;
+  logic [XLEN-1:0]        EPC; // exception program counter
+  logic                   IE; // interrupt enable
+  assign trap_occur = IE & (requested_trap | interrupt);
 
   ladybird_mmu MMU
     (
@@ -334,8 +344,14 @@ module ladybird_core
       end else begin
         if ((state == IDLE) && start) begin
           pc <= start_pc;
-        end else if ((state == COMMIT) && commit_valid) begin
-          pc <= pc_n;
+        end else if (commit_valid) begin
+          if (trap_ret) begin
+            pc <= EPC;
+          end else if (trap_occur) begin
+            pc <= TVEC;
+          end else begin
+            pc <= pc_n;
+          end
         end
         state <= state_n;
         state_progress <= state_progress_n;
@@ -350,6 +366,8 @@ module ladybird_core
   end
 
   // SYSTEM STATUS REGISTERS
+  assign accept = trap_ret;
+
   always_comb begin: REQUESTED_TRAP_BY_SOFTWARE
     if (inst_l[6:0] == OPCODE_SYSTEM) begin
       if ((inst_l[24:20] == 5'd0) || (inst_l[24:20] == 5'd1)) begin
@@ -359,6 +377,33 @@ module ladybird_core
       end
     end else begin
       requested_trap = 'b0;
+    end
+  end
+
+  always_comb begin
+    if ((inst_l[6:0] == OPCODE_SYSTEM) && (inst_l[24:20] == 5'd2)) begin
+      trap_ret = 'b1;
+    end else begin
+      trap_ret = 'b0;
+    end
+  end
+
+  always_ff @(posedge clk, negedge anrst) begin
+    if (~anrst) begin
+      IE <= 'b1;
+      EPC <= '0;
+    end else begin
+      if (~nrst) begin
+        IE <= 'b1;
+        EPC <= '0;
+      end else begin
+        if (commit_valid & trap_occur) begin
+          EPC <= pc_n;
+          IE <= 'b0;
+        end else if (commit_valid & trap_ret) begin
+          IE <= 'b1;
+        end
+      end
     end
   end
 
@@ -381,6 +426,10 @@ module ladybird_core
       endcase
       if ((state == D_FETCH) && inst_valid) begin
         $display($time, " %08x, %08x, %s", pc, inst, nm);
+      end
+      if ((mmu_req) && (mmu_addr == 32'h9000_FFA0)) begin
+        $display($time, " BREAK POINT, %08x, %08x, %x", mmu_lw_data, mmu_sw_data, mmu_we);
+        $finish;
       end
       if ((state == COMMIT) && requested_trap) begin
         $display($time, " REQUESTED TRAP");

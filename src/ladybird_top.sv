@@ -24,10 +24,13 @@ module ladybird_top
   // from core 2 bus data/instruction
   ladybird_bus core_bus[2]();
 
+  localparam logic [XLEN-1:0] START_PC = 32'h9000_0000;
+  localparam logic [XLEN-1:0] TVEC_PC = 32'h9000_0010;
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
   logic                       switch_int; // switch interrupt
   logic                       button_int; // button interrupt
+  logic                       accept; // interrupt accept
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
@@ -44,7 +47,7 @@ module ladybird_top
   end endgenerate
 
   always_ff @(posedge clk_i) begin: synchronous_reset
-    nrst <= anrst_i & ~(switch_int | button_int); // any_interrupt
+    nrst <= anrst_i;
   end
 
   always_ff @(posedge clk_i, negedge anrst_i) begin: waking_core_up
@@ -59,14 +62,17 @@ module ladybird_top
     end
   end
 
-  ladybird_core #(.SIMULATION(SIMULATION))
+  ladybird_core #(.SIMULATION(SIMULATION),
+                  .TVEC(TVEC_PC))
   DUT
     (
      .clk(clk_i),
      .i_bus(core_bus[I_BUS]),
      .d_bus(core_bus[D_BUS]),
      .start(start),
-     .start_pc(32'h9000_0000),
+     .start_pc(START_PC),
+     .interrupt(switch_int | button_int),
+     .accept(accept),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -118,6 +124,7 @@ module ladybird_top
      .LED(led_i),
      .switch_int(switch_int),
      .button_int(button_int),
+     .accept(accept),
      .nrst(nrst),
      .anrst(anrst_i)
      );

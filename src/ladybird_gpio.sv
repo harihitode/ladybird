@@ -13,6 +13,7 @@ module ladybird_gpio
    output logic [3:0] LED,
    output logic       switch_int,
    output logic       button_int,
+   input logic        accept,
    input logic        nrst,
    input logic        anrst
    );
@@ -28,14 +29,15 @@ module ladybird_gpio
   logic [31:0]        data_out;
   logic [31:0]        data_in;
 
-  // timer for interval
-  logic [15:0]        r_timer;
+  // internal buf
+  logic [3:0]         SWITCH_I;
+  logic [3:0]         BUTTON_I;
 
   assign bus.gnt = 'b1;
   assign bus.data = (bus.data_gnt) ? data_out : 'z;
   assign data_in = bus.data;
 
-  assign LED = led_reg;
+  assign LED = led_reg | button_reg | switch_reg;
 
   always_comb begin
     if ((bus.req & (|bus.wstrb)) && (bus.addr[3:0] == 4'h8)) begin
@@ -63,36 +65,35 @@ module ladybird_gpio
     end
   end
 
+  assign switch_int = |switch_reg;
+  assign button_int = |button_reg;
+
   always_ff @(posedge clk, negedge anrst) begin
     if (~anrst) begin
       led_reg <= '0;
-      switch_reg <= SWITCH;
-      button_reg <= BUTTON;
-      r_timer <= '0;
+      switch_reg <= '0;
+      button_reg <= '0;
+      SWITCH_I <= '0;
+      BUTTON_I <= '0;
     end else begin
       if (~nrst) begin
         led_reg <= '0;
-        switch_reg <= SWITCH;
-        button_reg <= BUTTON;
-        r_timer <= '0;
+        switch_reg <= '0;
+        button_reg <= '0;
+        SWITCH_I <= '0;
+        BUTTON_I <= '0;
       end else begin
-        r_timer <= r_timer + 'd1;
-        if (r_timer == I_READ_INTERVAL) begin
-          if (|(switch_reg ^ SWITCH)) begin
-            switch_reg <= SWITCH;
-            switch_int <= 'b1;
-          end else begin
-            switch_int <= 'b0;
-          end
-          if (|(button_reg ^ BUTTON)) begin
-            button_reg <= SWITCH;
-            button_int <= 'b1;
-          end else begin
-            button_int <= 'b0;
-          end
+        SWITCH_I <= SWITCH;
+        BUTTON_I <= BUTTON;
+        if (switch_int & accept) begin
+          switch_reg <= '0;
         end else begin
-          button_int <= 'b0;
-          switch_int <= 'b0;
+          switch_reg <= switch_reg | SWITCH_I;
+        end
+        if (button_int & accept) begin
+          button_reg <= '0;
+        end else begin
+          button_reg <= button_reg | BUTTON_I;
         end
         if (led_write) begin
           led_reg <= data_in[3:0];
