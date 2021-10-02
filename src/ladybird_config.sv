@@ -208,6 +208,10 @@ package ladybird_config;
     return {12'h001, 5'd0, 3'b0, 5'd0, OPCODE_SYSTEM};
   endfunction
 
+  function automatic logic [31:0] MRET();
+    return {12'h302, 5'd0, 3'b0, 5'd0, OPCODE_SYSTEM};
+  endfunction
+
   // FENCE
   function automatic logic [31:0] FENCE(input logic [3:0] PRED, input logic [3:0] SUCC);
     automatic logic [3:0] FM = 3'b000; // NORMAL FENCE
