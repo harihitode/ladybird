@@ -9,6 +9,7 @@ module tb_ladybird;
   logic uart_txd_in;
   logic uart_rxd_out;
   logic [3:0] btn;
+  logic [3:0] sw = '0;
   logic [3:0] led;
 
   logic [31:0] iram [] = '{
