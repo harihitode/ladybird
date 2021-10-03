@@ -8,6 +8,7 @@ module ladybird_top
    input logic        uart_txd_in,
    output logic       uart_rxd_out,
    input logic [3:0]  btn,
+   input logic [3:0]  sw,
    output logic [3:0] led,
    input logic        anrst
    );
@@ -17,6 +18,7 @@ module ladybird_top
   logic               uart_rxd_out_i;
   logic               anrst_i;
   logic [3:0]         btn_i;
+  logic [3:0]         sw_i;
   logic [3:0]         led_i;
   //
   logic               nrst;
@@ -28,9 +30,9 @@ module ladybird_top
   localparam logic [XLEN-1:0] TVEC_PC = 32'h9000_0010;
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
-  logic                       switch_int; // switch interrupt
-  logic                       button_int; // button interrupt
-  logic                       accept; // interrupt accept
+  logic [7:0]                 pending; // interrupt pending
+  logic                       complete; // interrupt complete
+  logic [7:0]                 complete_i;
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
@@ -43,6 +45,7 @@ module ladybird_top
 
   generate for (genvar i = 0; i < 4; i++) begin: implementation_check_io_buf
     IBUF btn_in_buf (.I(btn[i]), .O(btn_i[i]));
+    IBUF sw_in_buf (.I(sw[i]), .O(sw_i[i]));
     OBUF led_out_buf (.I(led_i[i]), .O(led[i]));
   end endgenerate
 
@@ -64,15 +67,15 @@ module ladybird_top
 
   ladybird_core #(.SIMULATION(SIMULATION),
                   .TVEC(TVEC_PC))
-  DUT
+  CORE
     (
      .clk(clk_i),
      .i_bus(core_bus[I_BUS]),
      .d_bus(core_bus[D_BUS]),
      .start(start),
      .start_pc(START_PC),
-     .interrupt(switch_int | button_int),
-     .accept(accept),
+     .pending(|pending),
+     .complete(complete),
      .nrst(nrst),
      .anrst(anrst_i)
      );
@@ -88,7 +91,8 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_block_ram SPM_RAM_INST
+  ladybird_block_ram #(.ADDR_W(11), .READ_LATENCY(2))
+  SPM_RAM_INST
     (
      .clk(clk_i),
      .bus(peripheral_bus[BRAM]),
@@ -115,16 +119,18 @@ module ladybird_top
      .anrst(anrst_i)
      );
 
-  ladybird_gpio GPIO_INST
+  always_comb begin
+    complete_i = {8{complete}};
+  end
+  ladybird_gpio #(.E_WIDTH(4), .N_INPUT(2), .N_OUTPUT(1))
+  GPIO_INST
     (
      .clk(clk_i),
      .bus(peripheral_bus[GPIO]),
-     .SWITCH('0),
-     .BUTTON(btn_i),
-     .LED(led_i),
-     .switch_int(switch_int),
-     .button_int(button_int),
-     .accept(accept),
+     .GPIO_I({sw_i, btn_i}),
+     .GPIO_O(led_i),
+     .pending(pending),
+     .complete(complete_i),
      .nrst(nrst),
      .anrst(anrst_i)
      );

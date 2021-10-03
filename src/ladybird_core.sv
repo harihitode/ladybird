@@ -10,8 +10,8 @@ module ladybird_core
    interface.primary d_bus,
    input logic            start,
    input logic [XLEN-1:0] start_pc,
-   input logic            interrupt,
-   output logic           accept,
+   input logic            pending,
+   output logic           complete,
    input logic            anrst,
    input logic            nrst
    );
@@ -49,7 +49,7 @@ module ladybird_core
   logic                   trap_occur, trap_ret, requested_trap;
   logic [XLEN-1:0]        EPC; // exception program counter
   logic                   IE; // interrupt enable
-  assign trap_occur = IE & (requested_trap | interrupt);
+  assign trap_occur = IE & (requested_trap | pending);
 
   ladybird_mmu MMU
     (
@@ -366,7 +366,7 @@ module ladybird_core
   end
 
   // SYSTEM STATUS REGISTERS
-  assign accept = trap_ret;
+  assign complete = trap_ret;
 
   always_comb begin: REQUESTED_TRAP_BY_SOFTWARE
     if (inst_l[6:0] == OPCODE_SYSTEM) begin
