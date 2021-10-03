@@ -2,15 +2,14 @@
 
 module ladybird_block_ram
   import ladybird_config::*;
+  #(parameter ADDR_W = 11,
+    parameter READ_LATENCY = 2)
   (
    input logic clk,
    ladybird_bus.secondary bus,
    input logic nrst,
    input logic anrst
    );
-  // 2 read latency
-  localparam   ADDR_W = 11;
-  localparam   READ_LATENCY = 2;
   logic [READ_LATENCY-1:0] req_l;
   logic [XLEN-1:0]         data_out;
   logic [XLEN-1:0]         data_in;
