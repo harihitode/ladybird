@@ -2,18 +2,29 @@
 
 module tb_ladybird;
   import ladybird_config::*;
+  // clocking
   logic clk = '0;
+  default clocking cb @(posedge clk);
+  endclocking
+  // reset
   logic anrst = '0;
-  logic anrst_c = '0;
-  logic nrst = 'b1;
+  logic nrst = '0;
+  always_ff @(posedge clk) begin
+    nrst <= anrst;
+  end
+  // other signals
   logic uart_txd_in;
   logic uart_rxd_out;
   logic [3:0] btn;
-  logic [3:0] sw = '0;
+  logic [3:0] sw;
   logic [3:0] led;
   wire [1:0]  led_r;
   wire [1:0]  led_g;
   wire [1:0]  led_b;
+  wire [7:0]  ja;
+  wire [7:0]  jb;
+  wire [7:0]  jc;
+  wire [7:0]  jd;
 
   wire        qspi_cs;
   wire [3:0]  qspi_dq;
@@ -57,38 +68,36 @@ module tb_ladybird;
   initial begin
     #100 anrst = 'b1;
     write_instruction();
-    @(negedge clk);
+    ##1;
     host_uart_bus.req = 'b1;
     host_uart_bus.wstrb = '1;
-    @(posedge clk);
+    ##1;
     host_uart_bus.req = '0;
-    #10 anrst_c = 'b1;
     forever begin
-      @(negedge clk);
+      ##1;
       host_uart_bus.req = 'b1;
       host_uart_bus.wstrb = '0;
-      @(posedge clk);
+      ##1;
       host_uart_bus.req = '0;
       wait (host_uart_bus.data_gnt == 'b1);
-      @(posedge clk);
+      ##1;
       $display($time, " %d (%08x) (%c)", host_uart_bus.data, host_uart_bus.data, host_uart_bus.data);
       $finish;
     end
   end
 
   initial begin
-    forever begin
-      btn = 4'b0000;
-      #1000;
-      btn = 4'b0001;
-      #200;
-    end
+    btn = '0;
+    sw = '0;
+    #1000;
+    btn = 4'b0010;
+    #200;
+    btn = '0;
   end
 
   ladybird_top #(.SIMULATION(1))
   DUT (
-       .*,
-       .anrst(anrst_c)
+       .*
        );
 
   ladybird_bus_arbitrator_beh #(.N_INPUT(2))
@@ -117,8 +126,7 @@ module tb_ladybird;
      .uart_txd_in(uart_rxd_out),
      .uart_rxd_out(uart_txd_in),
      .bus(host_uart_bus),
-     .nrst(nrst),
-     .anrst(anrst)
+     .nrst(nrst)
      );
 
 endmodule

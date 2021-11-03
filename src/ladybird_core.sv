@@ -48,6 +48,7 @@ module ladybird_core
   logic                   trap_occur, trap_ret, requested_trap;
   logic [XLEN-1:0]        EPC; // exception program counter
   logic                   IE; // interrupt enable
+  assign IE = '0; // TODO for interrupt handling
   assign trap_occur = IE & (requested_trap | pending);
 
   ladybird_mmu MMU
@@ -374,14 +375,10 @@ module ladybird_core
 
   always_ff @(posedge clk) begin
     if (~nrst) begin
-      IE <= 'b1;
       EPC <= '0;
     end else begin
       if (commit_valid & trap_occur) begin
         EPC <= pc_n;
-        IE <= 'b0;
-      end else if (commit_valid & trap_ret) begin
-        IE <= 'b1;
       end
     end
   end
