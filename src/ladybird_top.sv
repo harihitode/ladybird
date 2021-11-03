@@ -21,8 +21,10 @@ module ladybird_top
    inout wire [3:0]   qspi_dq,
    input wire         anrst
    );
+
   // Sync. Reset (negative)
   logic               nrst;
+  logic [3:0]         cled;
 
   // from core 2 bus data/instruction
   ladybird_bus core_bus[2]();
@@ -39,14 +41,9 @@ module ladybird_top
   // internal bus
   ladybird_bus peripheral_bus[NUM_PERIPHERAL]();
 
-  assign led_r = '1;
-  assign led_b = '1;
-  assign led_g = '1;
-  assign qspi_cs = 'b1;
-  assign qspi_dq[0] = 1'b1;
-  assign qspi_dq[1] = 1'bz;
-  assign qspi_dq[2] = 1'b1; // not used
-  assign qspi_dq[3] = 1'b1; // not used
+  assign led_r = {2{cled[2]}};
+  assign led_g = {2{cled[1]}};
+  assign led_b = {2{cled[0]}};
 
   always_ff @(posedge clk) begin: synchronous_reset
     nrst <= anrst;
@@ -112,13 +109,13 @@ module ladybird_top
   always_comb begin
     complete_i = {8{complete}};
   end
-  ladybird_gpio #(.E_WIDTH(4), .N_INPUT(2), .N_OUTPUT(1))
+  ladybird_gpio #(.E_WIDTH(4), .N_INPUT(2), .N_OUTPUT(2))
   GPIO_INST
     (
      .clk(clk),
      .bus(peripheral_bus[GPIO]),
      .GPIO_I({sw, btn}),
-     .GPIO_O({led}),
+     .GPIO_O({cled, led}),
      .pending(pending),
      .complete(complete_i),
      .nrst(nrst)
