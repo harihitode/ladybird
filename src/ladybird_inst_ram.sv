@@ -16,7 +16,7 @@ module ladybird_inst_ram
   logic [XLEN-1:0] data_in;
   assign bus.gnt = 'b1;
 
-  generate if (DISTRIBUTED_RAM == 1) begin
+  generate if (DISTRIBUTED_RAM == 1) begin: DIST_IMPL
     assign bus.data = (bus.data_gnt) ? data_out : 'z;
     assign data_in = bus.data;
     localparam   ADDR_W = 4;
@@ -59,11 +59,11 @@ module ladybird_inst_ram
       end
     end
 
-  end else begin: DIST_IMPL
+  end else begin: BRAM_IMPL
     assign bus.data = (bus.data_gnt) ? {data_out[7:0], data_out[15:8], data_out[23:16], data_out[31:24]} : 'z;
     assign data_in = {bus.data[7:0], bus.data[15:8], bus.data[23:16], bus.data[31:24]};
     // 2 read latency
-    localparam ADDR_W = 17;
+    localparam ADDR_W = 15;
     localparam READ_LATENCY = 2;
     logic [READ_LATENCY-1:0] req_l;
     logic [3:0]              wstrb;
