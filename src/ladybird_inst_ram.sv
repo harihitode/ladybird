@@ -35,7 +35,7 @@ module ladybird_inst_ram
           7:SB(5'd3, 12'h000, 5'd2), // send uart
           8:NOT(5'd10, 5'd0),
           9:SB(5'd10, 12'd5, 5'd1), // write kypd col mask
-          10:J(-21'h32),
+          10:J(-21'd32),
           default:NOP()
           };
     always_ff @(posedge clk) begin
