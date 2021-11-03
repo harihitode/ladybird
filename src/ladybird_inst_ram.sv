@@ -27,7 +27,7 @@ module ladybird_inst_ram
       = '{
           0:LUI(5'd1, 20'hE0000),
           1:LUI(5'd2, 20'hF0000),
-          2:LB(5'd3, 12'h002, 5'd1),
+          2:LB(5'd3, 12'h003, 5'd1),
           3:SB(5'd3, 12'h000, 5'd2),
           4:J(-21'h8),
           default:NOP()

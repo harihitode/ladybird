@@ -33,7 +33,7 @@ module ladybird_top
 
   localparam logic [XLEN-1:0] START_PC = 32'h9000_0000;
   localparam logic [XLEN-1:0] TVEC_PC = 32'h9000_0010;
-  localparam                  N_GPIO_I = 2;
+  localparam                  N_GPIO_I = 6;
   localparam                  N_GPIO_O = 2;
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
@@ -56,6 +56,10 @@ module ladybird_top
   assign led_g = {cled_i[4], cled_i[1]};
   assign led_b = {cled_i[3], cled_i[0]};
   assign led = led_i[3:0];
+  assign ja = 'z;
+  assign jb = 'z;
+  assign jc = 'z;
+  assign jd = 'z;
 
   assign qspi_cs = 'b1;
   assign qspi_dq[0] = 1'b1;
@@ -128,14 +132,14 @@ module ladybird_top
     complete_i = {8{complete}};
   end
   ladybird_gpio #(.I_BLOCKING_MODE(1),
-                  .I_TOGGLE_MASK(2'b01),
+                  .I_TOGGLE_MASK(6'b000001),
                   .N_INPUT(N_GPIO_I),
                   .N_OUTPUT(N_GPIO_O))
   GPIO_INST
     (
      .clk(clk),
      .bus(peripheral_bus[GPIO]),
-     .GPIO_I({sw_i, btn_i}),
+     .GPIO_I({jd, jc, jb, ja, sw_i, btn_i}),
      .GPIO_O({cled_i, led_i}),
      .pending(pending),
      .complete(complete_i),
