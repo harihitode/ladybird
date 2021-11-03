@@ -8,7 +8,6 @@ module ladybird_uart_receiver
    output logic [7:0] data,
    input logic        ready,
    input logic        rx,
-   input logic        anrst,
    input logic        nrst
    );
 
@@ -55,8 +54,8 @@ module ladybird_uart_receiver
                           (waitsleep & rx_ll)    ? 'b0 :
                           waitsleep;
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       rx_l <= 'b1;
       rx_ll <= 'b1;
       state <= SLEEP;
@@ -68,33 +67,20 @@ module ladybird_uart_receiver
       data_i <= 8'hff;
       current_buff = 8'hff;
     end else begin
-      if (~nrst) begin
-        rx_l <= 'b1;
-        rx_ll <= 'b1;
-        state <= SLEEP;
-        counter <= {5'd0, WTIME[15:1]};
-        index <= 1'b0;
-        waitsleep <= 1'b0;
-        reading <= 1'b0;
+      rx_l <= rx;
+      rx_ll <= rx_l;
+      state <= next_state;
+      counter <= next_counter;
+      index <= next_index;
+      waitsleep <= next_waitsleep;
+      reading <= next_reading;
+      if (ready & valid) begin
         valid_i <= 1'b0;
-        data_i <= 8'hff;
-        current_buff = 8'hff;
-      end else begin
-        rx_l <= rx;
-        rx_ll <= rx_l;
-        state <= next_state;
-        counter <= next_counter;
-        index <= next_index;
-        waitsleep <= next_waitsleep;
-        reading <= next_reading;
-        if (ready & valid) begin
-          valid_i <= 1'b0;
-        end else if (reset & ~valid) begin
-          valid_i <= 1'b1;
-          data_i <= current_buff;
-        end
-        if (statemachine_countup) current_buff <= {rx, current_buff[7:1]};
+      end else if (reset & ~valid) begin
+        valid_i <= 1'b1;
+        data_i <= current_buff;
       end
+      if (statemachine_countup) current_buff <= {rx, current_buff[7:1]};
     end
   end
 

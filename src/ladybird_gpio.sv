@@ -14,8 +14,7 @@ module ladybird_gpio
    output logic [E_WIDTH*N_OUTPUT-1:0] GPIO_O,
    output logic [E_WIDTH*N_INPUT-1:0]  pending,
    input logic [E_WIDTH*N_INPUT-1:0]   complete,
-   input logic                         nrst,
-   input logic                         anrst
+   input logic                         nrst
    );
 
   localparam                           I_WIDTH = E_WIDTH * N_INPUT;
@@ -67,22 +66,16 @@ module ladybird_gpio
   end
 
   assign complete_mask = pending & complete;
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       gpio_i_reg <= '0;
       pending <= '0;
       gpio_o_reg <= '0;
     end else begin
-      if (~nrst) begin
-        gpio_i_reg <= '0;
-        pending <= '0;
-        gpio_o_reg <= '0;
-      end else begin
-        gpio_i_reg <= ~complete_mask & (gpio_i_reg | GPIO_I);
-        pending <= ~complete_mask & (gpio_i_reg ^ GPIO_I);
-        if (gpio_write) begin
-          gpio_o_reg <= data_in[E_WIDTH-1:0];
-        end
+      gpio_i_reg <= ~complete_mask & (gpio_i_reg | GPIO_I);
+      pending <= ~complete_mask & (gpio_i_reg ^ GPIO_I);
+      if (gpio_write) begin
+        gpio_o_reg <= data_in[E_WIDTH-1:0];
       end
     end
   end

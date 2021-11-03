@@ -11,7 +11,6 @@ module ladybird_serial_interface
    input logic                  uart_txd_in,
    output logic                 uart_rxd_out,
    ladybird_bus.secondary       bus,
-   input logic                  anrst,
    input logic                  nrst
    );
 
@@ -28,30 +27,22 @@ module ladybird_serial_interface
   logic [7:0]                   trns_data;
 
   generate for (genvar i = 0; i < O_BYTES; i++) begin: recieve_buffer_packing
-    always_ff @(posedge clk, negedge anrst) begin
-      if (~anrst) begin
+    always_ff @(posedge clk) begin
+      if (~nrst) begin
         recv_data_buf[i*8+:8] <= '0;
       end else begin
-        if (~nrst) begin
-          recv_data_buf[i*8+:8] <= '0;
-        end else begin
-          if (i == recv_cnt) begin
-            recv_data_buf[i*8+:8] <= recv_data;
-          end
+        if (i == recv_cnt) begin
+          recv_data_buf[i*8+:8] <= recv_data;
         end
       end
     end
   end endgenerate
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       recv_fifo_valid <= '0;
     end else begin
-      if (~nrst) begin
-        recv_fifo_valid <= '0;
-      end else begin
-        recv_fifo_valid <= (recv_cnt == O_BYTES-1 && recv_valid) ? 'b1 : 'b0;
-      end
+      recv_fifo_valid <= (recv_cnt == O_BYTES-1 && recv_valid) ? 'b1 : 'b0;
     end
   end
 
@@ -60,36 +51,28 @@ module ladybird_serial_interface
     trns_fifo_ready = (trns_cnt == I_BYTES-1 && trns_ready) ? 'b1 : 'b0;
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       recv_cnt <= 'd0;
     end else begin
-      if (~nrst) begin
+      if (recv_valid && recv_cnt == O_BYTES-1) begin
         recv_cnt <= 'd0;
+      end else if (recv_valid && recv_ready) begin
+        recv_cnt <= recv_cnt + 'd1;
       end else begin
-        if (recv_valid && recv_cnt == O_BYTES-1) begin
-          recv_cnt <= 'd0;
-        end else if (recv_valid && recv_ready) begin
-          recv_cnt <= recv_cnt + 'd1;
-        end else begin
-          recv_cnt <= recv_cnt;
-        end
+        recv_cnt <= recv_cnt;
       end
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       trns_cnt <= 'd0;
     end else begin
-      if (~nrst) begin
+      if (trns_ready && trns_cnt == I_BYTES-1) begin
         trns_cnt <= 'd0;
-      end else begin
-        if (trns_ready && trns_cnt == I_BYTES-1) begin
-          trns_cnt <= 'd0;
-        end else if (trns_ready && trns_valid) begin
-          trns_cnt <= trns_cnt + 'd1;
-        end
+      end else if (trns_ready && trns_valid) begin
+        trns_cnt <= trns_cnt + 'd1;
       end
     end
   end
@@ -109,18 +92,14 @@ module ladybird_serial_interface
   assign bus.data_gnt = (read_data_req & read_data_valid);
   assign read_data_req = ~read_ready;
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       read_ready <= '1;
     end else begin
-      if (~nrst) begin
+      if (read_req & read_ready) begin
+        read_ready <= '0;
+      end else if (bus.data_gnt) begin
         read_ready <= '1;
-      end else begin
-        if (read_req & read_ready) begin
-          read_ready <= '0;
-        end else if (bus.data_gnt) begin
-          read_ready <= '1;
-        end
       end
     end
   end
@@ -133,7 +112,6 @@ module ladybird_serial_interface
      .data(recv_data),
      .ready(recv_ready),
      .rx(uart_txd_in),
-     .anrst(anrst),
      .nrst(nrst)
      );
 
@@ -147,7 +125,6 @@ module ladybird_serial_interface
      .b_data(read_data),
      .b_valid(read_data_valid),
      .b_ready(read_data_req),
-     .anrst(anrst),
      .nrst(nrst)
      );
 
@@ -159,7 +136,6 @@ module ladybird_serial_interface
      .data(trns_data),
      .ready(trns_ready),
      .tx(uart_rxd_out),
-     .anrst(anrst),
      .nrst(nrst)
      );
 
@@ -173,7 +149,6 @@ module ladybird_serial_interface
      .b_data(trns_data_buf),
      .b_valid(trns_valid),
      .b_ready(trns_fifo_ready),
-     .anrst(anrst),
      .nrst(nrst)
      );
 

@@ -8,8 +8,7 @@ module ladybird_inst_ram
   (
    input logic clk,
    ladybird_bus.secondary bus,
-   input logic nrst,
-   input logic anrst
+   input logic nrst
    );
 
   logic [XLEN-1:0] data_out;
@@ -33,28 +32,22 @@ module ladybird_inst_ram
           4:EBREAK(),
           default:NOP()
           };
-    always_ff @(posedge clk, negedge anrst) begin
-      if (~anrst) begin
+    always_ff @(posedge clk) begin
+      if (~nrst) begin
         data_gnt <= '0;
         data_out <= '0;
         ram <= ram_vector;
       end else begin
-        if (~nrst) begin
+        if (bus.req & (|bus.wstrb)) begin
           data_gnt <= '0;
-          data_out <= '0;
-          ram <= ram_vector;
-        end else begin
-          if (bus.req & (|bus.wstrb)) begin
-            data_gnt <= '0;
-            for (int i = 0; i < 4; i++) begin
-              if (bus.wstrb[i]) ram[bus.addr[ADDR_W+2-1:2]][8*i+:8] <= data_in[8*i+:8];
-            end
-          end else if (bus.req) begin
-            data_gnt <= 'b1;
-            data_out <= ram[bus.addr[ADDR_W+2-1:2]];
-          end else begin
-            data_gnt <= 'b0;
+          for (int i = 0; i < 4; i++) begin
+            if (bus.wstrb[i]) ram[bus.addr[ADDR_W+2-1:2]][8*i+:8] <= data_in[8*i+:8];
           end
+        end else if (bus.req) begin
+          data_gnt <= 'b1;
+          data_out <= ram[bus.addr[ADDR_W+2-1:2]];
+        end else begin
+          data_gnt <= 'b0;
         end
       end
     end
@@ -69,15 +62,11 @@ module ladybird_inst_ram
     logic [3:0]              wstrb;
     assign wstrb = (bus.req & bus.gnt) ? {bus.wstrb[0], bus.wstrb[1], bus.wstrb[2], bus.wstrb[3]} : '0;
     assign bus.data_gnt = req_l[0];
-    always_ff @(posedge clk, negedge anrst) begin
-      if (~anrst) begin
+    always_ff @(posedge clk) begin
+      if (~nrst) begin
         req_l <= '0;
       end else begin
-        if (~nrst) begin
-          req_l <= '0;
-        end else begin
-          req_l <= {bus.req & ~|bus.wstrb, req_l[$high(req_l):1]};
-        end
+        req_l <= {bus.req & ~|bus.wstrb, req_l[$high(req_l):1]};
       end
     end
     // IRAM_IMPL in order to write instructions at first

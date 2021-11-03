@@ -8,7 +8,6 @@ module ladybird_uart_transmitter
    input logic [7:0] data,
    output logic      ready,
    output logic      tx,
-   input logic       anrst,
    input logic       nrst
    );
 
@@ -29,52 +28,40 @@ module ladybird_uart_transmitter
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       buff <= '1;
     end else begin
-      if (~nrst) begin
-        buff <= '1;
-      end else begin
-        if (valid & ready) buff <= {1'b1, data, 1'b0};
-        else if (counter == 'd0) buff <= {1'b1, buff[9:1]}; // right shift
-      end
+      if (valid & ready) buff <= {1'b1, data, 1'b0};
+      else if (counter == 'd0) buff <= {1'b1, buff[9:1]}; // right shift
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       state <= SLEEP;
     end else begin
-      if (~nrst) begin
+      // corner case
+      if (valid & ready) begin
+        state <= SEND_FIRSTDATA;
+      end else if (state == SEND_LASTDATA && counter == '0) begin
         state <= SLEEP;
-      end else begin
-        // corner case
-        if (valid & ready) begin
-          state <= SEND_FIRSTDATA;
-        end else if (state == SEND_LASTDATA && counter == '0) begin
-          state <= SLEEP;
-        end else if (state < SEND_LASTDATA && counter == '0) begin
-          state <= state + 'd1;
-        end
+      end else if (state < SEND_LASTDATA && counter == '0) begin
+        state <= state + 'd1;
       end
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       counter <= WTIME;
     end else begin
-      if (~nrst) begin
+      if (valid & ready) begin
+        counter <= WTIME;
+      end else if (~(|counter)) begin
         counter <= WTIME;
       end else begin
-        if (valid & ready) begin
-          counter <= WTIME;
-        end else if (~(|counter)) begin
-          counter <= WTIME;
-        end else begin
-          counter <= counter - 'd1;
-        end
+        counter <= counter - 'd1;
       end
     end
   end

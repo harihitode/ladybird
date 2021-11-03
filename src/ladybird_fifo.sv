@@ -11,7 +11,6 @@ module ladybird_fifo
    output logic [DATA_W-1:0] b_data,
    output logic              b_valid,
    input logic               b_ready,
-   input logic               anrst,
    input logic               nrst
    );
 
@@ -32,45 +31,35 @@ module ladybird_fifo
   assign b_data = mem[read_pos];
   assign instruction = {a_valid & a_ready, b_valid & b_ready};
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       read_pos <= 'd0;
       write_pos <= 'd0;
       mem <= '{default:'0};
     end else begin
-      if (~nrst) begin
-        read_pos <= 'd0;
-        write_pos <= 'd0;
-        mem <= '{default:'0};
-      end else begin
-        if (instruction & FIFO_R) read_pos <= read_pos + NEXT_POS;
-        if (instruction & FIFO_W) write_pos <= write_pos + NEXT_POS;
-        if (instruction & FIFO_W) mem[write_pos] <= a_data;
-      end
+      if (instruction & FIFO_R) read_pos <= read_pos + NEXT_POS;
+      if (instruction & FIFO_W) write_pos <= write_pos + NEXT_POS;
+      if (instruction & FIFO_W) mem[write_pos] <= a_data;
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin: generate_full_flag
-    if (~anrst) begin
+  always_ff @(posedge clk) begin: generate_full_flag
+    if (~nrst) begin
       full <= 'b0;
     end else begin
-      if (~nrst) begin
-        full <= 'b0;
-      end else begin
-        case (instruction)
-          FIFO_R: begin // only read === release full flag
-            full <= 'b0;
+      case (instruction)
+        FIFO_R: begin // only read === release full flag
+          full <= 'b0;
+        end
+        FIFO_W: begin
+          if (read_pos == write_pos + NEXT_POS) begin
+            full <= 'b1;
           end
-          FIFO_W: begin
-            if (read_pos == write_pos + NEXT_POS) begin
-              full <= 'b1;
-            end
-          end
-          default: begin
-            full <= full;
-          end
-        endcase
-      end
+        end
+        default: begin
+          full <= full;
+        end
+      endcase
     end
   end
 

@@ -12,7 +12,6 @@ module ladybird_core
    input logic [XLEN-1:0] start_pc,
    input logic            pending,
    output logic           complete,
-   input logic            anrst,
    input logic            nrst
    );
 
@@ -70,7 +69,6 @@ module ladybird_core
      .pc_ready(pc_ready),
      .inst(inst),
      .inst_valid(inst_valid),
-     .anrst(anrst),
      .nrst(nrst)
      );
 
@@ -304,63 +302,49 @@ module ladybird_core
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       rs1_data <= '0;
       rs2_data <= '0;
       gpr <= '{default:'0};
     end else begin
-      if (~nrst) begin
-        rs1_data <= '0;
-        rs2_data <= '0;
-        gpr <= '{default:'0};
-      end else begin
-        if (state == D_FETCH) begin
-          rs1_data <= gpr[rs1_addr];
-          rs2_data <= gpr[rs2_addr];
-        end else if (state == COMMIT) begin
-          if (write_back & commit_valid) begin
-            gpr[rd_addr] <= commit_data;
-          end
+      if (state == D_FETCH) begin
+        rs1_data <= gpr[rs1_addr];
+        rs2_data <= gpr[rs2_addr];
+      end else if (state == COMMIT) begin
+        if (write_back & commit_valid) begin
+          gpr[rd_addr] <= commit_data;
         end
       end
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       pc <= '0;
       state <= IDLE;
       state_progress <= 'b0;
       inst_l <= '0;
       alu_res_l <= '0;
     end else begin
-      if (~nrst) begin
-        pc <= '0;
-        state <= IDLE;
-        state_progress <= 'b0;
-        inst_l <= '0;
-        alu_res_l <= '0;
-      end else begin
-        if ((state == IDLE) && start) begin
-          pc <= start_pc;
-        end else if (commit_valid) begin
-          if (trap_ret) begin
-            pc <= EPC;
-          end else if (trap_occur) begin
-            pc <= TVEC;
-          end else begin
-            pc <= pc_n;
-          end
+      if ((state == IDLE) && start) begin
+        pc <= start_pc;
+      end else if (commit_valid) begin
+        if (trap_ret) begin
+          pc <= EPC;
+        end else if (trap_occur) begin
+          pc <= TVEC;
+        end else begin
+          pc <= pc_n;
         end
-        state <= state_n;
-        state_progress <= state_progress_n;
-        if ((state == D_FETCH) && inst_valid) begin
-          inst_l <= inst;
-        end
-        if (state == EXEC) begin
-          alu_res_l <= alu_res;
-        end
+      end
+      state <= state_n;
+      state_progress <= state_progress_n;
+      if ((state == D_FETCH) && inst_valid) begin
+        inst_l <= inst;
+      end
+      if (state == EXEC) begin
+        alu_res_l <= alu_res;
       end
     end
   end
@@ -388,21 +372,16 @@ module ladybird_core
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       IE <= 'b1;
       EPC <= '0;
     end else begin
-      if (~nrst) begin
+      if (commit_valid & trap_occur) begin
+        EPC <= pc_n;
+        IE <= 'b0;
+      end else if (commit_valid & trap_ret) begin
         IE <= 'b1;
-        EPC <= '0;
-      end else begin
-        if (commit_valid & trap_occur) begin
-          EPC <= pc_n;
-          IE <= 'b0;
-        end else if (commit_valid & trap_ret) begin
-          IE <= 'b1;
-        end
       end
     end
   end

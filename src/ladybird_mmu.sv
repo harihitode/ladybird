@@ -22,7 +22,6 @@ module ladybird_mmu
    //
    interface.primary i_bus,
    interface.primary d_bus,
-   input logic             anrst,
    input logic             nrst
    );
 
@@ -93,36 +92,31 @@ module ladybird_mmu
     end
   end
 
-  always_ff @(posedge clk, negedge anrst) begin
-    if (~anrst) begin
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
       request_buffer <= '0;
       request_done <= '0;
     end else begin
-      if (~nrst) begin
-        request_buffer <= '0;
+      if (request_buffer.valid & d_bus.gnt) begin
+        request_done <= '1;
+      end else if (request_buffer.we | (o_ready & o_valid)) begin
         request_done <= '0;
-      end else begin
-        if (request_buffer.valid & d_bus.gnt) begin
-          request_done <= '1;
-        end else if (request_buffer.we | (o_ready & o_valid)) begin
-          request_done <= '0;
+      end
+      if (i_ready & i_valid) begin
+        request_buffer.valid <= i_ready & i_valid;
+        request_buffer.addr <= i_addr;
+        if (i_funct[1:0] == 2'b00) begin
+          request_buffer.data <= {i_data[7:0], i_data[7:0], i_data[7:0], i_data[7:0]};
+        end else if (i_funct[1:0] == 2'b01) begin
+          request_buffer.data <= {i_data[15:0], i_data[15:0]};
+        end else begin
+          request_buffer.data <= i_data;
         end
-        if (i_ready & i_valid) begin
-          request_buffer.valid <= i_ready & i_valid;
-          request_buffer.addr <= i_addr;
-          if (i_funct[1:0] == 2'b00) begin
-            request_buffer.data <= {i_data[7:0], i_data[7:0], i_data[7:0], i_data[7:0]};
-          end else if (i_funct[1:0] == 2'b01) begin
-            request_buffer.data <= {i_data[15:0], i_data[15:0]};
-          end else begin
-            request_buffer.data <= i_data;
-          end
-          request_buffer.funct <= i_funct;
-          request_buffer.we <= i_we;
-        end else if (request_done) begin
-          if (request_buffer.we | (o_valid & o_ready)) begin
-            request_buffer <= '0;
-          end
+        request_buffer.funct <= i_funct;
+        request_buffer.we <= i_we;
+      end else if (request_done) begin
+        if (request_buffer.we | (o_valid & o_ready)) begin
+          request_buffer <= '0;
         end
       end
     end

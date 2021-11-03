@@ -9,8 +9,7 @@ module ladybird_crossbar
    input logic clk,
    interface.secondary core_ports [N_CORE_BUS],
    interface.primary peripheral_ports [N_PERIPHERAL_BUS],
-   input logic nrst,
-   input logic anrst
+   input logic nrst
    );
 
   typedef struct packed {
@@ -58,26 +57,22 @@ module ladybird_crossbar
       requests_data_gnt[i] = requests[i].requested & p_data_gnt[core_ports_access[i]];
     end
 
-    always_ff @(posedge clk, negedge anrst) begin
-      if (~anrst) begin
+    always_ff @(posedge clk) begin
+      if (~nrst) begin
         requests[i] <= '0;
       end else begin
-        if (~nrst) begin
+        if (core_ports[i].req & ~requests[i].valid) begin
+          requests[i].valid <= 'b1;
+          requests[i].addr <= core_ports[i].addr;
+          requests[i].data <= core_ports_data[i];
+          requests[i].wstrb <= core_ports[i].wstrb;
+        end else if (core_ports_store_completed[i] | core_ports_load_completed[i])begin
           requests[i] <= '0;
-        end else begin
-          if (core_ports[i].req & ~requests[i].valid) begin
-            requests[i].valid <= 'b1;
-            requests[i].addr <= core_ports[i].addr;
-            requests[i].data <= core_ports_data[i];
-            requests[i].wstrb <= core_ports[i].wstrb;
-          end else if (core_ports_store_completed[i] | core_ports_load_completed[i])begin
-            requests[i] <= '0;
-          end else if (~requests[i].requested & requests_gnt[i])begin
-            requests[i].requested <= 'b1;
-          end else if (requests_data_gnt[i]) begin
-            requests[i].filled <= 'b1;
-            requests[i].data <= core_ports_data[i];
-          end
+        end else if (~requests[i].requested & requests_gnt[i])begin
+          requests[i].requested <= 'b1;
+        end else if (requests_data_gnt[i]) begin
+          requests[i].filled <= 'b1;
+          requests[i].data <= core_ports_data[i];
         end
       end
     end
