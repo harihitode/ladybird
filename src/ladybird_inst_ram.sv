@@ -27,9 +27,15 @@ module ladybird_inst_ram
       = '{
           0:LUI(5'd1, 20'hE0000),
           1:LUI(5'd2, 20'hF0000),
-          2:LB(5'd3, 12'h003, 5'd1),
-          3:SB(5'd3, 12'h000, 5'd2),
-          4:J(-21'h8),
+          2:LB(5'd10, 12'd6, 5'd1), // read btn
+          3:NOT(5'd10, 5'd10),
+          4:SB(5'd10, 12'd0, 5'd1), // write led
+          5:SB(5'd10, 12'd5, 5'd1), // write kypd col mask
+          6:LB(5'd3, 12'd11, 5'd1), // read kypd row value
+          7:SB(5'd3, 12'h000, 5'd2), // send uart
+          8:NOT(5'd10, 5'd0),
+          9:SB(5'd10, 12'd5, 5'd1), // write kypd col mask
+          10:J(-21'h32),
           default:NOP()
           };
     always_ff @(posedge clk) begin

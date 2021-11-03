@@ -24,10 +24,14 @@ module tb_ladybird;
   wire [7:0]  ja, jb, jc, jd;
   logic [7:0] ja_i, jb_i, jc_i, jd_i;
 
-  assign ja = ja_i;
-  assign jb = jb_i;
-  assign jc = jc_i;
-  assign jd = jd_i;
+  assign ja[7:4] = ja_i[7:4];
+  assign jb[7:4] = jb_i[7:4];
+  assign jc[7:4] = jc_i[7:4];
+  assign jd[7:4] = jd_i[7:4];
+  assign ja[3:0] = 'z;
+  assign jb[3:0] = 'z;
+  assign jc[3:0] = 'z;
+  assign jd[3:0] = 'z;
 
   wire        qspi_cs;
   wire [3:0]  qspi_dq;
@@ -94,12 +98,16 @@ module tb_ladybird;
     ja_i = '0;
     jb_i = '0;
     jc_i = '0;
-    jd_i = '0;
+    jd_i = '1;
     sw = '0;
-    #1000;
-    jd_i = 8'b10101010;
-    #200;
-    jd_i = '0;
+    #500;
+    btn = 'b1;
+    #500;
+    btn = 'b0;
+    #500;
+    jd_i = 8'b10100000;
+    #500;
+    jd_i = '1;
   end
 
   ladybird_top #(.SIMULATION(1))

@@ -34,7 +34,7 @@ module ladybird_top
   localparam logic [XLEN-1:0] START_PC = 32'h9000_0000;
   localparam logic [XLEN-1:0] TVEC_PC = 32'h9000_0010;
   localparam                  N_GPIO_I = 6;
-  localparam                  N_GPIO_O = 2;
+  localparam                  N_GPIO_O = 6;
   //////////////////////////////////////////////////////////////////////
   logic                       start; // start 1 cycle to wakeup core
   logic [N_GPIO_I-1:0]        pending; // interrupt pending
@@ -45,27 +45,34 @@ module ladybird_top
   // internal bus
   ladybird_bus peripheral_bus[5]();
 
-  wire [7:0]                  cled_i;
-  wire [7:0]                  led_i;
+  wire [7:0]                  cled_o;
+  wire [7:0]                  led_o;
+  wire [7:0]                  ja_o, jb_o, jc_o, jd_o;
+  wire [7:0]                  ja_i, jb_i, jc_i, jd_i;
   wire [7:0]                  btn_i;
   wire [7:0]                  sw_i;
 
   assign btn_i = {4'b0000, btn};
   assign sw_i = {4'b0000, sw};
-  assign led_r = {cled_i[5], cled_i[2]};
-  assign led_g = {cled_i[4], cled_i[1]};
-  assign led_b = {cled_i[3], cled_i[0]};
-  assign led = led_i[3:0];
-  assign ja = 'z;
-  assign jb = 'z;
-  assign jc = 'z;
-  assign jd = 'z;
+  assign led_r = {cled_o[5], cled_o[2]};
+  assign led_g = {cled_o[4], cled_o[1]};
+  assign led_b = {cled_o[3], cled_o[0]};
+  assign led = led_o[3:0];
 
   assign qspi_cs = 'b1;
   assign qspi_dq[0] = 1'b1;
   assign qspi_dq[1] = 1'bz;
   assign qspi_dq[2] = 1'b1; // not used
   assign qspi_dq[3] = 1'b1; // not used
+
+  assign ja_i = {4'd0, ja[7:4]}; // tmp
+  assign jb_i = {4'd0, jb[7:4]}; // tmp
+  assign jc_i = {4'd0, jc[7:4]}; // tmp
+  assign jd_i = {4'd0, ~jd[7:4]}; // for row column
+  assign ja = {4'bzzzz, ja_o[3:0]};
+  assign jb = {4'bzzzz, jb_o[3:0]};
+  assign jc = {4'bzzzz, jc_o[3:0]};
+  assign jd = {4'bzzzz, jd_o[3:0]};
 
   always_ff @(posedge clk) begin: synchronous_reset
     nrst <= anrst;
@@ -132,15 +139,15 @@ module ladybird_top
     complete_i = {8{complete}};
   end
   ladybird_gpio #(.I_BLOCKING_MODE(1),
-                  .I_TOGGLE_MASK(6'b000001),
+                  .I_TOGGLE_MASK(6'b111101),
                   .N_INPUT(N_GPIO_I),
                   .N_OUTPUT(N_GPIO_O))
   GPIO_INST
     (
      .clk(clk),
      .bus(peripheral_bus[GPIO]),
-     .GPIO_I({jd, jc, jb, ja, sw_i, btn_i}),
-     .GPIO_O({cled_i, led_i}),
+     .GPIO_I({jd_i, jc_i, jb_i, ja_i, sw_i, btn_i}),
+     .GPIO_O({jd_o, jc_o, jb_o, ja_o, cled_o, led_o}),
      .pending(pending),
      .complete(complete_i),
      .nrst(nrst)
