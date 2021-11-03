@@ -226,4 +226,9 @@ package ladybird_config;
   function automatic logic [31:0] J(input logic [20:0] offset);
     return JAL(5'd0, offset);
   endfunction
+
+  function automatic logic [31:0] NOT(input logic [4:0] rd, input logic [4:0] rs);
+    return XORI(rd, rs, 12'hfff);
+  endfunction
+
 endpackage
