@@ -21,7 +21,7 @@ module ladybird_qspi_interface
   logic [7:0]       command_limit_i, data_limit_i;
   // command and data value
   logic [63:0]      command, command_i;
-  logic [8:0]       rd_data;
+  logic [7:0]       rd_data;
 
   assign dq[0] = command[$high(command)];
   assign dq[1] = 1'bz;
@@ -31,7 +31,7 @@ module ladybird_qspi_interface
   // bus control
   assign bus.gnt = (state == IDLE) ? 1'b1 : 1'b0;
   assign bus.data_gnt = (state == WAITREADY) ? 1'b1 : 1'b0;
-  assign bus.data = (state == WAITREADY) ? {24'd0, rd_data} : 'z;
+  assign bus.data = (state == WAITREADY) ? {4{rd_data}} : 'z;
 
   // this is specific to each SPI flash
   localparam logic [7:0] CMD_REMS = 8'h90;
