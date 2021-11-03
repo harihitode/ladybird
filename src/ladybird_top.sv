@@ -1,16 +1,25 @@
 `timescale 1 ns / 1 ps
+`default_nettype none
 
 module ladybird_top
   import ladybird_config::*;
   #(parameter SIMULATION = 0)
   (
-   input logic        clk,
-   input logic        uart_txd_in,
+   input wire         clk,
+   // UART Serial
+   input wire         uart_txd_in,
    output logic       uart_rxd_out,
-   input logic [3:0]  btn,
-   input logic [3:0]  sw,
+   // GPIOs
+   input wire [3:0]   btn,
+   input wire [3:0]   sw,
    output logic [3:0] led,
-   input logic        anrst
+   output logic [1:0] led_r,
+   output logic [1:0] led_g,
+   output logic [1:0] led_b,
+   // QSPI to FLASH RAM
+   output logic       qspi_cs,
+   inout wire [3:0]   qspi_dq,
+   input wire         anrst
    );
 
   logic               clk_i;
@@ -48,6 +57,15 @@ module ladybird_top
     IBUF sw_in_buf (.I(sw[i]), .O(sw_i[i]));
     OBUF led_out_buf (.I(led_i[i]), .O(led[i]));
   end endgenerate
+
+  assign led_r = '1;
+  assign led_b = '1;
+  assign led_g = '1;
+  assign qspi_cs = 'b1;
+  assign qspi_dq[0] = 1'b1;
+  assign qspi_dq[1] = 1'bz;
+  assign qspi_dq[2] = 1'b1; // not used
+  assign qspi_dq[3] = 1'b1; // not used
 
   always_ff @(posedge clk_i) begin: synchronous_reset
     nrst <= anrst_i;
@@ -146,3 +164,5 @@ module ladybird_top
      );
 
 endmodule
+
+`default_nettype wire

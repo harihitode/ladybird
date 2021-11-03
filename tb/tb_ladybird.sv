@@ -11,6 +11,17 @@ module tb_ladybird;
   logic [3:0] btn;
   logic [3:0] sw = '0;
   logic [3:0] led;
+  wire [1:0]  led_r;
+  wire [1:0]  led_g;
+  wire [1:0]  led_b;
+
+  wire        qspi_cs;
+  wire [3:0]  qspi_dq;
+  logic [7:0] qspi_data = 8'h61;
+  assign qspi_dq[0] = 1'bz;
+  assign qspi_dq[1] = qspi_data[7];
+  assign qspi_dq[2] = 1'bz;
+  assign qspi_dq[3] = 1'bz;
 
   logic [31:0] iram [] = '{
                            ADDI(5'd1, 5'd0, 12'hfff),
