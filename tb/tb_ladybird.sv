@@ -15,6 +15,10 @@ module tb_ladybird;
   wire [1:0]  led_g;
   wire [1:0]  led_b;
 
+  always_ff @(posedge clk) begin
+    nrst <= anrst;
+  end
+
   wire        qspi_cs;
   wire [3:0]  qspi_dq;
   logic [7:0] qspi_data = 8'h61;
@@ -87,8 +91,7 @@ module tb_ladybird;
 
   ladybird_top #(.SIMULATION(1))
   DUT (
-       .*,
-       .anrst(anrst_c)
+       .*
        );
 
   ladybird_bus_arbitrator_beh #(.N_INPUT(2))
@@ -117,8 +120,7 @@ module tb_ladybird;
      .uart_txd_in(uart_rxd_out),
      .uart_rxd_out(uart_txd_in),
      .bus(host_uart_bus),
-     .nrst(nrst),
-     .anrst(anrst)
+     .nrst(nrst)
      );
 
 endmodule
