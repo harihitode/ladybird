@@ -292,28 +292,7 @@ void sim_step(sim_t *sim) {
     }
     break;
   case OPCODE_SYSTEM:
-    if (f3 == 0) {
-      // SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
-      switch (f12) {
-      case 0x000:
-        if (sim->trap) sim->trap(TRAP_CODE_ECALL, sim);
-        break;
-      case 0x001:
-        if (sim->trap) sim->trap(TRAP_CODE_EBREAK, sim);
-        break;
-      case 0x302: // MRET
-        if (sim->trap) sim->trap(TRAP_CODE_MRET, sim);
-        break;
-      case 0x002: // URET
-      case 0x102: // SRET
-      case 0x202: // HRET
-      case 0x105: // WFI
-      case 0x104: // SFENCE.VM
-      default:
-        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
-        break;
-      }
-    } else {
+    if (f3 != 0) {
       // CSR OPERATIONS
       unsigned csr_addr = immediate;
       unsigned csr_write_value = (f3 > 3) ? rs1 : src1;
@@ -393,6 +372,32 @@ void sim_step(sim_t *sim) {
     break;
   case OPCODE_JAL:
     sim->pc = sim->pc + immediate;
+    break;
+  case OPCODE_SYSTEM:
+    if (f3 == 0) {
+      // SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
+      switch (f12) {
+      case 0x000:
+        if (sim->trap) sim->trap(TRAP_CODE_ECALL, sim);
+        break;
+      case 0x001:
+        if (sim->trap) sim->trap(TRAP_CODE_EBREAK, sim);
+        break;
+      case 0x302: // MRET
+        sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
+        break;
+      case 0x002: // URET
+      case 0x102: // SRET
+      case 0x202: // HRET
+      case 0x105: // WFI
+      case 0x104: // SFENCE.VM
+      default:
+        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+        break;
+      }
+    } else {
+      sim->pc = sim->pc + 4;
+    }
     break;
   default:
     sim->pc = sim->pc + 4;

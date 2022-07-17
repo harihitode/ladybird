@@ -28,6 +28,5 @@ void sim_fini(sim_t *);
 #define TRAP_CODE_INVALID_INSTRUCTION 0
 #define TRAP_CODE_ECALL 1
 #define TRAP_CODE_EBREAK 2
-#define TRAP_CODE_MRET 3
 
 #endif
