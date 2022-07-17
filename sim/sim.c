@@ -50,6 +50,7 @@ static unsigned get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 static unsigned get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
 static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
+static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
 static unsigned get_immediate(unsigned inst) {
   switch (get_opcode(inst)) {
   case OPCODE_LOAD:
@@ -105,6 +106,7 @@ void sim_step(sim_t *sim) {
   unsigned rs1, rs2, rd;
   unsigned src1, src2, immediate;
   unsigned result = 0;
+  unsigned f7 = get_funct7(inst);
   unsigned f3 = get_funct3(inst);
   opcode = get_opcode(inst);
   rs1 = get_rs1(inst);
@@ -120,39 +122,69 @@ void sim_step(sim_t *sim) {
     src2 = immediate; // ALU with src2 as immediate
     // fall-through
   case OPCODE_OP:
-    switch (f3) {
-    case 0x0: // ADD, SUB, ADDI
-      if ((get_opcode(inst) == OPCODE_OP) && (inst & 0x40000000)) {
-        result = src1 - src2; // SUB
-      } else {
-        result = src1 + src2; // ADD, ADDI
+    if (opcode == OPCODE_OP && f7 == 0x00000001) {
+      // MUL/DIV
+      switch (f3) {
+      case 0x0:
+        result = ((long long)src1 * (long long)src2) & 0xffffffff;
+        break;
+      case 0x1: // MULH (extended: signed * signedb)
+        result = ((long long)src1 * (long long)src2) >> 32;
+        break;
+      case 0x2: // MULHSU (extended: signed * unsigned)
+        result = ((long long)src1 * (unsigned long long)src2) >> 32;
+        break;
+      case 0x3: // MULHU (extended: unsigned * unsigned)
+        result = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
+        break;
+      case 0x4: // DIV
+        result = (int)src1 / (int)src2;
+        break;
+      case 0x5: // DIVU
+        result = (unsigned)src1 / (unsigned)src2;
+        break;
+      case 0x6: // REM
+        result = (int)src1 % (int)src2;
+        break;
+      case 0x7: // REMU
+        result = (unsigned)src1 % (unsigned)src2;
+        break;
       }
-      break;
-    case 0x1: // SLL
-      result = (src1 << (src2 & 0x0000001F));
-      break;
-    case 0x2: // Set Less-Than
-      result = ((int)src1 < (int)src2) ? 1 : 0;
-      break;
-    case 0x3: // Set Less-Than Unsigned
-      result = (src1 < src2) ? 1 : 0;
-      break;
-    case 0x4: // Logical XOR
-      result = src1 ^ src2;
-      break;
-    case 0x5: // SRA, SRL
-      if (inst & 0x40000000) {
-        result = (int)src1 >> (src2 & 0x0000001F);
-      } else {
-        result = src1 >> (src2 & 0x0000001F);
+    } else {
+      switch (f3) {
+      case 0x0: // ADD, SUB, ADDI
+        if ((get_opcode(inst) == OPCODE_OP) && (inst & 0x40000000)) {
+          result = src1 - src2; // SUB
+        } else {
+          result = src1 + src2; // ADD, ADDI
+        }
+        break;
+      case 0x1: // SLL
+        result = (src1 << (src2 & 0x0000001F));
+        break;
+      case 0x2: // Set Less-Than
+        result = ((int)src1 < (int)src2) ? 1 : 0;
+        break;
+      case 0x3: // Set Less-Than Unsigned
+        result = (src1 < src2) ? 1 : 0;
+        break;
+      case 0x4: // Logical XOR
+        result = src1 ^ src2;
+        break;
+      case 0x5: // SRA, SRL
+        if (inst & 0x40000000) {
+          result = (int)src1 >> (src2 & 0x0000001F);
+        } else {
+          result = src1 >> (src2 & 0x0000001F);
+        }
+        break;
+      case 0x6: // Logical OR
+        result = src1 | src2;
+        break;
+      case 0x7: // Logical AND
+        result = src1 & src2;
+        break;
       }
-      break;
-    case 0x6: // Logical OR
-      result = src1 | src2;
-      break;
-    case 0x7: // Logical AND
-      result = src1 & src2;
-      break;
     }
     break;
   case OPCODE_AUIPC:
