@@ -38,6 +38,7 @@ void sim_trap(sim_t *sim, void (*callback)(unsigned, unsigned)) {
 #define OPCODE_OP_IMM 0x00000013
 #define OPCODE_AUIPC 0x00000017
 #define OPCODE_STORE 0x00000023
+#define OPCODE_AMO 0x0000002f
 #define OPCODE_OP 0x00000033
 #define OPCODE_LUI 0x00000037
 #define OPCODE_BRANCH 0x00000063
@@ -50,6 +51,7 @@ static unsigned get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 static unsigned get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
 static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
+static unsigned get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
 static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
 static unsigned get_immediate(unsigned inst) {
   switch (get_opcode(inst)) {
@@ -107,6 +109,7 @@ void sim_step(sim_t *sim) {
   unsigned src1, src2, immediate;
   unsigned result = 0;
   unsigned f7 = get_funct7(inst);
+  unsigned f5 = get_funct5(inst);
   unsigned f3 = get_funct3(inst);
   opcode = get_opcode(inst);
   rs1 = get_rs1(inst);
@@ -247,8 +250,54 @@ void sim_step(sim_t *sim) {
         result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
         break;
       default:
+        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, 0);
         break;
       }
+    }
+    break;
+  case OPCODE_AMO:
+    if (f5 == 0x002) {
+      result = memory_load_reserved(sim->mem, src1);
+    } else if (f5 == 0x003) {
+      result = memory_store_conditional(sim->mem, src1, src2);
+    } else {
+      result = sim_read_memory(sim, src1);
+    }
+    switch (f5) {
+    case 0x000: // AMOADD
+      sim_write_memory(sim, src1, result + src2);
+      break;
+    case 0x001: // AMOSWAP
+      sim_write_memory(sim, src1, src2);
+      break;
+    case 0x002: // Load Reserved
+      break;
+    case 0x003: // Store Conditional
+      break;
+    case 0x004: // AMOXOR
+      sim_write_memory(sim, src1, result ^ src2);
+      break;
+    case 0x008: // AMOOR
+      sim_write_memory(sim, src1, result | src2);
+      break;
+    case 0x00c: // AMOAND
+      sim_write_memory(sim, src1, result & src2);
+      break;
+    case 0x010: // AMOMIN
+      sim_write_memory(sim, src1, ((int)result < (int)src2) ? result : src2);
+      break;
+    case 0x014: // AMOMAX
+      sim_write_memory(sim, src1, ((int)result < (int)src2) ? src2 : result);
+      break;
+    case 0x018: // AMOMINU
+      sim_write_memory(sim, src1, (result < src2) ? result : src2);
+      break;
+    case 0x01c: // AMOMAXU
+      sim_write_memory(sim, src1, (result < src2) ? src2 : result);
+      break;
+    default:
+      if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, 0);
+      break;
     }
     break;
   case OPCODE_SYSTEM:
@@ -297,6 +346,7 @@ void sim_step(sim_t *sim) {
   case OPCODE_JAL:
   case OPCODE_JALR:
   case OPCODE_LOAD:
+  case OPCODE_AMO:
     sim_write_register(sim, rd, result);
     break;
   case OPCODE_SYSTEM:
