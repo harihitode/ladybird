@@ -4,13 +4,19 @@
 
 int quit = 0;
 
-void callback(unsigned trap_code, unsigned value) {
+void callback(unsigned trap_code, sim_t *sim) {
   switch (trap_code) {
   case TRAP_CODE_MRET:
     quit = 1;
     break;
+  case TRAP_CODE_EBREAK:
+    fprintf(stderr, "EBREAK\n");
+    fprintf(stderr, "@ PC:%08x\n", sim->pc);
+    quit = 1;
+    break;
   case TRAP_CODE_INVALID_INSTRUCTION:
-    printf("invalid opcode!\n");
+    fprintf(stderr, "INVALID INSTRUCTION\n");
+    fprintf(stderr, "@ PC:%08x, INST:%08x\n", sim->pc, sim_read_memory(sim, sim->pc));
     quit = 1;
     break;
   default:
@@ -35,7 +41,6 @@ int main(int argc, char *argv[]) {
   sim_init(sim, argv[1]);
   sim_trap(sim, callback);
   while (quit == 0) {
-    printf("%08x, %08x\n", sim->pc, sim_read_memory(sim, sim->pc));
     sim_step(sim);
   }
   sim_fini(sim);

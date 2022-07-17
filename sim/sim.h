@@ -4,10 +4,10 @@
 struct memory_t;
 struct elf_t;
 
-typedef struct {
+typedef struct sim_t {
   unsigned pc;
   unsigned *gpr;
-  void (*trap)(unsigned, unsigned);
+  void (*trap)(unsigned, struct sim_t *);
   struct memory_t *mem;
   struct elf_t *elf;
 } sim_t;
@@ -15,7 +15,7 @@ typedef struct {
 void sim_init(sim_t *, const char *elf_path);
 void sim_step(sim_t *);
 // set callback function when trap occurs, the callback receives trap code
-void sim_trap(sim_t *, void (*func)(unsigned trap_code, unsigned value));
+void sim_trap(sim_t *, void (*func)(unsigned trap_code, sim_t *sim));
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
 unsigned sim_read_memory(sim_t *, unsigned addr);

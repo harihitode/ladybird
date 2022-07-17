@@ -28,7 +28,7 @@ void sim_init(sim_t *sim, const char *elf_path) {
   return;
 }
 
-void sim_trap(sim_t *sim, void (*callback)(unsigned, unsigned)) {
+void sim_trap(sim_t *sim, void (*callback)(unsigned, sim_t *)) {
   sim->trap = callback;
   return;
 }
@@ -250,7 +250,7 @@ void sim_step(sim_t *sim) {
         result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
         break;
       default:
-        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, 0);
+        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
         break;
       }
     }
@@ -296,7 +296,7 @@ void sim_step(sim_t *sim) {
       sim_write_memory(sim, src1, (result < src2) ? src2 : result);
       break;
     default:
-      if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, 0);
+      if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
       break;
     }
     break;
@@ -304,9 +304,9 @@ void sim_step(sim_t *sim) {
     if (f3 == 0) {
       // ECALL, EBREAK
       if (immediate == 0) {
-        if (sim->trap) sim->trap(TRAP_CODE_ECALL, 0);
+        if (sim->trap) sim->trap(TRAP_CODE_ECALL, sim);
       } else {
-        if (sim->trap) sim->trap(TRAP_CODE_EBREAK, 0);
+        if (sim->trap) sim->trap(TRAP_CODE_EBREAK, sim);
       }
     } else {
       unsigned csr_addr = immediate;
@@ -334,7 +334,7 @@ void sim_step(sim_t *sim) {
     break;
   default:
     // invalid opcode
-    if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, 0);
+    if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
     break;
   }
   // writeback
