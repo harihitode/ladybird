@@ -2,11 +2,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define MEMORY_RAM 0
+#define MEMORY_UART 1
+
 void memory_init(memory_t *mem) {
   mem->blocks = 0;
   mem->base = NULL;
   mem->block = NULL;
   mem->reserve = NULL;
+  mem->fi = stdin;
+  mem->fo = stdout;
+}
+
+static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
+  if ((addr & 0xfffff000) == 0x10000000) {
+    return MEMORY_UART;
+  } else {
+    return MEMORY_RAM;
+  }
+}
+
+static char memory_read_uart(memory_t *mem, unsigned addr) {
+  switch (addr) {
+  case 0x10000000: // RX Register
+    return 'a';
+  case 0x10000005: // Line Status Register
+    return 0x21; // always ready
+  default:
+    return 0;
+  }
+}
+
+static void memory_write_uart(memory_t *mem, unsigned addr, unsigned value) {
+  switch (addr) {
+  case 0x10000000:
+    fputc(value, mem->fo);
+  default:
+    return;
+  }
+  return;
 }
 
 static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
@@ -29,17 +63,37 @@ static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
 }
 
 char memory_load(memory_t *mem, unsigned addr) {
-  unsigned bid = memory_get_block_id(mem, addr);
-  char *block = mem->block[bid];
-  mem->reserve[bid] = 0; // expire
-  return block[(addr & 0x00000fff)];
+  char value;
+  switch (memory_get_memory_type(mem, addr)) {
+  case MEMORY_UART:
+    value = memory_read_uart(mem, addr);
+    break;
+  default:
+    {
+      unsigned bid = memory_get_block_id(mem, addr);
+      char *block = mem->block[bid];
+      mem->reserve[bid] = 0; // expire
+      value = block[(addr & 0x00000fff)];
+    }
+    break;
+  }
+  return value;
 }
 
 void memory_store(memory_t *mem, unsigned addr, char value) {
-  unsigned bid = memory_get_block_id(mem, addr);
-  char *block = mem->block[bid];
-  mem->reserve[bid] = 0; // expire
-  block[(addr & 0x00000fff)] = value;
+  switch (memory_get_memory_type(mem, addr)) {
+  case MEMORY_UART:
+    memory_write_uart(mem, addr, value);
+    break;
+  default:
+    {
+      unsigned bid = memory_get_block_id(mem, addr);
+      char *block = mem->block[bid];
+      mem->reserve[bid] = 0; // expire
+      block[(addr & 0x00000fff)] = value;
+    }
+    break;
+  }
   return;
 }
 

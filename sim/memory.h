@@ -1,11 +1,15 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
+#include <stdio.h>
+
 typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
   char *reserve;
+  FILE *fi;
+  FILE *fo;
 } memory_t;
 
 void memory_init(memory_t *);
