@@ -6,8 +6,8 @@ int quit = 0;
 
 void callback(unsigned trap_code, sim_t *sim) {
   switch (trap_code) {
-  case TRAP_CODE_MRET:
-    fprintf(stderr, "MRET\n");
+  case TRAP_CODE_ECALL:
+    fprintf(stderr, "ECALL\n");
     fprintf(stderr, "@ PC:%08x\n", sim->pc);
     quit = 1;
     break;
