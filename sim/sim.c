@@ -291,6 +291,9 @@ void sim_step(sim_t *sim) {
       break;
     }
     break;
+  case OPCODE_MISC_MEM:
+    // TODO: currently no implementataion
+    break;
   case OPCODE_SYSTEM:
     if (f3 != 0) {
       // CSR OPERATIONS
