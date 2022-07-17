@@ -1,6 +1,6 @@
 TARGET=test_sim
-SRCS=elfloader.c sim.c memory.c
-HDRS=sim.h memory.h elfloader.h
+SRCS=elfloader.c sim.c memory.c csr.c
+HDRS=sim.h memory.h elfloader.h csr.h
 OBJS=$(SRCS:.c=.o)
 CFLAGS=-O3 -Wall
 LDLIBS=-lm

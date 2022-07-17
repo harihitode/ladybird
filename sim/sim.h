@@ -2,6 +2,7 @@
 #define SIM_H
 
 struct memory_t;
+struct csr_t;
 struct elf_t;
 
 typedef struct sim_t {
@@ -9,6 +10,7 @@ typedef struct sim_t {
   unsigned *gpr;
   void (*trap)(unsigned, struct sim_t *);
   struct memory_t *mem;
+  struct csr_t *csr;
   struct elf_t *elf;
 } sim_t;
 

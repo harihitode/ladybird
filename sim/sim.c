@@ -1,6 +1,7 @@
 #include "sim.h"
 #include "elfloader.h"
 #include "memory.h"
+#include "csr.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -14,6 +15,9 @@ void sim_init(sim_t *sim, const char *elf_path) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem);
+  // init csr
+  sim->csr = (csr_t *)malloc(sizeof(csr_t));
+  csr_init(sim->csr);
   // init elf loader
   sim->elf = (elf_t *)malloc(sizeof(elf_t));
   elf_init(sim->elf, elf_path);
@@ -85,21 +89,6 @@ static unsigned get_immediate(unsigned inst) {
   default:
     return 0;
   }
-}
-
-static unsigned sim_csr_read(sim_t *sim, unsigned addr) {
-  switch (addr) {
-  default:
-    return 0;
-  }
-}
-
-static void sim_csr_write(sim_t *sim, unsigned addr, unsigned value) {
-  switch (addr) {
-  default:
-    break;
-  }
-  return;
 }
 
 void sim_step(sim_t *sim) {
@@ -327,24 +316,20 @@ void sim_step(sim_t *sim) {
     } else {
       // CSR OPERATIONS
       unsigned csr_addr = immediate;
-      unsigned csr_write_value = (f3 > 3) ? rs1 : src2;
-      unsigned csr_read_value = sim_csr_read(sim, csr_addr);
+      unsigned csr_write_value = (f3 > 3) ? rs1 : src1;
       switch (f3 & 0x03) {
       case 0x1: // READ_WRITE
-        csr_write_value = src1;
+        result = csr_csrrw(sim->csr, csr_addr, csr_write_value);
         break;
       case 0x2: // READ_SET
-        csr_write_value = csr_write_value | csr_read_value;
+        result = csr_csrrs(sim->csr, csr_addr, csr_write_value);
         break;
       case 0x3: // READ_CLEAR
-        csr_write_value = (~csr_write_value) & csr_read_value;
+        result = csr_csrrc(sim->csr, csr_addr, csr_write_value);
         break;
       default:
-        csr_write_value = csr_read_value; // nothing
         break;
       }
-      sim_csr_write(sim, csr_addr, csr_write_value);
-      result = csr_read_value;
     }
     break;
   case OPCODE_BRANCH:
@@ -458,6 +443,8 @@ void sim_fini(sim_t *sim) {
   free(sim->gpr);
   memory_fini(sim->mem);
   free(sim->mem);
+  csr_fini(sim->csr);
+  free(sim->csr);
   elf_fini(sim->elf);
   free(sim->elf);
   return;
