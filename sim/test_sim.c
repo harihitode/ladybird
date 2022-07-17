@@ -1,24 +1,28 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "sim.h"
 
-int quit = 0;
+sig_atomic_t quit = 0;
+
+void shndl(int signum) {
+  if (signum == SIGINT) {
+    quit = 1;
+  }
+}
 
 void callback(unsigned trap_code, sim_t *sim) {
   switch (trap_code) {
   case TRAP_CODE_ECALL:
     fprintf(stderr, "ECALL\n");
-    fprintf(stderr, "@ PC:%08x\n", sim->pc);
     quit = 1;
     break;
   case TRAP_CODE_EBREAK:
     fprintf(stderr, "EBREAK\n");
-    fprintf(stderr, "@ PC:%08x\n", sim->pc);
     quit = 1;
     break;
   case TRAP_CODE_INVALID_INSTRUCTION:
     fprintf(stderr, "INVALID INSTRUCTION\n");
-    fprintf(stderr, "@ PC:%08x, INST:%08x\n", sim->pc, sim_read_memory(sim, sim->pc));
     quit = 1;
     break;
   default:
@@ -42,9 +46,11 @@ int main(int argc, char *argv[]) {
   sim = (sim_t *)malloc(sizeof(sim_t));
   sim_init(sim, argv[1]);
   sim_trap(sim, callback);
+  signal(SIGINT, shndl);
   while (quit == 0) {
     sim_step(sim);
   }
+  fprintf(stderr, "@ PC:%08x, INST:%08x\n", sim->pc, sim_read_memory(sim, sim->pc));
   sim_fini(sim);
   free(sim);
   return 0;
