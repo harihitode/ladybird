@@ -53,6 +53,7 @@ static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
 static unsigned get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
 static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
+static unsigned get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
 static unsigned get_immediate(unsigned inst) {
   switch (get_opcode(inst)) {
   case OPCODE_LOAD:
@@ -111,6 +112,7 @@ void sim_step(sim_t *sim) {
   unsigned f7 = get_funct7(inst);
   unsigned f5 = get_funct5(inst);
   unsigned f3 = get_funct3(inst);
+  unsigned f12 = get_funct12(inst);
   opcode = get_opcode(inst);
   rs1 = get_rs1(inst);
   rs2 = get_rs2(inst);
@@ -302,13 +304,28 @@ void sim_step(sim_t *sim) {
     break;
   case OPCODE_SYSTEM:
     if (f3 == 0) {
-      // ECALL, EBREAK
-      if (immediate == 0) {
+      // SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
+      switch (f12) {
+      case 0x000:
         if (sim->trap) sim->trap(TRAP_CODE_ECALL, sim);
-      } else {
+        break;
+      case 0x001:
         if (sim->trap) sim->trap(TRAP_CODE_EBREAK, sim);
+        break;
+      case 0x302: // MRET
+        if (sim->trap) sim->trap(TRAP_CODE_MRET, sim);
+        break;
+      case 0x002: // URET
+      case 0x102: // SRET
+      case 0x202: // HRET
+      case 0x105: // WFI
+      case 0x104: // SFENCE.VM
+      default:
+        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+        break;
       }
     } else {
+      // CSR OPERATIONS
       unsigned csr_addr = immediate;
       unsigned csr_write_value = (f3 > 3) ? rs1 : src2;
       unsigned csr_read_value = sim_csr_read(sim, csr_addr);
