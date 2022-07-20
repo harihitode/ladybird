@@ -58,7 +58,6 @@ static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
 static unsigned get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
 static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
-static unsigned get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
 static unsigned get_immediate(unsigned inst) {
   switch (get_opcode(inst)) {
   case OPCODE_LOAD:
@@ -102,7 +101,6 @@ void sim_step(sim_t *sim) {
   unsigned f7 = get_funct7(inst);
   unsigned f5 = get_funct5(inst);
   unsigned f3 = get_funct3(inst);
-  unsigned f12 = get_funct12(inst);
   opcode = get_opcode(inst);
   rs1 = get_rs1(inst);
   rs2 = get_rs2(inst);
@@ -380,22 +378,29 @@ void sim_step(sim_t *sim) {
   case OPCODE_SYSTEM:
     if (f3 == 0) {
       // SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
-      switch (f12) {
-      case 0x000:
-        csr_trap(sim->csr, TRAP_CODE_ECALL);
+      switch (f7) {
+      case 0x00:
+        if (rs2 == 0) {
+          csr_trap(sim->csr, TRAP_CODE_ECALL);
+        } else if (rs1 == 1) {
+          csr_trap(sim->csr, TRAP_CODE_EBREAK);
+          sim->pc = sim->pc + 4;
+        } else {
+          csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+        }
         break;
-      case 0x001:
-        csr_trap(sim->csr, TRAP_CODE_EBREAK);
+      case 0x18:
+        if (rs2 == 2) {
+          // MRET
+          sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
+        } else {
+          csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+        }
+      case 0x09:
+        // SFENCE.VMA
+        // TODO: clear TLA
         sim->pc = sim->pc + 4;
         break;
-      case 0x302: // MRET
-        sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
-        break;
-      case 0x002: // URET
-      case 0x102: // SRET
-      case 0x202: // HRET
-      case 0x105: // WFI
-      case 0x104: // SFENCE.VM
       default:
         csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
         break;
