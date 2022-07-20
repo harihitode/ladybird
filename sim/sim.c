@@ -73,7 +73,7 @@ static unsigned get_immediate(unsigned inst) {
       return (int)inst >> 20;
     }
   case OPCODE_STORE:
-    return ((inst >> 25) << 5) | ((inst >> 7) & 0x0000001f);
+    return (((int)inst >> 25) << 5) | ((inst >> 7) & 0x0000001f);
   case OPCODE_AUIPC:
   case OPCODE_LUI:
     return inst & 0xfffff000;
