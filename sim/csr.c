@@ -34,6 +34,8 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->atp;
   case CSR_ADDR_S_IE:
     return csr->sie;
+  case CSR_ADDR_S_TVEC:
+    return csr->stvec;
   case CSR_ADDR_M_SCRATCH:
     return csr->mscratch;
   case CSR_ADDR_M_TVEC:
@@ -67,6 +69,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_S_IE:
     csr->sie = value;
+    break;
+  case CSR_ADDR_S_TVEC:
+    csr->stvec = value;
     break;
   case CSR_ADDR_M_SCRATCH:
     csr->mscratch = value;

@@ -8,11 +8,12 @@ typedef struct csr_t {
   void (*trap_handler)(unsigned, struct sim_t *);
   unsigned mepc;
   unsigned hartid;
-  unsigned atp; // address translation & protection
-  unsigned sie; // [S] interrupt enable
   unsigned mscratch;
-  unsigned mtvec; // trap base address
+  unsigned mtvec; // [M] trap base address
   unsigned mie; // [M] interrupt enable
+  unsigned stvec; // [S] trap base address
+  unsigned sie; // [S] interrupt enable
+  unsigned atp; // address translation & protection
 } csr_t;
 
 void csr_init(csr_t *);
@@ -37,5 +38,6 @@ void csr_fini(csr_t *);
 #define CSR_ADDR_M_TVEC 0x00000305
 #define CSR_ADDR_M_IE 0x00000304
 #define CSR_ADDR_S_STATUS 0x00000100
+#define CSR_ADDR_S_TVEC 0x00000105
 
 #endif
