@@ -18,6 +18,7 @@ void sim_init(sim_t *sim, const char *elf_path) {
   // init csr
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
+  sim->csr->sim = sim;
   // init elf loader
   sim->elf = (elf_t *)malloc(sizeof(elf_t));
   elf_init(sim->elf, elf_path);
@@ -33,7 +34,7 @@ void sim_init(sim_t *sim, const char *elf_path) {
 }
 
 void sim_trap(sim_t *sim, void (*callback)(unsigned, sim_t *)) {
-  sim->trap = callback;
+  sim->csr->trap_handler = callback;
   return;
 }
 
@@ -241,7 +242,7 @@ void sim_step(sim_t *sim) {
         result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
         break;
       default:
-        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+        csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
         break;
       }
     }
@@ -287,7 +288,7 @@ void sim_step(sim_t *sim) {
       sim_write_memory(sim, src1, (result < src2) ? src2 : result);
       break;
     default:
-      if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+      csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
       break;
     }
     break;
@@ -318,7 +319,7 @@ void sim_step(sim_t *sim) {
     break;
   default:
     // invalid opcode
-    if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+    csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
     break;
   }
   // writeback
@@ -381,10 +382,11 @@ void sim_step(sim_t *sim) {
       // SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (f12) {
       case 0x000:
-        if (sim->trap) sim->trap(TRAP_CODE_ECALL, sim);
+        csr_trap(sim->csr, TRAP_CODE_ECALL);
         break;
       case 0x001:
-        if (sim->trap) sim->trap(TRAP_CODE_EBREAK, sim);
+        csr_trap(sim->csr, TRAP_CODE_EBREAK);
+        sim->pc = sim->pc + 4;
         break;
       case 0x302: // MRET
         sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
@@ -395,7 +397,7 @@ void sim_step(sim_t *sim) {
       case 0x105: // WFI
       case 0x104: // SFENCE.VM
       default:
-        if (sim->trap) sim->trap(TRAP_CODE_INVALID_INSTRUCTION, sim);
+        csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
         break;
       }
     } else {

@@ -8,7 +8,6 @@ struct elf_t;
 typedef struct sim_t {
   unsigned pc;
   unsigned *gpr;
-  void (*trap)(unsigned, struct sim_t *);
   struct memory_t *mem;
   struct csr_t *csr;
   struct elf_t *elf;
