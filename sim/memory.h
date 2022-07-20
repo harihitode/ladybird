@@ -3,13 +3,15 @@
 
 #include <stdio.h>
 
+struct uart_t;
+
 typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
   char *reserve;
-  FILE *fi;
-  FILE *fo;
+  // MMIO
+  struct uart_t *uart;
 } memory_t;
 
 void memory_init(memory_t *);

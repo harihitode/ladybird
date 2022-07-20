@@ -5,24 +5,22 @@
 #define MEMORY_RAM 0
 #define MEMORY_UART 1
 
-void memory_init(memory_t *mem) {
-  mem->blocks = 0;
-  mem->base = NULL;
-  mem->block = NULL;
-  mem->reserve = NULL;
-  mem->fi = stdin;
-  mem->fo = stdout;
+const unsigned UART_MODE_DEFAULT = 3;
+const unsigned UART_MODE_SETBAUD_RATE = (1 << 7);
+
+typedef struct uart_t {
+  FILE *fi;
+  FILE *fo;
+  unsigned mode;
+} uart_t;
+
+static void uart_init(uart_t *uart) {
+  uart->fi = stdin;
+  uart->fo = stdout;
+  uart->mode = UART_MODE_DEFAULT;
 }
 
-static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
-  if ((addr & 0xfffff000) == 0x10000000) {
-    return MEMORY_UART;
-  } else {
-    return MEMORY_RAM;
-  }
-}
-
-static char memory_read_uart(memory_t *mem, unsigned addr) {
+static char uart_read(uart_t *uart, unsigned addr) {
   switch (addr) {
   case 0x10000000: // RX Register
     return 'a';
@@ -33,14 +31,41 @@ static char memory_read_uart(memory_t *mem, unsigned addr) {
   }
 }
 
-static void memory_write_uart(memory_t *mem, unsigned addr, unsigned value) {
+static void uart_write(uart_t *uart, unsigned addr, unsigned value) {
   switch (addr) {
   case 0x10000000:
-    fputc(value, mem->fo);
+    if (uart->mode == UART_MODE_DEFAULT) {
+      fputc(value, uart->fo);
+    }
+    break;
+  case 0x10000003: // Line Control Register
+    uart->mode = value;
+    break;
   default:
-    return;
+    break;
   }
   return;
+}
+
+static void uart_fini(uart_t *uart) {
+  return;
+}
+
+void memory_init(memory_t *mem) {
+  mem->blocks = 0;
+  mem->base = NULL;
+  mem->block = NULL;
+  mem->reserve = NULL;
+  mem->uart = (uart_t *)malloc(sizeof(uart_t));
+  uart_init(mem->uart);
+}
+
+static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
+  if ((addr & 0xfffff000) == 0x10000000) {
+    return MEMORY_UART;
+  } else {
+    return MEMORY_RAM;
+  }
 }
 
 static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
@@ -66,7 +91,7 @@ char memory_load(memory_t *mem, unsigned addr) {
   char value;
   switch (memory_get_memory_type(mem, addr)) {
   case MEMORY_UART:
-    value = memory_read_uart(mem, addr);
+    value = uart_read(mem->uart, addr);
     break;
   default:
     {
@@ -83,7 +108,7 @@ char memory_load(memory_t *mem, unsigned addr) {
 void memory_store(memory_t *mem, unsigned addr, char value) {
   switch (memory_get_memory_type(mem, addr)) {
   case MEMORY_UART:
-    memory_write_uart(mem, addr, value);
+    uart_write(mem->uart, addr, value);
     break;
   default:
     {
@@ -132,5 +157,7 @@ void memory_fini(memory_t *mem) {
   }
   free(mem->block);
   free(mem->reserve);
+  uart_fini(mem->uart);
+  free(mem->uart);
   return;
 }
