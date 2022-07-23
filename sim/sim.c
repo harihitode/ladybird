@@ -396,7 +396,7 @@ void sim_step(sim_t *sim) {
           } else {
             csr_trap(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_S);
           }
-        } else if (rs1 == 1) {
+        } else if (rs2 == 1) {
           csr_trap(sim->csr, TRAP_CODE_BREAKPOINT);
           sim->pc = sim->pc + 4;
         } else {
