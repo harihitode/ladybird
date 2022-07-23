@@ -1,9 +1,13 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
-#include <stdio.h>
+// memory layout
+#define MEMORY_BASE_ADDR_UART 0x10000000
+#define MEMORY_BASE_ADDR_DISK 0x10001000
+#define MEMORY_BASE_ADDR_RAM  0x80000000
 
 struct uart_t;
+struct disk_t;
 
 typedef struct memory_t {
   unsigned blocks;
@@ -12,6 +16,7 @@ typedef struct memory_t {
   char *reserve;
   // MMIO
   struct uart_t *uart;
+  struct disk_t *disk;
 } memory_t;
 
 void memory_init(memory_t *);
