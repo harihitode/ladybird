@@ -5,9 +5,11 @@ struct sim_t;
 
 typedef struct csr_t {
   struct sim_t *sim;
-  void (*trap_handler)(unsigned, struct sim_t *);
-  unsigned mepc;
+  void (*trap_handler)(struct sim_t *);
+  unsigned mode;
   unsigned hartid;
+  unsigned mepc;
+  unsigned mcause;
   unsigned mscratch;
   unsigned mtvec; // [M] trap base address
   unsigned mie; // [M] interrupt enable
@@ -25,6 +27,11 @@ unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
 void csr_trap(csr_t *, unsigned trap_code);
 void csr_fini(csr_t *);
 
+// mode
+#define PRIVILEGE_MODE_U 0x0
+#define PRIVILEGE_MODE_S 0x1
+#define PRIVILEGE_MODE_M 0x3
+// csr address
 #define CSR_ADDR_M_EPC 0x00000341
 #define CSR_ADDR_M_HARTID 0x00000f14
 #define CSR_ADDR_M_STATUS 0x00000300

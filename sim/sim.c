@@ -7,7 +7,6 @@
 
 #define NUM_GPR 32
 #define NUM_FPR 32
-// csr address
 
 void sim_init(sim_t *sim, const char *elf_path) {
   // clear gpr
@@ -33,7 +32,18 @@ void sim_init(sim_t *sim, const char *elf_path) {
   return;
 }
 
-void sim_trap(sim_t *sim, void (*callback)(unsigned, sim_t *)) {
+void sim_fini(sim_t *sim) {
+  free(sim->gpr);
+  memory_fini(sim->mem);
+  free(sim->mem);
+  csr_fini(sim->csr);
+  free(sim->csr);
+  elf_fini(sim->elf);
+  free(sim->elf);
+  return;
+}
+
+void sim_trap(sim_t *sim, void (*callback)(sim_t *)) {
   sim->csr->trap_handler = callback;
   return;
 }
@@ -240,7 +250,7 @@ void sim_step(sim_t *sim) {
         result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
         break;
       default:
-        csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+        csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         break;
       }
     }
@@ -286,7 +296,7 @@ void sim_step(sim_t *sim) {
       sim_write_memory(sim, src1, (result < src2) ? src2 : result);
       break;
     default:
-      csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+      csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     }
     break;
@@ -317,7 +327,7 @@ void sim_step(sim_t *sim) {
     break;
   default:
     // invalid opcode
-    csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+    csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
     break;
   }
   // writeback
@@ -381,12 +391,16 @@ void sim_step(sim_t *sim) {
       switch (f7) {
       case 0x00:
         if (rs2 == 0) {
-          csr_trap(sim->csr, TRAP_CODE_ECALL);
+          if (sim->csr->mode == PRIVILEGE_MODE_M) {
+            csr_trap(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
+          } else {
+            csr_trap(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_S);
+          }
         } else if (rs1 == 1) {
-          csr_trap(sim->csr, TRAP_CODE_EBREAK);
+          csr_trap(sim->csr, TRAP_CODE_BREAKPOINT);
           sim->pc = sim->pc + 4;
         } else {
-          csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
       case 0x18:
@@ -394,15 +408,16 @@ void sim_step(sim_t *sim) {
           // MRET
           sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
         } else {
-          csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
+        break;
       case 0x09:
         // SFENCE.VMA
         // TODO: clear TLA
         sim->pc = sim->pc + 4;
         break;
       default:
-        csr_trap(sim->csr, TRAP_CODE_INVALID_INSTRUCTION);
+        csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         break;
       }
     } else {
@@ -454,13 +469,6 @@ void sim_write_memory(sim_t *sim, unsigned addr, unsigned value) {
   return;
 }
 
-void sim_fini(sim_t *sim) {
-  free(sim->gpr);
-  memory_fini(sim->mem);
-  free(sim->mem);
-  csr_fini(sim->csr);
-  free(sim->csr);
-  elf_fini(sim->elf);
-  free(sim->elf);
-  return;
+unsigned sim_get_trap_code(sim_t *sim) {
+  return sim->csr->mcause;
 }

@@ -5,8 +5,10 @@
 void csr_init(csr_t *csr) {
   csr->sim = NULL;
   csr->trap_handler = NULL;
-  csr->mepc = 0;
   csr->hartid = 0;
+  csr->mode = PRIVILEGE_MODE_M;
+  //
+  csr->mepc = 0;
   csr->atp = 0;
   csr->sie = 0;
   csr->mscratch = 0;
@@ -108,7 +110,8 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
 }
 
 void csr_trap(csr_t *csr, unsigned trap_code) {
-  if (csr->trap_handler) csr->trap_handler(trap_code, csr->sim);
+  csr->mcause = trap_code;
+  if (csr->trap_handler) csr->trap_handler(csr->sim);
 }
 
 void csr_fini(csr_t *csr) {

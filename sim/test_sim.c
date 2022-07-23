@@ -13,18 +13,28 @@ void shndl(int signum) {
   }
 }
 
-void callback(unsigned trap_code, sim_t *sim) {
+void callback(sim_t *sim) {
+  unsigned trap_code = sim_get_trap_code(sim);
   switch (trap_code) {
-  case TRAP_CODE_ECALL:
-    fprintf(stderr, "ECALL\n");
+  case TRAP_CODE_ENVIRONMENT_CALL_M:
+    fprintf(stderr, "ECALL (Machine Mode)\n");
     trap = 1;
     break;
-  case TRAP_CODE_EBREAK:
-    fprintf(stderr, "EBREAK\n");
+  case TRAP_CODE_ENVIRONMENT_CALL_S:
+    fprintf(stderr, "ECALL (Supervisor Mode)\n");
     trap = 1;
     break;
-  case TRAP_CODE_INVALID_INSTRUCTION:
-    fprintf(stderr, "INVALID INSTRUCTION\n");
+  case TRAP_CODE_BREAKPOINT:
+    fprintf(stderr, "BREAKPOINT\n");
+    trap = 1;
+    break;
+  case TRAP_CODE_ILLEGAL_INSTRUCTION:
+    fprintf(stderr, "INNEGAL INSTRUCTION\n");
+    quit = 1;
+    break;
+  case TRAP_CODE_STORE_ACCESS_FAULT:
+  case TRAP_CODE_LOAD_ACCESS_FAULT:
+    fprintf(stderr, "Load/Store Access Fault\n");
     quit = 1;
     break;
   default:
