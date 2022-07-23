@@ -15,17 +15,19 @@ void memory_init(memory_t *mem) {
   mem->reserve = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
   uart_init(mem->uart);
-  mem->disk = NULL;
+  mem->disk = (disk_t *)malloc(sizeof(disk_t));
+  disk_init(mem->disk);
+  disk_load(mem->disk, "../../ladybird_xv6/fs.img");
 }
 
 static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
   unsigned base = (addr & 0xfffff000);
   if (base == MEMORY_BASE_ADDR_UART) {
     return MEMORY_UART;
-  } else if (addr == MEMORY_BASE_ADDR_DISK) {
+  } else if (base == MEMORY_BASE_ADDR_DISK) {
     return MEMORY_DISK;
   } else {
-    if (addr >= MEMORY_BASE_ADDR_RAM) {
+    if (base >= MEMORY_BASE_ADDR_RAM) {
       return MEMORY_RAM;
     } else {
       return MEMORY_NONE;
@@ -56,7 +58,10 @@ char memory_load(memory_t *mem, unsigned addr) {
   char value;
   switch (memory_get_memory_type(mem, addr)) {
   case MEMORY_UART:
-    value = uart_read(mem->uart, addr);
+    value = uart_read(mem->uart, addr - MEMORY_BASE_ADDR_UART);
+    break;
+  case MEMORY_DISK:
+    value = disk_read(mem->disk, addr - MEMORY_BASE_ADDR_DISK);
     break;
   default:
     {
@@ -73,7 +78,10 @@ char memory_load(memory_t *mem, unsigned addr) {
 void memory_store(memory_t *mem, unsigned addr, char value) {
   switch (memory_get_memory_type(mem, addr)) {
   case MEMORY_UART:
-    uart_write(mem->uart, addr, value);
+    uart_write(mem->uart, addr - MEMORY_BASE_ADDR_UART, value);
+    break;
+  case MEMORY_DISK:
+    disk_write(mem->disk, addr - MEMORY_BASE_ADDR_DISK, value);
     break;
   default:
     {
@@ -124,5 +132,7 @@ void memory_fini(memory_t *mem) {
   free(mem->reserve);
   uart_fini(mem->uart);
   free(mem->uart);
+  disk_fini(mem->disk);
+  free(mem->disk);
   return;
 }
