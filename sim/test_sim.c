@@ -29,7 +29,7 @@ void callback(sim_t *sim) {
     trap = 1;
     break;
   case TRAP_CODE_ILLEGAL_INSTRUCTION:
-    fprintf(stderr, "INNEGAL INSTRUCTION\n");
+    fprintf(stderr, "ILLEGAL INSTRUCTION\n");
     quit = 1;
     break;
   case TRAP_CODE_STORE_ACCESS_FAULT:
