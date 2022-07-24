@@ -81,6 +81,7 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
       printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
       printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
       printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
+    }
 #endif
     return paddr;
   }
@@ -102,33 +103,33 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
 }
 
 char memory_load(memory_t *mem, unsigned addr) {
-  unsigned vaddr = memory_address_translation(mem, addr);
+  unsigned paddr = memory_address_translation(mem, addr);
   char value;
-  switch (memory_get_memory_type(mem, vaddr)) {
+  switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
-    value = uart_read(mem->uart, vaddr - MEMORY_BASE_ADDR_UART);
+    value = uart_read(mem->uart, paddr - MEMORY_BASE_ADDR_UART);
     break;
   case MEMORY_DISK:
-    value = disk_read(mem->disk, vaddr - MEMORY_BASE_ADDR_DISK);
+    value = disk_read(mem->disk, paddr - MEMORY_BASE_ADDR_DISK);
     break;
   default:
-    value = ram_read(mem, vaddr - MEMORY_BASE_ADDR_RAM);
+    value = ram_read(mem, paddr - MEMORY_BASE_ADDR_RAM);
     break;
   }
   return value;
 }
 
 void memory_store(memory_t *mem, unsigned addr, char value) {
-  unsigned vaddr = memory_address_translation(mem, addr);
-  switch (memory_get_memory_type(mem, vaddr)) {
+  unsigned paddr = memory_address_translation(mem, addr);
+  switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
-    uart_write(mem->uart, vaddr - MEMORY_BASE_ADDR_UART, value);
+    uart_write(mem->uart, paddr - MEMORY_BASE_ADDR_UART, value);
     break;
   case MEMORY_DISK:
-    disk_write(mem->disk, vaddr - MEMORY_BASE_ADDR_DISK, value);
+    disk_write(mem->disk, paddr - MEMORY_BASE_ADDR_DISK, value);
     break;
   default:
-    ram_write(mem, vaddr - MEMORY_BASE_ADDR_RAM, value);
+    ram_write(mem, paddr - MEMORY_BASE_ADDR_RAM, value);
     break;
   }
   return;
