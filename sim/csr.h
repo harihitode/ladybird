@@ -11,9 +11,11 @@ typedef struct csr_t {
   unsigned mepc;
   unsigned mcause;
   unsigned mscratch;
+  unsigned mtval; // [M] trap value
   unsigned mtvec; // [M] trap base address
   unsigned mie; // [M] interrupt enable
   unsigned stvec; // [S] trap base address
+  unsigned stval; // [S] trap value
   unsigned sie; // [S] interrupt enable
 } csr_t;
 
@@ -24,6 +26,8 @@ unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
 void csr_trap(csr_t *, unsigned trap_code);
+void csr_set_tval(csr_t *, unsigned trap_value);
+unsigned csr_get_tval(csr_t *);
 void csr_fini(csr_t *);
 
 // mode

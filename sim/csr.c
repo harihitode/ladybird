@@ -13,7 +13,11 @@ void csr_init(csr_t *csr) {
   csr->sie = 0;
   csr->mscratch = 0;
   csr->mtvec = 0;
+  csr->mtval = 0;
   csr->mie = 0;
+  csr->stvec = 0;
+  csr->stval = 0;
+  csr->sie = 0;
   return;
 }
 
@@ -118,6 +122,23 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
 void csr_trap(csr_t *csr, unsigned trap_code) {
   csr->mcause = trap_code;
   if (csr->trap_handler) csr->trap_handler(csr->sim);
+}
+
+void csr_set_tval(csr_t *csr, unsigned trap_value) {
+  if (csr->mode == PRIVILEGE_MODE_M) {
+    csr->mtval = trap_value;
+  } else {
+    csr->stval = trap_value;
+  }
+  return;
+}
+
+unsigned csr_get_tval(csr_t *csr) {
+  if (csr->mode == PRIVILEGE_MODE_M) {
+    return csr->mtval;
+  } else {
+    return csr->stval;
+  }
 }
 
 void csr_fini(csr_t *csr) {

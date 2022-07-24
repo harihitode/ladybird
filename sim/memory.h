@@ -8,12 +8,14 @@
 
 struct uart_t;
 struct disk_t;
+struct csr_t;
 
 typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
   char *reserve;
+  struct csr_t *csr;
   // MMU
   char vmflag;
   unsigned vmbase;

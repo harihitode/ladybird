@@ -24,6 +24,7 @@ void sim_fini(sim_t *);
 // set callback function when exception occurs
 void sim_trap(sim_t *, void (*func)(sim_t *sim));
 unsigned sim_get_trap_code(sim_t *);
+unsigned sim_get_trap_value(sim_t *);
 
 // trap code below
 #define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000004

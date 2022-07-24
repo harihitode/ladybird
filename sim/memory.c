@@ -1,5 +1,6 @@
 #include "memory.h"
 #include "mmio.h"
+#include "sim.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -8,11 +9,15 @@
 #define MEMORY_UART 2
 #define MEMORY_DISK 3
 
+void csr_set_tval(struct csr_t *, unsigned value);
+void csr_trap(struct csr_t *, unsigned trap_code);
+
 void memory_init(memory_t *mem) {
   mem->blocks = 0;
   mem->base = NULL;
   mem->block = NULL;
   mem->reserve = NULL;
+  mem->csr = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
   uart_init(mem->uart);
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
@@ -104,7 +109,7 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
 
 char memory_load(memory_t *mem, unsigned addr) {
   unsigned paddr = memory_address_translation(mem, addr);
-  char value;
+  char value = 0;
   switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
     value = uart_read(mem->uart, paddr - MEMORY_BASE_ADDR_UART);
@@ -112,8 +117,12 @@ char memory_load(memory_t *mem, unsigned addr) {
   case MEMORY_DISK:
     value = disk_read(mem->disk, paddr - MEMORY_BASE_ADDR_DISK);
     break;
-  default:
+  case MEMORY_RAM:
     value = ram_read(mem, paddr - MEMORY_BASE_ADDR_RAM);
+    break;
+  default:
+    csr_set_tval(mem->csr, addr);
+    csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
     break;
   }
   return value;
@@ -128,8 +137,12 @@ void memory_store(memory_t *mem, unsigned addr, char value) {
   case MEMORY_DISK:
     disk_write(mem->disk, paddr - MEMORY_BASE_ADDR_DISK, value);
     break;
-  default:
+  case MEMORY_RAM:
     ram_write(mem, paddr - MEMORY_BASE_ADDR_RAM, value);
+    break;
+  default:
+    csr_set_tval(mem->csr, addr);
+    csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
     break;
   }
   return;

@@ -11,13 +11,14 @@
 void sim_init(sim_t *sim, const char *elf_path) {
   // clear gpr
   sim->gpr = (unsigned *)calloc(NUM_GPR, sizeof(unsigned));
-  // init memory
-  sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  memory_init(sim->mem);
   // init csr
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
   sim->csr->sim = sim;
+  // init memory
+  sim->mem = (memory_t *)malloc(sizeof(memory_t));
+  memory_init(sim->mem);
+  sim->mem->csr = sim->csr;
   // init elf loader
   sim->elf = (elf_t *)malloc(sizeof(elf_t));
   elf_init(sim->elf, elf_path);
@@ -471,4 +472,8 @@ void sim_write_memory(sim_t *sim, unsigned addr, unsigned value) {
 
 unsigned sim_get_trap_code(sim_t *sim) {
   return sim->csr->mcause;
+}
+
+unsigned sim_get_trap_value(sim_t *sim) {
+  return csr_get_tval(sim->csr);
 }
