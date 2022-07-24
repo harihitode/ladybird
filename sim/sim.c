@@ -408,6 +408,7 @@ void sim_step(sim_t *sim) {
         if (rs2 == 2) {
           // MRET
           sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
+          sim->csr->mode = PRIVILEGE_MODE_S;
         } else {
           csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
