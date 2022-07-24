@@ -14,6 +14,9 @@ typedef struct memory_t {
   unsigned *base;
   char **block;
   char *reserve;
+  // MMU
+  char vmflag;
+  unsigned vmbase;
   // MMIO
   struct uart_t *uart;
   struct disk_t *disk;
@@ -26,5 +29,8 @@ void memory_fini(memory_t *);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr);
 unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
+// mmu
+void memory_atp_on(memory_t *, unsigned ppn);
+void memory_atp_off(memory_t *);
 
 #endif

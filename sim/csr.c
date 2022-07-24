@@ -1,4 +1,5 @@
 #include "sim.h"
+#include "memory.h"
 #include "csr.h"
 #include <stdio.h>
 
@@ -9,7 +10,6 @@ void csr_init(csr_t *csr) {
   csr->mode = PRIVILEGE_MODE_M;
   //
   csr->mepc = 0;
-  csr->atp = 0;
   csr->sie = 0;
   csr->mscratch = 0;
   csr->mtvec = 0;
@@ -33,7 +33,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_M_PMPADDR0:
     return 0; // not supported
   case CSR_ADDR_S_ATP:
-    return csr->atp;
+    return
+      (csr->sim->mem->vmflag << 30) |
+      ((csr->sim->mem->vmbase >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
     return csr->sie;
   case CSR_ADDR_S_TVEC:
@@ -67,7 +69,11 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
   case CSR_ADDR_S_ATP:
-    csr->atp = value;
+    if (value & 0x80000000) {
+      memory_atp_on(csr->sim->mem, value & 0x000fffff);
+    } else {
+      memory_atp_off(csr->sim->mem);
+    }
     break;
   case CSR_ADDR_S_IE:
     csr->sie = value;

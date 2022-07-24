@@ -18,21 +18,8 @@ void memory_init(memory_t *mem) {
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(mem->disk);
   disk_load(mem->disk, "../../ladybird_xv6/fs.img");
-}
-
-static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
-  unsigned base = (addr & 0xfffff000);
-  if (base == MEMORY_BASE_ADDR_UART) {
-    return MEMORY_UART;
-  } else if (base == MEMORY_BASE_ADDR_DISK) {
-    return MEMORY_DISK;
-  } else {
-    if (base >= MEMORY_BASE_ADDR_RAM) {
-      return MEMORY_RAM;
-    } else {
-      return MEMORY_NONE;
-    }
-  }
+  mem->vmflag = 0;
+  mem->vmbase = 0;
 }
 
 static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
@@ -54,42 +41,88 @@ static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
   return last_block;
 }
 
+static char ram_read(memory_t *mem, unsigned addr) {
+  unsigned bid = memory_get_block_id(mem, addr);
+  char *block = mem->block[bid];
+  mem->reserve[bid] = 0; // expire
+  return block[(addr & 0x00000fff)];
+}
+
+static void ram_write(memory_t *mem, unsigned addr, char value) {
+  unsigned bid = memory_get_block_id(mem, addr);
+  char *block = mem->block[bid];
+  mem->reserve[bid] = 0; // expire
+  block[(addr & 0x00000fff)] = value;
+  return;
+}
+
+static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
+  if (mem->vmflag == 0) {
+    return addr;
+  } else {
+    unsigned paddr = 0;
+    unsigned vpn1 = (addr >> 22) & 0x000003ff;
+    unsigned vpn0 = (addr >> 12) & 0x000003ff;
+    unsigned pte1 = 0, pte0 = 0;
+    unsigned pte1_addr = 0, pte0_addr = 0;
+    // level 1
+    pte1_addr = mem->vmbase + (vpn1 << 2); // word
+    for (unsigned i = 0; i < 4; i++) {
+      pte1 = (((unsigned)ram_read(mem, pte1_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte1 >> 8);
+    }
+    // level 0
+    pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
+    for (unsigned i = 0; i < 4; i++) {
+      pte0 = (((unsigned)ram_read(mem, pte0_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte0 >> 8);
+    }
+    paddr = ((pte1 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+    return paddr;
+  }
+}
+
+static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
+  unsigned base = (addr & 0xfffff000);
+  if (base == MEMORY_BASE_ADDR_UART) {
+    return MEMORY_UART;
+  } else if (base == MEMORY_BASE_ADDR_DISK) {
+    return MEMORY_DISK;
+  } else {
+    if (base >= MEMORY_BASE_ADDR_RAM) {
+      return MEMORY_RAM;
+    } else {
+      return MEMORY_NONE;
+    }
+  }
+}
+
 char memory_load(memory_t *mem, unsigned addr) {
+  unsigned vaddr = memory_address_translation(mem, addr);
   char value;
-  switch (memory_get_memory_type(mem, addr)) {
+  switch (memory_get_memory_type(mem, vaddr)) {
   case MEMORY_UART:
-    value = uart_read(mem->uart, addr - MEMORY_BASE_ADDR_UART);
+    value = uart_read(mem->uart, vaddr - MEMORY_BASE_ADDR_UART);
     break;
   case MEMORY_DISK:
-    value = disk_read(mem->disk, addr - MEMORY_BASE_ADDR_DISK);
+    value = disk_read(mem->disk, vaddr - MEMORY_BASE_ADDR_DISK);
     break;
   default:
-    {
-      unsigned bid = memory_get_block_id(mem, addr);
-      char *block = mem->block[bid];
-      mem->reserve[bid] = 0; // expire
-      value = block[(addr & 0x00000fff)];
-    }
+    value = ram_read(mem, vaddr - MEMORY_BASE_ADDR_RAM);
     break;
   }
   return value;
 }
 
 void memory_store(memory_t *mem, unsigned addr, char value) {
-  switch (memory_get_memory_type(mem, addr)) {
+  unsigned vaddr = memory_address_translation(mem, addr);
+  switch (memory_get_memory_type(mem, vaddr)) {
   case MEMORY_UART:
-    uart_write(mem->uart, addr - MEMORY_BASE_ADDR_UART, value);
+    uart_write(mem->uart, vaddr - MEMORY_BASE_ADDR_UART, value);
     break;
   case MEMORY_DISK:
-    disk_write(mem->disk, addr - MEMORY_BASE_ADDR_DISK, value);
+    disk_write(mem->disk, vaddr - MEMORY_BASE_ADDR_DISK, value);
     break;
   default:
-    {
-      unsigned bid = memory_get_block_id(mem, addr);
-      char *block = mem->block[bid];
-      mem->reserve[bid] = 0; // expire
-      block[(addr & 0x00000fff)] = value;
-    }
+    ram_write(mem, vaddr - MEMORY_BASE_ADDR_RAM, value);
     break;
   }
   return;
@@ -121,6 +154,17 @@ unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) 
     memory_store(mem, addr + 3, (char)((value >> 24) & 0x000000ff));
   }
   return result;
+}
+
+void memory_atp_on(memory_t *mem, unsigned ppn) {
+  mem->vmflag = 1;
+  mem->vmbase = ppn << 12;
+  return;
+}
+
+void memory_atp_off(memory_t *mem) {
+  mem->vmflag = 0;
+  return;
 }
 
 void memory_fini(memory_t *mem) {

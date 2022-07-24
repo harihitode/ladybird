@@ -15,7 +15,6 @@ typedef struct csr_t {
   unsigned mie; // [M] interrupt enable
   unsigned stvec; // [S] trap base address
   unsigned sie; // [S] interrupt enable
-  unsigned atp; // address translation & protection
 } csr_t;
 
 void csr_init(csr_t *);
