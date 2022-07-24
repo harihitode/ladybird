@@ -33,8 +33,11 @@ void callback(sim_t *sim) {
     quit = 1;
     break;
   case TRAP_CODE_STORE_ACCESS_FAULT:
+    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
+    quit = 1;
+    break;
   case TRAP_CODE_LOAD_ACCESS_FAULT:
-    fprintf(stderr, "Load/Store Access Fault\n");
+    fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
     quit = 1;
     break;
   default:
