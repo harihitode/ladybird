@@ -75,7 +75,13 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
     for (unsigned i = 0; i < 4; i++) {
       pte0 = (((unsigned)ram_read(mem, pte0_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte0 >> 8);
     }
-    paddr = ((pte1 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+    paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+#if 0
+    if (addr >= 0x10000000 && addr < 0x10000400) {
+      printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
+      printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
+      printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
+#endif
     return paddr;
   }
 }
