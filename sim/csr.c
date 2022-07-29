@@ -21,6 +21,11 @@ void csr_init(csr_t *csr) {
   return;
 }
 
+void csr_set_sim(csr_t *csr, sim_t *sim) {
+  csr->sim = sim;
+  return;
+}
+
 unsigned csr_csrr(csr_t *csr, unsigned addr) {
   switch (addr) {
   case CSR_ADDR_M_EPC:

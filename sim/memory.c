@@ -1,5 +1,6 @@
 #include "memory.h"
 #include "mmio.h"
+#include "plic.h"
 #include "sim.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,8 @@
 #define MEMORY_RAM 1
 #define MEMORY_UART 2
 #define MEMORY_DISK 3
+#define MEMORY_CLINT 4
+#define MEMORY_PLIC 5
 
 void csr_set_tval(struct csr_t *, unsigned value);
 void csr_trap(struct csr_t *, unsigned trap_code);
@@ -23,8 +26,15 @@ void memory_init(memory_t *mem) {
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(mem->disk);
   disk_load(mem->disk, "../../ladybird_xv6/fs.img");
+  mem->plic = (plic_t *)malloc(sizeof(plic_t));
+  plic_init(mem->plic);
   mem->vmflag = 0;
   mem->vmbase = 0;
+}
+
+void memory_set_sim(memory_t *mem, struct sim_t *sim) {
+  mem->csr = sim->csr;
+  return;
 }
 
 static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
@@ -93,11 +103,17 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
 }
 
 static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
-  unsigned base = (addr & 0xfffff000);
+  unsigned base = (addr & 0xff000000);
   if (base == MEMORY_BASE_ADDR_UART) {
-    return MEMORY_UART;
-  } else if (base == MEMORY_BASE_ADDR_DISK) {
-    return MEMORY_DISK;
+    if (addr < MEMORY_BASE_ADDR_DISK) {
+      return MEMORY_UART;
+    } else {
+      return MEMORY_DISK;
+    }
+  } else if (base == MEMORY_BASE_ADDR_CLINT) {
+    return MEMORY_CLINT;
+  } else if (base == MEMORY_BASE_ADDR_PLIC) {
+    return MEMORY_PLIC;
   } else {
     if (base >= MEMORY_BASE_ADDR_RAM) {
       return MEMORY_RAM;
@@ -120,6 +136,13 @@ char memory_load(memory_t *mem, unsigned addr) {
   case MEMORY_RAM:
     value = ram_read(mem, paddr - MEMORY_BASE_ADDR_RAM);
     break;
+  case MEMORY_CLINT:
+    printf("read clint: %08x\n", paddr - MEMORY_BASE_ADDR_CLINT);
+    value = 0;
+    break;
+  case MEMORY_PLIC:
+    value = plic_read(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC);
+    break;
   default:
     csr_set_tval(mem->csr, addr);
     csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
@@ -139,6 +162,12 @@ void memory_store(memory_t *mem, unsigned addr, char value) {
     break;
   case MEMORY_RAM:
     ram_write(mem, paddr - MEMORY_BASE_ADDR_RAM, value);
+    break;
+  case MEMORY_CLINT:
+    printf("write clint: %08x <- %08x\n", paddr - MEMORY_BASE_ADDR_CLINT, value);
+    break;
+  case MEMORY_PLIC:
+    plic_write(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC, value);
     break;
   default:
     csr_set_tval(mem->csr, addr);
@@ -198,5 +227,7 @@ void memory_fini(memory_t *mem) {
   free(mem->uart);
   disk_fini(mem->disk);
   free(mem->disk);
+  plic_fini(mem->plic);
+  free(mem->plic);
   return;
 }

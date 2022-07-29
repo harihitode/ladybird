@@ -20,6 +20,7 @@ typedef struct csr_t {
 } csr_t;
 
 void csr_init(csr_t *);
+void csr_set_sim(csr_t *, struct sim_t *);
 unsigned csr_csrr(csr_t *, unsigned addr);
 void csr_csrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);

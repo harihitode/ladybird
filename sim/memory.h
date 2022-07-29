@@ -2,10 +2,13 @@
 #define MEMORY_H
 
 // memory layout
-#define MEMORY_BASE_ADDR_UART 0x10000000
-#define MEMORY_BASE_ADDR_DISK 0x10001000
-#define MEMORY_BASE_ADDR_RAM  0x80000000
+#define MEMORY_BASE_ADDR_UART  0x10000000
+#define MEMORY_BASE_ADDR_DISK  0x10001000
+#define MEMORY_BASE_ADDR_CLINT 0x02000000
+#define MEMORY_BASE_ADDR_PLIC  0x0c000000
+#define MEMORY_BASE_ADDR_RAM   0x80000000
 
+struct sim_t;
 struct uart_t;
 struct disk_t;
 struct csr_t;
@@ -22,9 +25,12 @@ typedef struct memory_t {
   // MMIO
   struct uart_t *uart;
   struct disk_t *disk;
+  // PLIC
+  struct plic_t *plic;
 } memory_t;
 
 void memory_init(memory_t *);
+void memory_set_sim(memory_t *, struct sim_t *);
 char memory_load(memory_t *, unsigned addr);
 void memory_store(memory_t *,unsigned addr, char value);
 void memory_fini(memory_t *);
