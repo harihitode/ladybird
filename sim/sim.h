@@ -25,6 +25,8 @@ void sim_fini(sim_t *);
 void sim_trap(sim_t *, void (*func)(sim_t *sim));
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
+// debug
+void sim_debug_dump_status(sim_t *);
 
 // trap code below
 #define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000004
@@ -33,5 +35,7 @@ unsigned sim_get_trap_value(sim_t *);
 #define TRAP_CODE_BREAKPOINT 0x00000003
 #define TRAP_CODE_LOAD_ACCESS_FAULT 0x00000005
 #define TRAP_CODE_STORE_ACCESS_FAULT 0x00000007
+#define TRAP_CODE_M_TIMER_INTERRUPT 0x80000007
+#define TRAP_CODE_S_TIMER_INTERRUPT 0x80000005
 
 #endif

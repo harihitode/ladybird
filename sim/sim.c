@@ -407,8 +407,11 @@ void sim_step(sim_t *sim) {
       case 0x18:
         if (rs2 == 2) {
           // MRET
+          sim->csr->mode = sim->csr->status_mpp;
+          sim->csr->status_mie = sim->csr->status_mpie;
+          sim->csr->status_mpp = 0;
+          sim->csr->status_mpie = 1;
           sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
-          sim->csr->mode = PRIVILEGE_MODE_S;
         } else {
           csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
@@ -430,15 +433,8 @@ void sim_step(sim_t *sim) {
     sim->pc = sim->pc + 4;
     break;
   }
-  // counter updates
-  sim->csr->instret++; // 1.0 ipc
-  sim->csr->cycle++; // 100MHz
-  if ((sim->csr->cycle % 10) == 0) {
-    sim->csr->time++; // precise 0.1 us
-  }
-  if (csr_get_timerint(sim->csr)) {
-    // TODO: PLIC: timer interrupt
-  }
+  // csr updates
+  csr_cycle(sim->csr, 1); // 1.0 ipc
   return;
 }
 
@@ -486,4 +482,27 @@ unsigned sim_get_trap_code(sim_t *sim) {
 
 unsigned sim_get_trap_value(sim_t *sim) {
   return csr_get_tval(sim->csr);
+}
+
+void sim_debug_dump_status(sim_t *sim) {
+  fprintf(stderr, "MODE: ");
+  switch (sim->csr->mode) {
+  case PRIVILEGE_MODE_M:
+    fprintf(stderr, "Machine\n");
+    break;
+  case PRIVILEGE_MODE_S:
+    fprintf(stderr, "Supervisor\n");
+    break;
+  case PRIVILEGE_MODE_U:
+    fprintf(stderr, "User\n");
+    break;
+  default:
+    fprintf(stderr, "unknown: %d\n", sim->csr->mode);
+    break;
+  }
+  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
+  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
+  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));
+  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP));
+  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE));
 }

@@ -3,11 +3,24 @@
 #include "csr.h"
 #include <stdio.h>
 
+#define CSR_INT_MEI_FIELD 11
+#define CSR_INT_SEI_FIELD 9
+#define CSR_INT_MTI_FIELD 7
+#define CSR_INT_STI_FIELD 5
+#define CSR_INT_MSI_FIELD 3
+#define CSR_INT_SSI_FIELD 1
+
 void csr_init(csr_t *csr) {
   csr->sim = NULL;
   csr->trap_handler = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
+  csr->status_mpp = 0;
+  csr->status_mie = 0;
+  csr->status_mpie = 0;
+  csr->status_spp = 0;
+  csr->status_sie = 0;
+  csr->status_spie = 0;
   // counters
   csr->cycle = 0;
   csr->time = 0;
@@ -15,7 +28,6 @@ void csr_init(csr_t *csr) {
   csr->instret = 0;
   // trap & interrupts
   csr->mepc = 0;
-  csr->sie = 0;
   csr->mscratch = 0;
   csr->mtvec = 0;
   csr->mtval = 0;
@@ -39,8 +51,18 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->hartid;
   case CSR_ADDR_M_STATUS:
   case CSR_ADDR_S_STATUS:
-    // TODO
-    return 0;
+    {
+      unsigned value = 0;
+      value |= (csr->status_sie << 1);
+      value |= (csr->status_spie << 5);
+      value |= (csr->status_spp << 8);
+      if (addr == CSR_ADDR_M_STATUS) {
+        value |= (csr->status_mie << 3);
+        value |= (csr->status_mpie << 7);
+        value |= (csr->status_mpp << 11);
+      }
+      return value;
+    }
   case CSR_ADDR_M_EDELEG:
   case CSR_ADDR_M_IDELEG:
   case CSR_ADDR_M_PMPCFG0:
@@ -64,6 +86,25 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return (uint32_t)csr->time;
   case CSR_ADDR_U_TIMEH:
     return (uint32_t)(csr->time >> 32);
+  case CSR_ADDR_M_IP:
+  case CSR_ADDR_S_IP:
+    {
+      unsigned value = 0;
+      unsigned swint = 0;
+      unsigned extint = 0;
+      unsigned timerint = (csr->time >= csr->timecmp) ? 1 : 0;
+      value =
+        (swint << CSR_INT_SSI_FIELD) |
+        (extint << CSR_INT_SEI_FIELD) |
+        (timerint << CSR_INT_STI_FIELD);
+      if (addr == CSR_ADDR_M_IP) {
+        value |=
+          (swint << CSR_INT_MSI_FIELD) |
+          (extint << CSR_INT_MEI_FIELD) |
+          (timerint << CSR_INT_MTI_FIELD);
+      }
+      return value;
+    }
   default:
     printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
@@ -76,8 +117,14 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->mepc = value;
     break;
   case CSR_ADDR_M_STATUS:
+    csr->status_mie = (value >> 3) & 0x00000001;
+    csr->status_mpie = (value >> 7) & 0x00000001;
+    csr->status_mpp = (value >> 11) & 0x00000003;
+    // fall-through
   case CSR_ADDR_S_STATUS:
-    // TODO
+    csr->status_sie = (value >> 1) & 0x00000001;
+    csr->status_spie = (value >> 5) & 0x00000001;
+    csr->status_spp = (value >> 8) & 0x00000003;
     break;
   case CSR_ADDR_M_HARTID:
   case CSR_ADDR_U_TIME:
@@ -166,8 +213,28 @@ void csr_set_timecmp(csr_t *csr, uint64_t value) {
   return;
 }
 
-int csr_get_timerint(csr_t *csr) {
-  return (csr->time >= csr->timecmp) ? 1 : 0;
+void csr_cycle(csr_t *csr, int n_instret) {
+  csr->cycle++; // assume 100 MHz
+  csr->instret += n_instret;
+  if ((csr->cycle % 10) == 0) {
+    csr->time++; // precision 0.1 us
+  }
+  int intr = 0;
+  if (csr->mode == PRIVILEGE_MODE_M) {
+    intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
+    if (intr & (1 << CSR_INT_MTI_FIELD)) {
+      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
+    }
+  } else if (csr->mode == PRIVILEGE_MODE_S) {
+    intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
+    if (intr & (1 << CSR_INT_STI_FIELD)) {
+      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
+    }
+  }
+  if (csr->status_mie && (csr->time >= csr->timecmp)) {
+    csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
+  }
+  return;
 }
 
 void csr_fini(csr_t *csr) {

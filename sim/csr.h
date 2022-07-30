@@ -13,6 +13,12 @@ typedef struct csr_t {
   uint64_t timecmp;
   uint64_t instret;;
   unsigned mode;
+  unsigned status_spp; // previous privilege mode
+  unsigned status_mpp; // previous privilege mode
+  unsigned status_sie; // global interrupt enable
+  unsigned status_mie; // global interrupt enable
+  unsigned status_spie; // global previous interrupt enable
+  unsigned status_mpie; // global previous interrupt enable
   unsigned hartid;
   unsigned mepc;
   unsigned mcause;
@@ -39,8 +45,9 @@ unsigned csr_get_tval(csr_t *);
 // timer
 uint64_t csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, uint64_t);
-int csr_get_timerint(csr_t *);
 void csr_fini(csr_t *);
+// call once for 1 cycle
+void csr_cycle(csr_t *, int is_instret);
 
 // mode
 #define PRIVILEGE_MODE_U 0x0
@@ -67,5 +74,7 @@ void csr_fini(csr_t *);
 #define CSR_ADDR_U_CYCLEH 0x00000c80
 #define CSR_ADDR_U_TIMEH 0x00000c81
 #define CSR_ADDR_U_INSTRETH 0x00000c82
+#define CSR_ADDR_M_IP 0x00000344
+#define CSR_ADDR_S_IP 0x00000144
 
 #endif

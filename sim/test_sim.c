@@ -40,6 +40,13 @@ void callback(sim_t *sim) {
     fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
     quit = 1;
     break;
+  case TRAP_CODE_M_TIMER_INTERRUPT:
+    fprintf(stderr, "Timer Interrupt [M]\n");
+    quit = 1;
+    break;
+  case TRAP_CODE_S_TIMER_INTERRUPT:
+    fprintf(stderr, "Timer Interrupt [S]\n");
+    quit = 1;
   default:
     break;
   }
@@ -97,6 +104,7 @@ int main(int argc, char *argv[]) {
     // sim_step(sim);
   }
   fprintf(stderr, "@ PC:%08x, INST:%08x\n", sim->pc, sim_read_memory(sim, sim->pc));
+  sim_debug_dump_status(sim);
   sim_fini(sim);
   free(sim);
   return 0;
