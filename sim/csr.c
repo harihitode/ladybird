@@ -8,7 +8,12 @@ void csr_init(csr_t *csr) {
   csr->trap_handler = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
-  //
+  // counters
+  csr->cycle = 0;
+  csr->time = 0;
+  csr->timecmp = 0;
+  csr->instret = 0;
+  // trap & interrupts
   csr->mepc = 0;
   csr->sie = 0;
   csr->mscratch = 0;
@@ -55,6 +60,10 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->mtvec;
   case CSR_ADDR_M_IE:
     return csr->mie;
+  case CSR_ADDR_U_TIME:
+    return (uint32_t)csr->time;
+  case CSR_ADDR_U_TIMEH:
+    return (uint32_t)(csr->time >> 32);
   default:
     printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
@@ -71,6 +80,8 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     // TODO
     break;
   case CSR_ADDR_M_HARTID:
+  case CSR_ADDR_U_TIME:
+  case CSR_ADDR_U_TIMEH:
     break; // read only
   case CSR_ADDR_M_EDELEG:
   case CSR_ADDR_M_IDELEG:
@@ -144,6 +155,19 @@ unsigned csr_get_tval(csr_t *csr) {
   } else {
     return csr->stval;
   }
+}
+
+uint64_t csr_get_timecmp(csr_t *csr) {
+  return csr->timecmp;
+}
+
+void csr_set_timecmp(csr_t *csr, uint64_t value) {
+  csr->timecmp = value;
+  return;
+}
+
+int csr_get_timerint(csr_t *csr) {
+  return (csr->time >= csr->timecmp) ? 1 : 0;
 }
 
 void csr_fini(csr_t *csr) {

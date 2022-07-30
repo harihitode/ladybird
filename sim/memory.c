@@ -2,18 +2,17 @@
 #include "mmio.h"
 #include "plic.h"
 #include "sim.h"
+#include "csr.h"
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 #define MEMORY_NONE 0
 #define MEMORY_RAM 1
 #define MEMORY_UART 2
 #define MEMORY_DISK 3
-#define MEMORY_CLINT 4
+#define MEMORY_ACLINT 4
 #define MEMORY_PLIC 5
-
-void csr_set_tval(struct csr_t *, unsigned value);
-void csr_trap(struct csr_t *, unsigned trap_code);
 
 void memory_init(memory_t *mem) {
   mem->blocks = 0;
@@ -110,8 +109,8 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
     } else {
       return MEMORY_DISK;
     }
-  } else if (base == MEMORY_BASE_ADDR_CLINT) {
-    return MEMORY_CLINT;
+  } else if (base == MEMORY_BASE_ADDR_ACLINT) {
+    return MEMORY_ACLINT;
   } else if (base == MEMORY_BASE_ADDR_PLIC) {
     return MEMORY_PLIC;
   } else {
@@ -136,9 +135,23 @@ char memory_load(memory_t *mem, unsigned addr) {
   case MEMORY_RAM:
     value = ram_read(mem, paddr - MEMORY_BASE_ADDR_RAM);
     break;
-  case MEMORY_CLINT:
-    printf("read clint: %08x\n", paddr - MEMORY_BASE_ADDR_CLINT);
-    value = 0;
+  case MEMORY_ACLINT:
+    {
+      unsigned offs = paddr - MEMORY_BASE_ADDR_ACLINT;
+      uint64_t byte_offset = offs % 8;
+      uint64_t value64 = 0;
+      if (offs < 0x0000BFF8) {
+        value64 = csr_get_timecmp(mem->csr);
+      } else if (offs <= 0x0000BFFF) {
+        value64 =
+          ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIMEH) << 32) |
+          ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
+      } else {
+        csr_set_tval(mem->csr, addr);
+        csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+      }
+      value = (value64 >> (8 * byte_offset));
+    }
     break;
   case MEMORY_PLIC:
     value = plic_read(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC);
@@ -163,8 +176,23 @@ void memory_store(memory_t *mem, unsigned addr, char value) {
   case MEMORY_RAM:
     ram_write(mem, paddr - MEMORY_BASE_ADDR_RAM, value);
     break;
-  case MEMORY_CLINT:
-    printf("write clint: %08x <- %08x\n", paddr - MEMORY_BASE_ADDR_CLINT, value);
+  case MEMORY_ACLINT:
+    {
+      unsigned offs = paddr - MEMORY_BASE_ADDR_ACLINT;
+      if (offs < 0x0000BFF8) {
+        // hart 0 mtimecmp
+        uint64_t byte_offset = offs % 8;
+        uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
+        uint64_t timecmp = csr_get_timecmp(mem->csr);
+        timecmp = (timecmp & mask) | ((uint64_t)value << (8 * byte_offset));
+        csr_set_timecmp(mem->csr, timecmp);
+      } else if (offs <= 0x0000BFFF) {
+        // mtime read only
+      } else {
+        csr_set_tval(mem->csr, addr);
+        csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+      }
+    }
     break;
   case MEMORY_PLIC:
     plic_write(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC, value);

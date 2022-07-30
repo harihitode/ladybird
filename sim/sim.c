@@ -430,6 +430,15 @@ void sim_step(sim_t *sim) {
     sim->pc = sim->pc + 4;
     break;
   }
+  // counter updates
+  sim->csr->instret++; // 1.0 ipc
+  sim->csr->cycle++; // 100MHz
+  if ((sim->csr->cycle % 10) == 0) {
+    sim->csr->time++; // precise 0.1 us
+  }
+  if (csr_get_timerint(sim->csr)) {
+    // TODO: PLIC: timer interrupt
+  }
   return;
 }
 
