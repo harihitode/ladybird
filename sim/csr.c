@@ -27,15 +27,14 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
+  csr->interrupts_enable = 0;
   csr->mideleg = 0;
   csr->medeleg = 0;
-  csr->mie = 0;
   csr->mscratch = 0;
   csr->mepc = 0;
   csr->mcause = 0;
   csr->mtval = 0;
   csr->mtvec = 0;
-  csr->sie = 0;
   csr->sscratch = 0;
   csr->sepc = 0;
   csr->scause = 0;
@@ -84,7 +83,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       (csr->sim->mem->vmflag << 30) |
       ((csr->sim->mem->vmrppn >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
-    return csr->sie;
+    return csr->interrupts_enable & 0x00000222;
   case CSR_ADDR_S_TVEC:
     return csr->stvec;
   case CSR_ADDR_M_SCRATCH:
@@ -92,7 +91,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_M_TVEC:
     return csr->mtvec;
   case CSR_ADDR_M_IE:
-    return csr->mie;
+    return csr->interrupts_enable;
   case CSR_ADDR_U_TIME:
     return (uint32_t)csr->time;
   case CSR_ADDR_U_TIMEH:
@@ -165,7 +164,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     }
     break;
   case CSR_ADDR_S_IE:
-    csr->sie = value;
+    csr->interrupts_enable = (csr->interrupts_enable & 0x00000888) | value;
     break;
   case CSR_ADDR_S_TVEC:
     csr->stvec = value;
@@ -177,7 +176,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->mtvec = value;
     break;
   case CSR_ADDR_M_IE:
-    csr->mie = value;
+    csr->interrupts_enable = value;
     break;
   case CSR_ADDR_S_EPC:
     csr->sepc = value;
@@ -217,7 +216,50 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
 }
 
 void csr_trap(csr_t *csr, unsigned trap_code) {
-  unsigned to_mode = PRIVILEGE_MODE_M; // default: Machine
+  unsigned is_interrupt = ((trap_code >> 31) & 0x00000001);
+  unsigned interrupt_code = (trap_code & 0x7fffffff);
+  unsigned exception_code = (trap_code & 0x7fffffff);
+  unsigned delegation_to_s = 0;
+  unsigned is_delegate = 0;
+  // delegation check
+  if (is_interrupt) {
+    delegation_to_s = (csr->mideleg >> interrupt_code) & 0x00000001;
+  } else {
+    delegation_to_s = (csr->medeleg >> exception_code) & 0x00000001;
+  }
+  if (is_interrupt) {
+    if (delegation_to_s) {
+      if (csr->status_mie && ((csr->interrupts_enable >> interrupt_code) & 0x00000001)) {
+        is_delegate = 0;
+      } else if (csr->status_sie) {
+        is_delegate = 1;
+      } else {
+        is_delegate = 0;
+      }
+    } else {
+      is_delegate = 0;
+    }
+  } else {
+    if (delegation_to_s) {
+      is_delegate = 1;
+    } else {
+      is_delegate = 0;
+    }
+  }
+
+  if (csr->status_mie && csr->mode == PRIVILEGE_MODE_M) {
+    int intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
+    if (intr & (1 << CSR_INT_MTI_FIELD)) {
+      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
+    }
+  } else if (csr->status_sie && csr->mode == PRIVILEGE_MODE_S) {
+    int intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
+    if (intr & (1 << CSR_INT_STI_FIELD)) {
+      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
+    }
+  }
+  // default: to Machine Mode
+  unsigned to_mode = (is_delegate) ? PRIVILEGE_MODE_S : PRIVILEGE_MODE_M;
   if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
     // pc
@@ -300,24 +342,50 @@ void csr_set_timecmp(csr_t *csr, uint64_t value) {
 void csr_cycle(csr_t *csr, int n_instret) {
   csr->cycle++; // assume 100 MHz
   csr->instret += n_instret;
-  // if ((csr->cycle % 10) == 0) {
-  //   csr->time++; // precision 0.1 us
-  // }
-  csr->time++;
-
-  if (csr->status_mie && csr->mode == PRIVILEGE_MODE_M) {
-    int intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
-    if (intr & (1 << CSR_INT_MTI_FIELD)) {
-      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
-    }
-  } else if (csr->status_sie && csr->mode == PRIVILEGE_MODE_S) {
-    int intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
-    if (intr & (1 << CSR_INT_STI_FIELD)) {
-      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
+  if ((csr->cycle % 10) == 0) {
+    csr->time++; // precision 0.1 us
+  }
+  // Simultaneous interrupts destined for M-mode are handled in the following
+  // decreasing priority order: MEI, MSI, MTI, SEI, SSI, STI
+  // degelation check
+  unsigned interrupts_bits [6] =
+    {
+     CSR_INT_MEI_FIELD,
+     CSR_INT_MSI_FIELD,
+     CSR_INT_MTI_FIELD,
+     CSR_INT_SEI_FIELD,
+     CSR_INT_SSI_FIELD,
+     CSR_INT_STI_FIELD
+    };
+  unsigned interrupts_code [6] =
+    {
+     TRAP_CODE_M_EXTERNAL_INTERRUPT,
+     TRAP_CODE_M_SOFTWARE_INTERRUPT,
+     TRAP_CODE_M_TIMER_INTERRUPT,
+     TRAP_CODE_S_EXTERNAL_INTERRUPT,
+     TRAP_CODE_S_SOFTWARE_INTERRUPT,
+     TRAP_CODE_S_TIMER_INTERRUPT
+    };
+  unsigned interrupts_pending = csr_csrr(csr, CSR_ADDR_M_IP);
+  unsigned global_interrupts_enable_m = (csr->mode == PRIVILEGE_MODE_M) ? csr->status_mie : 1;
+  unsigned global_interrupts_enable_s = csr->status_sie;
+  unsigned interrupts_enable =
+    csr_csrr(csr, CSR_ADDR_M_IE) &
+    ((global_interrupts_enable_m << CSR_INT_MEI_FIELD) |
+     (global_interrupts_enable_m << CSR_INT_MSI_FIELD) |
+     (global_interrupts_enable_m << CSR_INT_MTI_FIELD) |
+     (global_interrupts_enable_s << CSR_INT_SEI_FIELD) |
+     (global_interrupts_enable_s << CSR_INT_SSI_FIELD) |
+     (global_interrupts_enable_s << CSR_INT_STI_FIELD));
+  int intr = ((interrupts_pending & interrupts_enable) == 0) ? 0 : 1;
+  unsigned trap_code = 0;
+  for (int i = 0; i < 6; i++) {
+    if (((interrupts_pending & interrupts_enable) >> interrupts_bits[i]) & 0x00000001) {
+      trap_code = interrupts_code[i];
     }
   }
-  if (csr->status_mie && (csr->time >= csr->timecmp)) {
-    csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
+  if (intr) {
+    csr_trap(csr, trap_code);
   }
   return;
 }

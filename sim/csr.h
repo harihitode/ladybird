@@ -22,6 +22,7 @@ typedef struct csr_t {
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
   unsigned hartid;
+  unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;
   unsigned mepc;
@@ -29,13 +30,11 @@ typedef struct csr_t {
   unsigned mscratch;
   unsigned mtval; // [M] trap value
   unsigned mtvec; // [M] trap base address
-  unsigned mie; // [M] interrupt enable
   unsigned sepc;
   unsigned scause;
   unsigned sscratch;
   unsigned stvec; // [S] trap base address
   unsigned stval; // [S] trap value
-  unsigned sie; // [S] interrupt enable
 } csr_t;
 
 void csr_init(csr_t *);
