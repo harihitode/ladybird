@@ -29,7 +29,7 @@ unsigned sim_get_trap_value(sim_t *);
 void sim_debug_dump_status(sim_t *);
 
 // trap code below
-#define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000004
+#define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000002
 #define TRAP_CODE_ENVIRONMENT_CALL_M 0x0000000b
 #define TRAP_CODE_ENVIRONMENT_CALL_S 0x00000009
 #define TRAP_CODE_BREAKPOINT 0x00000003
