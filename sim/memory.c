@@ -28,7 +28,7 @@ void memory_init(memory_t *mem) {
   mem->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(mem->plic);
   mem->vmflag = 0;
-  mem->vmbase = 0;
+  mem->vmrppn = 0;
 }
 
 void memory_set_sim(memory_t *mem, struct sim_t *sim) {
@@ -71,7 +71,9 @@ static void ram_write(memory_t *mem, unsigned addr, char value) {
 }
 
 static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
-  if (mem->vmflag == 0) {
+  if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
+    // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
+    // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
     return addr;
   } else {
     unsigned paddr = 0;
@@ -80,7 +82,7 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
     unsigned pte1 = 0, pte0 = 0;
     unsigned pte1_addr = 0, pte0_addr = 0;
     // level 1
-    pte1_addr = mem->vmbase + (vpn1 << 2); // word
+    pte1_addr = mem->vmrppn + (vpn1 << 2); // word
     for (unsigned i = 0; i < 4; i++) {
       pte1 = (((unsigned)ram_read(mem, pte1_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte1 >> 8);
     }
@@ -235,12 +237,13 @@ unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) 
 
 void memory_atp_on(memory_t *mem, unsigned ppn) {
   mem->vmflag = 1;
-  mem->vmbase = ppn << 12;
+  mem->vmrppn = ppn << 12;
   return;
 }
 
 void memory_atp_off(memory_t *mem) {
   mem->vmflag = 0;
+  mem->vmrppn = 0;
   return;
 }
 

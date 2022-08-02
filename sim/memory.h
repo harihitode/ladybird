@@ -21,7 +21,9 @@ typedef struct memory_t {
   struct csr_t *csr;
   // MMU
   char vmflag;
-  unsigned vmbase;
+  // To support a physical address space larger than 4GiB,
+  // RV32 stores a PPN in satp, ranther than a physical address.
+  unsigned vmrppn; // root physical page number
   // MMIO
   struct uart_t *uart;
   struct disk_t *disk;
