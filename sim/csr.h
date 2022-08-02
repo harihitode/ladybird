@@ -13,6 +13,8 @@ typedef struct csr_t {
   uint64_t timecmp;
   uint64_t instret;;
   unsigned mode;
+  unsigned software_interrupt_m;
+  unsigned software_interrupt_s;
   unsigned status_spp; // previous privilege mode
   unsigned status_mpp; // previous privilege mode
   unsigned status_sie; // global interrupt enable

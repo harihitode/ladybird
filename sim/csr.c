@@ -41,6 +41,9 @@ void csr_init(csr_t *csr) {
   csr->scause = 0;
   csr->stval = 0;
   csr->stvec = 0;
+  // SW interrupts
+  csr->software_interrupt_m = 0;
+  csr->software_interrupt_s = 0;
   return;
 }
 
@@ -101,11 +104,13 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       unsigned swint = 0;
       unsigned extint = 0;
       unsigned timerint = (csr->time >= csr->timecmp) ? 1 : 0;
+      swint = csr->software_interrupt_s;
       value =
         (swint << CSR_INT_SSI_FIELD) |
         (extint << CSR_INT_SEI_FIELD) |
         (timerint << CSR_INT_STI_FIELD);
       if (addr == CSR_ADDR_M_IP) {
+        swint = csr->software_interrupt_m;
         value |=
           (swint << CSR_INT_MSI_FIELD) |
           (extint << CSR_INT_MEI_FIELD) |
@@ -179,6 +184,12 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_S_CAUSE:
     csr->scause = value;
+    break;
+  case CSR_ADDR_M_IP:
+    csr->software_interrupt_m = (value >> 3) & 0x00000001;
+    // fall-through
+  case CSR_ADDR_S_IP:
+    csr->software_interrupt_s = (value >> 1) & 0x00000001;
     break;
   default:
     printf("unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
