@@ -42,12 +42,12 @@ void callback(sim_t *sim) {
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
     fprintf(stderr, "Timer Interrupt [M]\n");
-    quit = 1;
     break;
   case TRAP_CODE_S_TIMER_INTERRUPT:
     fprintf(stderr, "Timer Interrupt [S]\n");
-    quit = 1;
+    break;
   default:
+    fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
     break;
   }
   return;
