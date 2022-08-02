@@ -20,12 +20,17 @@ typedef struct csr_t {
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
   unsigned hartid;
+  unsigned mideleg;
+  unsigned medeleg;
   unsigned mepc;
   unsigned mcause;
   unsigned mscratch;
   unsigned mtval; // [M] trap value
   unsigned mtvec; // [M] trap base address
   unsigned mie; // [M] interrupt enable
+  unsigned sepc;
+  unsigned scause;
+  unsigned sscratch;
   unsigned stvec; // [S] trap base address
   unsigned stval; // [S] trap value
   unsigned sie; // [S] interrupt enable
@@ -40,6 +45,7 @@ unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
 // trap
 void csr_trap(csr_t *, unsigned trap_code);
+void csr_trapret(csr_t *);
 void csr_set_tval(csr_t *, unsigned trap_value);
 unsigned csr_get_tval(csr_t *);
 // timer
@@ -76,5 +82,8 @@ void csr_cycle(csr_t *, int is_instret);
 #define CSR_ADDR_U_INSTRETH 0x00000c82
 #define CSR_ADDR_M_IP 0x00000344
 #define CSR_ADDR_S_IP 0x00000144
+#define CSR_ADDR_S_EPC 0x00000141
+#define CSR_ADDR_S_CAUSE 0x00000142
+#define CSR_ADDR_S_TVAL 0x00000143
 
 #endif

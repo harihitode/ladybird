@@ -27,14 +27,20 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
-  csr->mepc = 0;
-  csr->mscratch = 0;
-  csr->mtvec = 0;
-  csr->mtval = 0;
+  csr->mideleg = 0;
+  csr->medeleg = 0;
   csr->mie = 0;
-  csr->stvec = 0;
-  csr->stval = 0;
+  csr->mscratch = 0;
+  csr->mepc = 0;
+  csr->mcause = 0;
+  csr->mtval = 0;
+  csr->mtvec = 0;
   csr->sie = 0;
+  csr->sscratch = 0;
+  csr->sepc = 0;
+  csr->scause = 0;
+  csr->stval = 0;
+  csr->stvec = 0;
   return;
 }
 
@@ -64,14 +70,16 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       return value;
     }
   case CSR_ADDR_M_EDELEG:
+    return csr->medeleg;
   case CSR_ADDR_M_IDELEG:
+    return csr->mideleg;
   case CSR_ADDR_M_PMPCFG0:
   case CSR_ADDR_M_PMPADDR0:
     return 0; // not supported
   case CSR_ADDR_S_ATP:
     return
       (csr->sim->mem->vmflag << 30) |
-      ((csr->sim->mem->vmbase >> 12) & 0x000fffff);
+      ((csr->sim->mem->vmrppn >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
     return csr->sie;
   case CSR_ADDR_S_TVEC:
@@ -105,6 +113,10 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       }
       return value;
     }
+  case CSR_ADDR_S_EPC:
+    return csr->sepc;
+  case CSR_ADDR_S_CAUSE:
+    return csr->scause;
   default:
     printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
@@ -131,7 +143,12 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_U_TIMEH:
     break; // read only
   case CSR_ADDR_M_EDELEG:
+    // exception delegation
+    csr->medeleg = value;
+    break;
   case CSR_ADDR_M_IDELEG:
+    // interrupt delegation
+    csr->mideleg = value;
   case CSR_ADDR_M_PMPCFG0:
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
@@ -156,6 +173,12 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_M_IE:
     csr->mie = value;
+    break;
+  case CSR_ADDR_S_EPC:
+    csr->sepc = value;
+    break;
+  case CSR_ADDR_S_CAUSE:
+    csr->scause = value;
     break;
   default:
     printf("unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
@@ -183,8 +206,58 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
 }
 
 void csr_trap(csr_t *csr, unsigned trap_code) {
-  csr->mcause = trap_code;
+  unsigned to_mode = PRIVILEGE_MODE_M; // default: Machine
+  if (to_mode == PRIVILEGE_MODE_M) {
+    csr->mcause = trap_code;
+    // pc
+    csr->mepc = csr->sim->pc;
+    csr->sim->pc = csr->mtvec;
+    // enable
+    csr->status_mpie = csr->status_mie;
+    csr->status_mie = 0;
+    // mode
+    csr->status_mpp = csr->status_mie;
+    csr->mode = to_mode;
+  } else {
+    csr->scause = trap_code;
+    // pc
+    csr->sepc = csr->sim->pc;
+    csr->sim->pc = csr->stvec;
+    // enable
+    csr->status_spie = csr->status_sie;
+    csr->status_sie = 0;
+    // mode
+    csr->status_spp = csr->status_sie;
+    csr->mode = to_mode;
+  }
   if (csr->trap_handler) csr->trap_handler(csr->sim);
+  return;
+}
+
+void csr_trapret(csr_t *csr) {
+  unsigned from_mode = csr->mode;
+  if (from_mode == PRIVILEGE_MODE_M) {
+    // pc
+    csr->sim->pc = csr->mepc;
+    csr->mepc = 0;
+    // enable
+    csr->status_mie = csr->status_mpie;
+    csr->status_mpie = 1;
+    // mode
+    csr->mode = csr->status_mpp;
+    csr->status_mpp = 0;
+  } else {
+    // pc
+    csr->sim->pc = csr->sepc;
+    csr->sepc = 0;
+    // enable
+    csr->status_sie = csr->status_spie;
+    csr->status_spie = 1;
+    // mode
+    csr->mode = csr->status_spp;
+    csr->status_spp = 0;
+  }
+  return;
 }
 
 void csr_set_tval(csr_t *csr, unsigned trap_value) {
@@ -216,17 +289,18 @@ void csr_set_timecmp(csr_t *csr, uint64_t value) {
 void csr_cycle(csr_t *csr, int n_instret) {
   csr->cycle++; // assume 100 MHz
   csr->instret += n_instret;
-  if ((csr->cycle % 10) == 0) {
-    csr->time++; // precision 0.1 us
-  }
-  int intr = 0;
-  if (csr->mode == PRIVILEGE_MODE_M) {
-    intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
+  // if ((csr->cycle % 10) == 0) {
+  //   csr->time++; // precision 0.1 us
+  // }
+  csr->time++;
+
+  if (csr->status_mie && csr->mode == PRIVILEGE_MODE_M) {
+    int intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
     if (intr & (1 << CSR_INT_MTI_FIELD)) {
       csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
     }
-  } else if (csr->mode == PRIVILEGE_MODE_S) {
-    intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
+  } else if (csr->status_sie && csr->mode == PRIVILEGE_MODE_S) {
+    int intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
     if (intr & (1 << CSR_INT_STI_FIELD)) {
       csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
     }

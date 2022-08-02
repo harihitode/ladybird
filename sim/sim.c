@@ -407,11 +407,7 @@ void sim_step(sim_t *sim) {
       case 0x18:
         if (rs2 == 2) {
           // MRET
-          sim->csr->mode = sim->csr->status_mpp;
-          sim->csr->status_mie = sim->csr->status_mpie;
-          sim->csr->status_mpp = 0;
-          sim->csr->status_mpie = 1;
-          sim->pc = csr_csrr(sim->csr, CSR_ADDR_M_EPC);
+          csr_trapret(sim->csr);
         } else {
           csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
