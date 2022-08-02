@@ -227,7 +227,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_mpie = csr->status_mie;
     csr->status_mie = 0;
     // mode
-    csr->status_mpp = csr->status_mie;
+    csr->status_mpp = csr->mode;
     csr->mode = to_mode;
   } else {
     csr->scause = trap_code;
@@ -238,7 +238,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_spie = csr->status_sie;
     csr->status_sie = 0;
     // mode
-    csr->status_spp = csr->status_sie;
+    csr->status_spp = csr->mode;
     csr->mode = to_mode;
   }
   if (csr->trap_handler) csr->trap_handler(csr->sim);
