@@ -473,7 +473,11 @@ void sim_write_memory(sim_t *sim, unsigned addr, unsigned value) {
 }
 
 unsigned sim_get_trap_code(sim_t *sim) {
-  return sim->csr->mcause;
+  if (sim->csr->mode == PRIVILEGE_MODE_M) {
+    return sim->csr->mcause;
+  } else {
+    return sim->csr->scause;
+  }
 }
 
 unsigned sim_get_trap_value(sim_t *sim) {
