@@ -46,6 +46,9 @@ void callback(sim_t *sim) {
   case TRAP_CODE_S_TIMER_INTERRUPT:
     fprintf(stderr, "Timer Interrupt [S]\n");
     break;
+  case TRAP_CODE_S_SOFTWARE_INTERRUPT:
+    fprintf(stderr, "SW Interrupt [S]\n");
+    break;
   default:
     fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
     break;
@@ -103,7 +106,8 @@ int main(int argc, char *argv[]) {
     }
     // sim_step(sim);
   }
-  fprintf(stderr, "@ PC:%08x, INST:%08x\n", sim->pc, sim_read_memory(sim, sim->pc));
+  unsigned epc = sim_get_epc(sim);
+  fprintf(stderr, "@ PC:%08x, INST:%08x\n", epc, sim_read_memory(sim, epc));
   sim_debug_dump_status(sim);
   sim_fini(sim);
   free(sim);

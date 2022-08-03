@@ -25,6 +25,7 @@ void sim_fini(sim_t *);
 void sim_trap(sim_t *, void (*func)(sim_t *sim));
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
+unsigned sim_get_epc(sim_t *);
 // debug
 void sim_debug_dump_status(sim_t *);
 

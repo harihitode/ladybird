@@ -412,6 +412,14 @@ void sim_step(sim_t *sim) {
           csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
+      case 0x08:
+        if (rs2 == 2) {
+          // SRET
+          csr_trapret(sim->csr);
+        } else {
+          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+        }
+        break;
       case 0x09:
         // SFENCE.VMA
         // TODO: clear TLA
@@ -482,6 +490,14 @@ unsigned sim_get_trap_code(sim_t *sim) {
 
 unsigned sim_get_trap_value(sim_t *sim) {
   return csr_get_tval(sim->csr);
+}
+
+unsigned sim_get_epc(sim_t *sim) {
+  if (sim->csr->mode == PRIVILEGE_MODE_M) {
+    return sim->csr->mepc;
+  } else {
+    return sim->csr->sepc;
+  }
 }
 
 void sim_debug_dump_status(sim_t *sim) {
