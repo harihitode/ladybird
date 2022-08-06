@@ -186,7 +186,7 @@ void memory_store(memory_t *mem, unsigned addr, char value) {
         uint64_t byte_offset = offs % 8;
         uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
         uint64_t timecmp = csr_get_timecmp(mem->csr);
-        timecmp = (timecmp & mask) | ((uint64_t)value << (8 * byte_offset));
+        timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
         csr_set_timecmp(mem->csr, timecmp);
       } else if (offs <= 0x0000BFFF) {
         // mtime read only
