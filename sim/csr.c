@@ -2,6 +2,7 @@
 #include "memory.h"
 #include "csr.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #define CSR_INT_MEI_FIELD 11
 #define CSR_INT_SEI_FIELD 9
@@ -102,13 +103,17 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       unsigned value = 0;
       unsigned swint = 0;
       unsigned extint = 0;
-      unsigned timerint = (csr->time >= csr->timecmp) ? 1 : 0;
+      unsigned timerint = 0;
+      extint = 0;
+      timerint = 0;
       swint = csr->software_interrupt_s;
       value =
         (swint << CSR_INT_SSI_FIELD) |
         (extint << CSR_INT_SEI_FIELD) |
         (timerint << CSR_INT_STI_FIELD);
       if (addr == CSR_ADDR_M_IP) {
+        extint = 0;
+        timerint = (csr->time >= csr->timecmp) ? 1 : 0;
         swint = csr->software_interrupt_m;
         value |=
           (swint << CSR_INT_MSI_FIELD) |
@@ -152,7 +157,10 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_M_IDELEG:
     // interrupt delegation
-    csr->mideleg = value;
+    // this is a litte bit confusing.
+    // the machine mode interrupts could not be delegated to supervisor
+    // I don't know either it is a qemu ristriction or a spec. of risc-v
+    csr->mideleg = value & 0x0000222;
   case CSR_ADDR_M_PMPCFG0:
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
@@ -228,16 +236,19 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     delegation_to_s = (csr->medeleg >> exception_code) & 0x00000001;
   }
   if (is_interrupt) {
-    if (delegation_to_s) {
-      if (csr->status_mie && ((csr->interrupts_enable >> interrupt_code) & 0x00000001)) {
-        is_delegate = 0;
-      } else if (csr->status_sie) {
-        is_delegate = 1;
-      } else {
-        is_delegate = 0;
-      }
-    } else {
+    // delegation check
+    if (
+        // (a) if either the current privilege mode is M and the MIE bit in the mstatus register is set, or the current privilege mode has less privilege than M-mode
+        ((csr->mode == PRIVILEGE_MODE_M && csr->status_mie) ||
+         (csr->mode < PRIVILEGE_MODE_M)) &&
+        // (b) interrupt bit is set in both mip and mie
+        ((((csr_csrr(csr, CSR_ADDR_M_IP) & csr_csrr(csr, CSR_ADDR_M_IE)) >> interrupt_code)) & 0x00000001) &&
+        // (c) interrupt is not set in mideleg
+        !((csr->mideleg >> interrupt_code) & 0x00000001)
+        ) {
       is_delegate = 0;
+    } else {
+      is_delegate = 1;
     }
   } else {
     if (delegation_to_s) {
@@ -247,17 +258,6 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     }
   }
 
-  if (csr->status_mie && csr->mode == PRIVILEGE_MODE_M) {
-    int intr = csr_csrr(csr, CSR_ADDR_M_IE) & csr_csrr(csr, CSR_ADDR_M_IP);
-    if (intr & (1 << CSR_INT_MTI_FIELD)) {
-      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
-    }
-  } else if (csr->status_sie && csr->mode == PRIVILEGE_MODE_S) {
-    int intr = csr_csrr(csr, CSR_ADDR_S_IE) & csr_csrr(csr, CSR_ADDR_S_IP);
-    if (intr & (1 << CSR_INT_STI_FIELD)) {
-      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
-    }
-  }
   // default: to Machine Mode
   unsigned to_mode = (is_delegate) ? PRIVILEGE_MODE_S : PRIVILEGE_MODE_M;
   if (to_mode == PRIVILEGE_MODE_M) {
@@ -271,6 +271,9 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     // mode
     csr->status_mpp = csr->mode;
     csr->mode = to_mode;
+#if 0
+    printf("[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
+#endif
   } else {
     csr->scause = trap_code;
     // pc
@@ -282,6 +285,9 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     // mode
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
+#if 0
+    printf("[to S] trap from %d to %d: code: %08x\n", csr->status_spp, to_mode, trap_code);
+#endif
   }
   if (csr->trap_handler) csr->trap_handler(csr->sim);
   return;
@@ -345,9 +351,6 @@ void csr_cycle(csr_t *csr, int n_instret) {
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }
-  // Simultaneous interrupts destined for M-mode are handled in the following
-  // decreasing priority order: MEI, MSI, MTI, SEI, SSI, STI
-  // degelation check
   unsigned interrupts_bits [6] =
     {
      CSR_INT_MEI_FIELD,
@@ -367,8 +370,21 @@ void csr_cycle(csr_t *csr, int n_instret) {
      TRAP_CODE_S_TIMER_INTERRUPT
     };
   unsigned interrupts_pending = csr_csrr(csr, CSR_ADDR_M_IP);
-  unsigned global_interrupts_enable_m = (csr->mode == PRIVILEGE_MODE_M) ? csr->status_mie : 1;
-  unsigned global_interrupts_enable_s = csr->status_sie;
+  unsigned global_interrupts_enable_m = 0;
+  unsigned global_interrupts_enable_s = 0;
+  if (csr->mode == PRIVILEGE_MODE_M) {
+    global_interrupts_enable_m = csr->status_mie;
+  } else {
+    global_interrupts_enable_m = 1;
+  }
+  if (csr->mode > PRIVILEGE_MODE_S) {
+    global_interrupts_enable_s = 0;
+  } else if (csr->mode == PRIVILEGE_MODE_S) {
+    global_interrupts_enable_s = csr->status_sie;
+  } else {
+    global_interrupts_enable_s = 1;
+  }
+
   unsigned interrupts_enable =
     csr_csrr(csr, CSR_ADDR_M_IE) &
     ((global_interrupts_enable_m << CSR_INT_MEI_FIELD) |
@@ -382,9 +398,17 @@ void csr_cycle(csr_t *csr, int n_instret) {
   for (int i = 0; i < 6; i++) {
     if (((interrupts_pending & interrupts_enable) >> interrupts_bits[i]) & 0x00000001) {
       trap_code = interrupts_code[i];
+      // Simultaneous interrupts destined for M-mode are handled in the following
+      // decreasing priority order: MEI, MSI, MTI, SEI, SSI, STI
+      // degelation check
+      break;
     }
   }
   if (intr) {
+#if 0
+    printf("mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
+    printf("%016lx, %016lx\n", csr->time, csr->timecmp);
+#endif
     csr_trap(csr, trap_code);
   }
   return;
