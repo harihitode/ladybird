@@ -49,6 +49,9 @@ void callback(sim_t *sim) {
   case TRAP_CODE_S_SOFTWARE_INTERRUPT:
     fprintf(stderr, "SW Interrupt [S]\n");
     break;
+  case TRAP_CODE_S_EXTERNAL_INTERRUPT:
+    fprintf(stderr, "EX Interrupt [S]\n");
+    break;
   default:
     fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
     break;
