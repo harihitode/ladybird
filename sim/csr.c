@@ -1,6 +1,7 @@
 #include "sim.h"
 #include "memory.h"
 #include "csr.h"
+#include "plic.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -104,7 +105,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       unsigned swint = 0;
       unsigned extint = 0;
       unsigned timerint = 0;
-      extint = 0;
+      extint = (plic_get_interrupt(csr->sim->mem->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
       timerint = 0;
       swint = csr->software_interrupt_s;
       value =
@@ -112,7 +113,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
         (extint << CSR_INT_SEI_FIELD) |
         (timerint << CSR_INT_STI_FIELD);
       if (addr == CSR_ADDR_M_IP) {
-        extint = 0;
+        extint = (plic_get_interrupt(csr->sim->mem->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
         timerint = (csr->time >= csr->timecmp) ? 1 : 0;
         swint = csr->software_interrupt_m;
         value |=
@@ -126,6 +127,8 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->sepc;
   case CSR_ADDR_S_CAUSE:
     return csr->scause;
+  case CSR_ADDR_S_TVAL:
+    return csr->stval;
   default:
     printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
@@ -197,6 +200,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     // fall-through
   case CSR_ADDR_S_IP:
     csr->software_interrupt_s = (value >> 1) & 0x00000001;
+    break;
+  case CSR_ADDR_S_TVAL:
+    csr->stval = value;
     break;
   default:
     printf("unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
