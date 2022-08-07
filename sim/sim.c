@@ -228,10 +228,10 @@ void sim_step(sim_t *sim) {
   case OPCODE_LOAD:
     {
       unsigned addr = src1 + immediate;
-      char b0 = memory_load(sim->mem, addr + 0);
-      char b1 = memory_load(sim->mem, addr + 1);
-      char b2 = memory_load(sim->mem, addr + 2);
       char b3 = memory_load(sim->mem, addr + 3);
+      char b2 = memory_load(sim->mem, addr + 2);
+      char b1 = memory_load(sim->mem, addr + 1);
+      char b0 = memory_load(sim->mem, addr + 0);
       switch (f3) {
       case 0x0:
         result = (int)b0;
