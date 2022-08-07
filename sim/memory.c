@@ -27,6 +27,8 @@ void memory_init(memory_t *mem) {
   disk_load(mem->disk, "../../ladybird_xv6/fs.img");
   mem->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(mem->plic);
+  mem->plic->uart = mem->uart;
+  mem->plic->disk = mem->disk;
   mem->vmflag = 0;
   mem->vmrppn = 0;
 }
