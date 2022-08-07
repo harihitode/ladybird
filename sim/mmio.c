@@ -20,6 +20,14 @@ char uart_read(uart_t *uart, unsigned addr) {
   }
 }
 
+unsigned uart_irq(const uart_t *uart) {
+  return 0;
+}
+
+void uart_irq_ack(uart_t *uart) {
+  return;
+}
+
 void uart_write(uart_t *uart, unsigned addr, char value) {
   switch (addr) {
   case 0x00000000:
@@ -44,6 +52,11 @@ void uart_fini(uart_t *uart) {
 
 void disk_init(disk_t *disk) {
   disk->data = NULL;
+  disk->current_queue = 0;
+  disk->queue_num = 0;
+  disk->queue_notify = 0;
+  disk->queue_ppn = 0;
+  disk->page_size = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path) {
@@ -63,67 +76,105 @@ int disk_load(disk_t *disk, const char *img_path) {
   return 0;
 }
 
-#define VIRTIO_MMIO_MAGIC_VALUE_0 0x000
-#define VIRTIO_MMIO_MAGIC_VALUE_1 0x001
-#define VIRTIO_MMIO_MAGIC_VALUE_2 0x002
-#define VIRTIO_MMIO_MAGIC_VALUE_3 0x003
+#define VIRTIO_MMIO_MAGIC_VALUE 0x000
 #define VIRTIO_MMIO_VERSION 0x004
 #define VIRTIO_MMIO_DEVICE_ID 0x008
-#define VIRTIO_MMIO_VENDOR_ID_0 0x00c
-#define VIRTIO_MMIO_VENDOR_ID_1 0x00d
-#define VIRTIO_MMIO_VENDOR_ID_2 0x00e
-#define VIRTIO_MMIO_VENDOR_ID_3 0x00f
+#define VIRTIO_MMIO_VENDOR_ID 0x00c
+#define VIRTIO_MMIO_DEVICE_FEATURES 0x010 // [TODO] feature negotiation
+#define VIRTIO_MMIO_DRIVER_FEATURES 0x020 // [TODO] feature negatiation
+#define VIRTIO_MMIO_GUEST_PAGE_SIZE 0x028
+#define VIRTIO_MMIO_SELECT_QUEUE 0x030
 #define VIRTIO_MMIO_QUEUE_NUM_MAX 0x034
 #define VIRTIO_MMIO_QUEUE_NUM 0x038
+#define VIRTIO_MMIO_QUEUE_PFN 0x040
+#define VIRTIO_MMIO_QUEUE_NOTIFY 0x050
+#define VIRTIO_MMIO_INTERRUPT_STATUS 0x060 // read only
+#define VIRTIO_MMIO_INTERRUPT_ACK 0x064 // write only
+#define VIRTIO_MMIO_STATUS 0x070
+
+const unsigned virtio_mmio_magic = 0x74726976;
+const unsigned virtio_mmio_vendor_id = 0x554d4551;
+const unsigned virtio_mmio_device_feature = 0x0;
+const unsigned virtio_mmio_queue_max = 10;
 
 char disk_read(disk_t *disk, unsigned addr) {
   char ret = 0;
-  switch (addr) {
-  case VIRTIO_MMIO_MAGIC_VALUE_0:
-    ret = 0x76; // magic
-    break;
-  case VIRTIO_MMIO_MAGIC_VALUE_1:
-    ret = 0x69; // magic
-    break;
-  case VIRTIO_MMIO_MAGIC_VALUE_2:
-    ret = 0x72; // magic
-    break;
-  case VIRTIO_MMIO_MAGIC_VALUE_3:
-    ret = 0x74; // magic
+  unsigned base = addr & 0xFFFFFFFC;
+  unsigned offs = addr & 0x00000003;
+  switch (base) {
+  case VIRTIO_MMIO_MAGIC_VALUE:
+    ret = (virtio_mmio_magic >> (8 * offs)) & 0x000000FF;
     break;
   case VIRTIO_MMIO_VERSION:
-    ret = 1; // legacy
+    ret = (1 >> (8 * offs)) & 0x000000FF; // legacy
     break;
   case VIRTIO_MMIO_DEVICE_ID:
-    ret = 2; // disk
+    ret = (2 >> (8 * offs)) & 0x000000FF; // disk
     break;
-  case VIRTIO_MMIO_VENDOR_ID_0:
-    ret = 0x51;
+  case VIRTIO_MMIO_VENDOR_ID:
+    ret = (virtio_mmio_vendor_id >> (8 * offs)) & 0x000000FF;
     break;
-  case VIRTIO_MMIO_VENDOR_ID_1:
-    ret = 0x45;
-    break;
-  case VIRTIO_MMIO_VENDOR_ID_2:
-    ret = 0x4d;
-    break;
-  case VIRTIO_MMIO_VENDOR_ID_3:
-    ret = 0x55;
+  case VIRTIO_MMIO_DEVICE_FEATURES:
+    ret = (virtio_mmio_device_feature >> (8 * offs)) & 0x000000FF;
     break;
   case VIRTIO_MMIO_QUEUE_NUM_MAX:
-    ret = 8;
-    break;
-  case VIRTIO_MMIO_QUEUE_NUM:
-    ret = 0;
+    ret = (virtio_mmio_queue_max >> (8 * offs)) & 0x000000FF;
     break;
   default:
     ret = 0;
+    printf("mmio (disk): unknown addr read: %08x\n", addr);
     break;
   }
   return ret;
 }
 
 void disk_write(disk_t *disk, unsigned addr, char value) {
+  unsigned base = addr & 0xfffffffc;
+  unsigned offs = addr & 0x00000003;
+  unsigned mask = 0x000000FF << (8 * offs);
+  switch (base) {
+  case VIRTIO_MMIO_QUEUE_NOTIFY:
+    disk->current_queue =
+      (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
+    if (offs == 0) {
+      disk->queue_notify = 1;
+    }
+    break;
+  case VIRTIO_MMIO_QUEUE_PFN:
+    disk->queue_ppn =
+      (disk->queue_ppn & (~mask)) | ((unsigned char)value << (8 * offs));
+    break;
+  case VIRTIO_MMIO_GUEST_PAGE_SIZE:
+    disk->page_size =
+      (disk->page_size & (~mask)) | ((unsigned char)value << (8 * offs));
+    break;
+  case VIRTIO_MMIO_DRIVER_FEATURES:
+    // [TODO] feature negotiation
+    break;
+  case VIRTIO_MMIO_QUEUE_NUM:
+    disk->queue_num =
+      (disk->queue_num & (~mask)) | ((unsigned char)value << (8 * offs));
+    break;
+  case VIRTIO_MMIO_SELECT_QUEUE:
+    disk->current_queue =
+      (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
+    break;
+  case VIRTIO_MMIO_STATUS:
+    // [TODO] we will finally be ready written by 0x0000000f to STATUS
+    break;
+  default:
+    printf("mmio (disk): unknown addr write: %08x, %08x\n", addr, value);
+    break;
+  }
   return;
+}
+
+unsigned disk_irq(const disk_t *disk) {
+  return disk->queue_notify;
+}
+
+void disk_irq_ack(disk_t *disk) {
+  disk->queue_notify = 0;
 }
 
 void disk_fini(disk_t *disk) {
