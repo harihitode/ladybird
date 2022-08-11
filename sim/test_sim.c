@@ -22,6 +22,9 @@ void callback(sim_t *sim) {
   case TRAP_CODE_ENVIRONMENT_CALL_S:
     fprintf(stderr, "ECALL (Supervisor Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
+  case TRAP_CODE_ENVIRONMENT_CALL_U:
+    fprintf(stderr, "ECALL (User Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
+    break;
   case TRAP_CODE_BREAKPOINT:
     fprintf(stderr, "BREAKPOINT\n");
     trap = 1;
