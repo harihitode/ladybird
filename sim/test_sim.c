@@ -17,13 +17,13 @@ void callback(sim_t *sim) {
   unsigned trap_code = sim_get_trap_code(sim);
   switch (trap_code) {
   case TRAP_CODE_ENVIRONMENT_CALL_M:
-    fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
+    // fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
   case TRAP_CODE_ENVIRONMENT_CALL_S:
-    fprintf(stderr, "ECALL (Supervisor Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
+    // fprintf(stderr, "ECALL (Supervisor Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
   case TRAP_CODE_ENVIRONMENT_CALL_U:
-    fprintf(stderr, "ECALL (User Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
+    // fprintf(stderr, "ECALL (User Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
   case TRAP_CODE_BREAKPOINT:
     fprintf(stderr, "BREAKPOINT\n");
@@ -42,16 +42,16 @@ void callback(sim_t *sim) {
     quit = 1;
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
-    fprintf(stderr, "Timer Interrupt [M]\n");
+    // fprintf(stderr, "Timer Interrupt [M]\n");
     break;
   case TRAP_CODE_S_TIMER_INTERRUPT:
-    fprintf(stderr, "Timer Interrupt [S]\n");
+    // fprintf(stderr, "Timer Interrupt [S]\n");
     break;
   case TRAP_CODE_S_SOFTWARE_INTERRUPT:
-    fprintf(stderr, "SW Interrupt [S]\n");
+    // fprintf(stderr, "SW Interrupt [S]\n");
     break;
   case TRAP_CODE_S_EXTERNAL_INTERRUPT:
-    fprintf(stderr, "EX Interrupt [S]\n");
+    // fprintf(stderr, "EX Interrupt [S]\n");
     break;
   default:
     fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
