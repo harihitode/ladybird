@@ -36,6 +36,7 @@ void memory_set_sim(memory_t *, struct sim_t *);
 char memory_load(memory_t *, unsigned addr);
 void memory_store(memory_t *,unsigned addr, char value);
 void memory_fini(memory_t *);
+char *memory_get_page(memory_t *, unsigned);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr);
 unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);

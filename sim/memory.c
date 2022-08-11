@@ -25,6 +25,7 @@ void memory_init(memory_t *mem) {
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(mem->disk);
   disk_load(mem->disk, "../../ladybird_xv6/fs.img");
+  mem->disk->mem = mem; // for DMA
   mem->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(mem->plic);
   mem->plic->uart = mem->uart;
@@ -57,18 +58,21 @@ static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
   return last_block;
 }
 
-static char ram_read(memory_t *mem, unsigned addr) {
+char *memory_get_page(memory_t *mem, unsigned addr) {
   unsigned bid = memory_get_block_id(mem, addr);
-  char *block = mem->block[bid];
+  char *page = mem->block[bid];
   mem->reserve[bid] = 0; // expire
-  return block[(addr & 0x00000fff)];
+  return page;
+}
+
+static char ram_read(memory_t *mem, unsigned addr) {
+  char *page = memory_get_page(mem, addr);
+  return page[(addr & 0x00000fff)];
 }
 
 static void ram_write(memory_t *mem, unsigned addr, char value) {
-  unsigned bid = memory_get_block_id(mem, addr);
-  char *block = mem->block[bid];
-  mem->reserve[bid] = 0; // expire
-  block[(addr & 0x00000fff)] = value;
+  char *page = memory_get_page(mem, addr);
+  page[(addr & 0x00000fff)] = value;
   return;
 }
 
