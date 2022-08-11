@@ -251,7 +251,7 @@ void sim_step(sim_t *sim) {
         result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
         break;
       default:
-        csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+        csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         break;
       }
     }
@@ -297,7 +297,7 @@ void sim_step(sim_t *sim) {
       sim_write_memory(sim, src1, (result < src2) ? src2 : result);
       break;
     default:
-      csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     }
     break;
@@ -328,7 +328,7 @@ void sim_step(sim_t *sim) {
     break;
   default:
     // invalid opcode
-    csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+    csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
     break;
   }
   // writeback
@@ -393,15 +393,17 @@ void sim_step(sim_t *sim) {
       case 0x00:
         if (rs2 == 0) {
           if (sim->csr->mode == PRIVILEGE_MODE_M) {
-            csr_trap(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
+            csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
+          } else if (sim->csr->mode == PRIVILEGE_MODE_S) {
+            csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_S);
           } else {
-            csr_trap(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_S);
+            csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_U);
           }
         } else if (rs2 == 1) {
-          csr_trap(sim->csr, TRAP_CODE_BREAKPOINT);
+          csr_exception(sim->csr, TRAP_CODE_BREAKPOINT);
           sim->pc = sim->pc + 4;
         } else {
-          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
       case 0x18:
@@ -409,7 +411,7 @@ void sim_step(sim_t *sim) {
           // MRET
           csr_trapret(sim->csr);
         } else {
-          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
       case 0x08:
@@ -417,7 +419,7 @@ void sim_step(sim_t *sim) {
           // SRET
           csr_trapret(sim->csr);
         } else {
-          csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
       case 0x09:
@@ -426,7 +428,7 @@ void sim_step(sim_t *sim) {
         sim->pc = sim->pc + 4;
         break;
       default:
-        csr_trap(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+        csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         break;
       }
     } else {
