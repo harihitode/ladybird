@@ -20,6 +20,7 @@ void uart_fini(uart_t *uart);
 
 typedef struct disk_t {
   struct stat img_stat;
+  struct memory_t *mem;
   char *data;
   unsigned queue_num;
   unsigned queue_notify;
