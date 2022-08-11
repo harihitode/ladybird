@@ -82,7 +82,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return 0; // not supported
   case CSR_ADDR_S_ATP:
     return
-      (csr->sim->mem->vmflag << 30) |
+      (csr->sim->mem->vmflag << 31) |
       ((csr->sim->mem->vmrppn >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
     return csr->interrupts_enable & 0x00000222;
