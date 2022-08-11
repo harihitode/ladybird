@@ -129,6 +129,8 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->scause;
   case CSR_ADDR_S_TVAL:
     return csr->stval;
+  case CSR_ADDR_S_SCRATCH:
+    return csr->sscratch;
   default:
     printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
@@ -203,6 +205,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_S_TVAL:
     csr->stval = value;
+    break;
+  case CSR_ADDR_S_SCRATCH:
+    csr->sscratch = value;
     break;
   default:
     printf("unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);

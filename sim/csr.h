@@ -86,5 +86,6 @@ void csr_cycle(csr_t *, int is_instret);
 #define CSR_ADDR_S_EPC 0x00000141
 #define CSR_ADDR_S_CAUSE 0x00000142
 #define CSR_ADDR_S_TVAL 0x00000143
+#define CSR_ADDR_S_SCRATCH 0x00000140
 
 #endif
