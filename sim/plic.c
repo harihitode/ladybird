@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 void plic_init (plic_t *plic) {
-  plic->priorities = (unsigned *)malloc(PLIC_MAX_IRQ * sizeof(unsigned));
+  plic->priorities = (unsigned *)malloc((PLIC_MAX_IRQ + 1) * sizeof(unsigned));
   plic->uart = NULL;
   plic->disk = NULL;
   plic->s_interrupt_enable = 0;
