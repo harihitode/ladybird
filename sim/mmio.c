@@ -35,6 +35,7 @@ void uart_write(uart_t *uart, unsigned addr, char value) {
   case 0x00000000:
     if (uart->mode == UART_MODE_DEFAULT) {
       fputc(value, uart->fo);
+      fflush(stdout);
     }
     break;
   case 0x00000003: // Line Control Register
