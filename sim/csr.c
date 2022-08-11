@@ -29,6 +29,8 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
+  csr->exception = 0;
+  csr->exception_code = 0;
   csr->interrupts_enable = 0;
   csr->mideleg = 0;
   csr->medeleg = 0;
@@ -297,7 +299,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    printf("[to S] trap from %d to %d: code: %08x\n", csr->status_spp, to_mode, trap_code);
+    printf("[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->pc);
 #endif
   }
   if (csr->trap_handler) csr->trap_handler(csr->sim);
@@ -353,6 +355,12 @@ uint64_t csr_get_timecmp(csr_t *csr) {
 
 void csr_set_timecmp(csr_t *csr, uint64_t value) {
   csr->timecmp = value;
+  return;
+}
+
+void csr_exception(csr_t *csr, unsigned code) {
+  csr->exception = 1;
+  csr->exception_code = code;
   return;
 }
 
@@ -415,7 +423,10 @@ void csr_cycle(csr_t *csr, int n_instret) {
       break;
     }
   }
-  if (intr) {
+  if (csr->exception) {
+    csr->exception = 0;
+    csr_trap(csr, csr->exception_code);
+  } else if (intr) {
 #if 0
     printf("mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
     printf("%016lx, %016lx\n", csr->time, csr->timecmp);

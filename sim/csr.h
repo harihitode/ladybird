@@ -22,6 +22,8 @@ typedef struct csr_t {
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
   unsigned hartid;
+  unsigned exception;
+  unsigned exception_code;
   unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;
@@ -49,6 +51,8 @@ void csr_trap(csr_t *, unsigned trap_code);
 void csr_trapret(csr_t *);
 void csr_set_tval(csr_t *, unsigned trap_value);
 unsigned csr_get_tval(csr_t *);
+// exception
+void csr_exception(csr_t *, unsigned trap_code);
 // timer
 uint64_t csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, uint64_t);
