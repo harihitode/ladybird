@@ -17,12 +17,10 @@ void callback(sim_t *sim) {
   unsigned trap_code = sim_get_trap_code(sim);
   switch (trap_code) {
   case TRAP_CODE_ENVIRONMENT_CALL_M:
-    fprintf(stderr, "ECALL (Machine Mode)\n");
-    trap = 1;
+    fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
   case TRAP_CODE_ENVIRONMENT_CALL_S:
-    fprintf(stderr, "ECALL (Supervisor Mode)\n");
-    trap = 1;
+    fprintf(stderr, "ECALL (Supervisor Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
   case TRAP_CODE_BREAKPOINT:
     fprintf(stderr, "BREAKPOINT\n");
@@ -77,6 +75,7 @@ int main(int argc, char *argv[]) {
   signal(SIGINT, shndl);
   // main loop
   char line[128];
+  unsigned break_on = 0;
   unsigned break_addr = 0;
   while (quit == 0) {
     if (trap) {
@@ -95,6 +94,7 @@ int main(int argc, char *argv[]) {
         trap = 0;
       } else if (strncmp(line, "b", 1) == 0) {
         sscanf(line, "b %08x", &break_addr);
+        break_on = 1;
         printf("break point set @ %08x\n", break_addr);
       } else if (strncmp(line, "x", 1) == 0) {
         unsigned addr;
@@ -103,14 +103,13 @@ int main(int argc, char *argv[]) {
       }
     } else {
       sim_step(sim);
-      if (sim->pc == break_addr) {
+      if (sim->pc == break_addr && break_on) {
+        printf("BREAK!\n");
+        break_on = 0;
         trap = 1;
       }
     }
-    // sim_step(sim);
   }
-  unsigned epc = sim_get_epc(sim);
-  fprintf(stderr, "@ PC:%08x, INST:%08x\n", epc, sim_read_memory(sim, epc));
   sim_debug_dump_status(sim);
   sim_fini(sim);
   free(sim);
