@@ -65,17 +65,6 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   return page;
 }
 
-static char ram_read(memory_t *mem, unsigned addr) {
-  char *page = memory_get_page(mem, addr);
-  return page[(addr & 0x00000fff)];
-}
-
-static void ram_write(memory_t *mem, unsigned addr, char value) {
-  char *page = memory_get_page(mem, addr);
-  page[(addr & 0x00000fff)] = value;
-  return;
-}
-
 static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
   if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
@@ -89,14 +78,12 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
     unsigned pte1_addr = 0, pte0_addr = 0;
     // level 1
     pte1_addr = mem->vmrppn + (vpn1 << 2); // word
-    for (unsigned i = 0; i < 4; i++) {
-      pte1 = (((unsigned)ram_read(mem, pte1_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte1 >> 8);
-    }
+    unsigned *pte1_p = (unsigned *)memory_get_page(mem, pte1_addr - MEMORY_BASE_ADDR_RAM);
+    pte1 = pte1_p[(pte1_addr & 0x00000fff) >> 2];
     // level 0
     pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
-    for (unsigned i = 0; i < 4; i++) {
-      pte0 = (((unsigned)ram_read(mem, pte0_addr + i - MEMORY_BASE_ADDR_RAM)) << 24) | (pte0 >> 8);
-    }
+    unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
+    pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
     paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
 #if 0
     if (addr >= 0x10000000 && addr < 0x10000400) {
@@ -130,39 +117,74 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
   }
 }
 
-char memory_load(memory_t *mem, unsigned addr) {
+static char memory_aclint_load(memory_t *mem, unsigned addr) {
+  char value;
+  uint64_t byte_offset = addr % 8;
+  uint64_t value64 = 0;
+  if (addr < 0x0000BFF8) {
+    value64 = csr_get_timecmp(mem->csr);
+  } else if (addr <= 0x0000BFFF) {
+    value64 =
+      ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIMEH) << 32) |
+      ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
+  } else {
+    csr_set_tval(mem->csr, addr);
+    csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+  }
+  value = (value64 >> (8 * byte_offset));
+  return value;
+}
+
+static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
+  if (addr < 0x0000BFF8) {
+    // hart 0 mtimecmp
+    uint64_t byte_offset = addr % 8;
+    uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
+    uint64_t timecmp = csr_get_timecmp(mem->csr);
+    timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
+    csr_set_timecmp(mem->csr, timecmp);
+  } else if (addr <= 0x0000BFFF) {
+    // mtime read only
+  } else {
+    csr_set_tval(mem->csr, addr);
+    csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+  }
+}
+
+unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved) {
   unsigned paddr = memory_address_translation(mem, addr);
-  char value = 0;
+  unsigned value = 0;
   switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
-    value = uart_read(mem->uart, paddr - MEMORY_BASE_ADDR_UART);
+    for (unsigned i = 0; i < size; i++) {
+      value |= ((0x000000ff & uart_read(mem->uart, paddr + i - MEMORY_BASE_ADDR_UART)) << (8 * i));
+    }
     break;
   case MEMORY_DISK:
-    value = disk_read(mem->disk, paddr - MEMORY_BASE_ADDR_DISK);
+    for (unsigned i = 0; i < size; i++) {
+      value |= ((0x000000ff & disk_read(mem->disk, paddr + i - MEMORY_BASE_ADDR_DISK)) << (8 * i));
+    }
     break;
   case MEMORY_RAM:
-    value = ram_read(mem, paddr - MEMORY_BASE_ADDR_RAM);
+    {
+      char *page = memory_get_page(mem, paddr - MEMORY_BASE_ADDR_RAM);
+      for (unsigned i = 0; i < size; i++) {
+        value |= ((0x000000ff & page[((paddr + i) & 0x00000fff)]) << (8 * i));
+      }
+      if (reserved) {
+        mem->reserve[memory_get_block_id(mem, paddr - MEMORY_BASE_ADDR_RAM)] = 1;
+      }
+    }
     break;
   case MEMORY_ACLINT:
-    {
-      unsigned offs = paddr - MEMORY_BASE_ADDR_ACLINT;
-      uint64_t byte_offset = offs % 8;
-      uint64_t value64 = 0;
-      if (offs < 0x0000BFF8) {
-        value64 = csr_get_timecmp(mem->csr);
-      } else if (offs <= 0x0000BFFF) {
-        value64 =
-          ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIMEH) << 32) |
-          ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
-      } else {
-        csr_set_tval(mem->csr, addr);
-        csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
-      }
-      value = (value64 >> (8 * byte_offset));
+    for (unsigned i = 0; i < size; i++) {
+      value |= ((0x000000ff & memory_aclint_load(mem, paddr + i - MEMORY_BASE_ADDR_ACLINT)) << (8 * i));
     }
     break;
   case MEMORY_PLIC:
-    value = plic_read(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC);
+    for (unsigned i = 0; i < size; i++) {
+      value |= ((0x000000ff & plic_read(mem->plic, paddr + i - MEMORY_BASE_ADDR_PLIC)) << (8 * i));
+    }
     break;
   default:
     csr_set_tval(mem->csr, addr);
@@ -172,73 +194,58 @@ char memory_load(memory_t *mem, unsigned addr) {
   return value;
 }
 
-void memory_store(memory_t *mem, unsigned addr, char value) {
+unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
+  unsigned ret = MEMORY_STORE_SUCCESS;
   unsigned paddr = memory_address_translation(mem, addr);
   switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
-    uart_write(mem->uart, paddr - MEMORY_BASE_ADDR_UART, value);
+    for (unsigned i = 0; i < size; i++) {
+      uart_write(mem->uart, paddr + i - MEMORY_BASE_ADDR_UART, (char)(value >> (i * 8)));
+    }
     break;
   case MEMORY_DISK:
-    disk_write(mem->disk, paddr - MEMORY_BASE_ADDR_DISK, value);
+    for (unsigned i = 0; i < size; i++) {
+      disk_write(mem->disk, paddr + i - MEMORY_BASE_ADDR_DISK, (char)(value >> (i * 8)));
+    }
     break;
   case MEMORY_RAM:
-    ram_write(mem, paddr - MEMORY_BASE_ADDR_RAM, value);
-    break;
-  case MEMORY_ACLINT:
     {
-      unsigned offs = paddr - MEMORY_BASE_ADDR_ACLINT;
-      if (offs < 0x0000BFF8) {
-        // hart 0 mtimecmp
-        uint64_t byte_offset = offs % 8;
-        uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
-        uint64_t timecmp = csr_get_timecmp(mem->csr);
-        timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
-        csr_set_timecmp(mem->csr, timecmp);
-      } else if (offs <= 0x0000BFFF) {
-        // mtime read only
+      if (!conditional || mem->reserve[memory_get_block_id(mem, paddr - MEMORY_BASE_ADDR_RAM)]) {
+        char *page = memory_get_page(mem, paddr - MEMORY_BASE_ADDR_RAM);
+        for (unsigned i = 0; i < size; i++) {
+          page[(paddr + i) & 0x00000fff] = (char)(value >> (i * 8));
+        }
       } else {
-        csr_set_tval(mem->csr, addr);
-        csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+        ret = MEMORY_STORE_FAILURE;
       }
     }
     break;
+  case MEMORY_ACLINT:
+    for (unsigned i = 0; i < size; i++) {
+      memory_aclint_store(mem, paddr + i - MEMORY_BASE_ADDR_ACLINT, (char)(value >> (i * 8)));
+    }
+    break;
   case MEMORY_PLIC:
-    plic_write(mem->plic, paddr - MEMORY_BASE_ADDR_PLIC, value);
+    for (unsigned i = 0; i < size; i++) {
+      plic_write(mem->plic, paddr + i - MEMORY_BASE_ADDR_PLIC, (char)(value >> (i * 8)));
+    }
     break;
   default:
     csr_set_tval(mem->csr, addr);
     csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
     break;
   }
-  return;
+  return ret;
 }
 
 unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
   unsigned ret;
-  char b0, b1, b2, b3;
-  b0 = memory_load(mem, addr + 0);
-  b1 = memory_load(mem, addr + 1);
-  b2 = memory_load(mem, addr + 2);
-  b3 = memory_load(mem, addr + 3);
-  ret =
-    ((b3 << 24) & 0xff000000) | ((b2 << 16) & 0x00ff0000) |
-    ((b1 <<  8) & 0x0000ff00) | ((b0 <<  0) & 0x000000ff);
-  mem->reserve[memory_get_block_id(mem, addr)] = 1; // TODO: only valid for only 1 hart
+  ret = memory_load(mem, addr, 4, 1);
   return ret;
 }
 
 unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) {
-  const unsigned success = 0;
-  const unsigned failure = 1;
-  unsigned result;
-  result = (mem->reserve[memory_get_block_id(mem, addr)]) ? success : failure;
-  if (result == success) {
-    memory_store(mem, addr + 0, (char)((value >>  0) & 0x000000ff));
-    memory_store(mem, addr + 1, (char)((value >>  8) & 0x000000ff));
-    memory_store(mem, addr + 2, (char)((value >> 16) & 0x000000ff));
-    memory_store(mem, addr + 3, (char)((value >> 24) & 0x000000ff));
-  }
-  return result;
+  return memory_store(mem, addr, value, 4, 1);
 }
 
 void memory_atp_on(memory_t *mem, unsigned ppn) {

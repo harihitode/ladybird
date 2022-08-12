@@ -8,6 +8,9 @@
 #define MEMORY_BASE_ADDR_PLIC   0x0c000000
 #define MEMORY_BASE_ADDR_RAM    0x80000000
 
+#define MEMORY_STORE_SUCCESS 0
+#define MEMORY_STORE_FAILURE 1
+
 struct sim_t;
 struct uart_t;
 struct disk_t;
@@ -33,8 +36,8 @@ typedef struct memory_t {
 
 void memory_init(memory_t *);
 void memory_set_sim(memory_t *, struct sim_t *);
-char memory_load(memory_t *, unsigned addr);
-void memory_store(memory_t *,unsigned addr, char value);
+unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
+unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
 void memory_fini(memory_t *);
 char *memory_get_page(memory_t *, unsigned);
 // atomic

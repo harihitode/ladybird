@@ -25,7 +25,7 @@ void sim_init(sim_t *sim, const char *elf_path) {
   // program load to memory
   for (unsigned i = 0; i < sim->elf->programs; i++) {
     for (unsigned j = 0; j < sim->elf->program_size[i]; j++) {
-      memory_store(sim->mem, sim->elf->program_base[i] + j, sim->elf->program[i][j]);
+      memory_store(sim->mem, sim->elf->program_base[i] + j, sim->elf->program[i][j], 1, 0);
     }
   }
   // set entry program counter
@@ -104,7 +104,7 @@ static unsigned get_immediate(unsigned inst) {
 
 void sim_step(sim_t *sim) {
   // fetch
-  unsigned inst = sim_read_memory(sim, sim->pc);
+  unsigned inst = memory_load(sim->mem, sim->pc, 4, 0);
   unsigned opcode;
   unsigned rs1, rs2, rd;
   unsigned src1, src2, immediate;
@@ -205,20 +205,15 @@ void sim_step(sim_t *sim) {
   case OPCODE_STORE:
     {
       unsigned addr = src1 + immediate;
-      char b0 = (src2 >>  0) & 0x000000ff;
-      char b1 = (src2 >>  8) & 0x000000ff;
-      char b2 = (src2 >> 16) & 0x000000ff;
-      char b3 = (src2 >> 24) & 0x000000ff;
       switch (f3) {
-      case 0x2:
-        memory_store(sim->mem, addr + 3, b3);
-        memory_store(sim->mem, addr + 2, b2);
-        // fall through
-      case 0x1:
-        memory_store(sim->mem, addr + 1, b1);
-        // fall through
       case 0x0:
-        memory_store(sim->mem, addr + 0, b0);
+        memory_store(sim->mem, addr, src2, 1, 0);
+        break;
+      case 0x1:
+        memory_store(sim->mem, addr, src2, 2, 0);
+        break;
+      case 0x2:
+        memory_store(sim->mem, addr, src2, 4, 0);
         break;
       default:
         break;
@@ -228,27 +223,21 @@ void sim_step(sim_t *sim) {
   case OPCODE_LOAD:
     {
       unsigned addr = src1 + immediate;
-      char b3 = memory_load(sim->mem, addr + 3);
-      char b2 = memory_load(sim->mem, addr + 2);
-      char b1 = memory_load(sim->mem, addr + 1);
-      char b0 = memory_load(sim->mem, addr + 0);
       switch (f3) {
-      case 0x0:
-        result = (int)b0;
+      case 0x0: // singed ext byte
+        result = (int)((char)memory_load(sim->mem, addr, 1, 0));
         break;
-      case 0x1:
-        result = (((int)b1 << 8) & 0xffffff00) | (b0 & 0x000000ff);
+      case 0x1: // signed ext half
+        result = (int)((short)memory_load(sim->mem, addr, 2, 0));
         break;
       case 0x2:
-        result =
-          (((unsigned)b3 << 24) & 0xff000000) | (((unsigned)b2 << 16) & 0x00ff0000) |
-          (((unsigned)b1 <<  8) & 0x0000ff00) | (b0 & 0x000000ff);
+        result = memory_load(sim->mem, addr, 4, 0);
         break;
       case 0x4:
-        result = (unsigned)b0;
+        result = (unsigned char)memory_load(sim->mem, addr, 1, 0);
         break;
       case 0x5:
-        result = (((unsigned)b1 << 8) & 0x0000ff00) | (b0 & 0x000000ff);
+        result = (unsigned short)memory_load(sim->mem, addr, 2, 0);
         break;
       default:
         csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
@@ -462,23 +451,12 @@ void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
 }
 
 unsigned sim_read_memory(sim_t *sim, unsigned addr) {
-  unsigned ret;
-  char b0, b1, b2, b3;
-  b0 = memory_load(sim->mem, addr + 0);
-  b1 = memory_load(sim->mem, addr + 1);
-  b2 = memory_load(sim->mem, addr + 2);
-  b3 = memory_load(sim->mem, addr + 3);
-  ret =
-    ((b3 << 24) & 0xff000000) | ((b2 << 16) & 0x00ff0000) |
-    ((b1 <<  8) & 0x0000ff00) | ((b0 <<  0) & 0x000000ff);
+  unsigned ret = memory_load(sim->mem, addr, 4, 0);
   return ret;
 }
 
 void sim_write_memory(sim_t *sim, unsigned addr, unsigned value) {
-  memory_store(sim->mem, addr + 0, (char)((value >>  0) & 0x000000ff));
-  memory_store(sim->mem, addr + 1, (char)((value >>  8) & 0x000000ff));
-  memory_store(sim->mem, addr + 2, (char)((value >> 16) & 0x000000ff));
-  memory_store(sim->mem, addr + 3, (char)((value >> 24) & 0x000000ff));
+  memory_store(sim->mem, addr, value, 4, 0);
   return;
 }
 
