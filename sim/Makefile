@@ -5,13 +5,16 @@ OBJS=$(SRCS:.c=.o)
 CFLAGS=-O3 -Wall
 LDLIBS=-lm -lpthread
 
-.PHONY: all clean
+.PHONY: all clean xv6
 .INTERMEDIATE: $(OBJS) $(TARGET).o
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS) $(TARGET).o
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) $(TARGET).o -o $(TARGET) $(LDLIBS)
+
+xv6: $(TARGET)
+	./$(TARGET) ../img/kernel ../img/fs.img
 
 $(TARGET).o: sim.h
 
