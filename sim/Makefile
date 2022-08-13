@@ -1,4 +1,4 @@
-TARGET=test_sim
+TARGET=launch_sim
 SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c
 HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h
 OBJS=$(SRCS:.c=.o)
