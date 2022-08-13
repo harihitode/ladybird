@@ -1,55 +1,128 @@
 #include "mmio.h"
 #include "memory.h"
 #include <stdint.h>
+#include <stdlib.h>
 
-const unsigned UART_MODE_DEFAULT = 3;
-const unsigned UART_MODE_SETBAUD_RATE = (1 << 7);
+#define UART_ADDR_RHR 0
+#define UART_ADDR_THR 0
+#define UART_ADDR_IER 1
+#define UART_IER_ENABLE 0x03
+#define UART_ADDR_FCR 2
+#define UART_FCR_CLEAR (3 << 1)
+#define UART_ADDR_LCR 3
+#define UART_LCR_DEFAULT_MODE 3
+#define UART_LCR_SETBAUD_RATE_MODE (1 << 7)
+#define UART_ADDR_LSR 5
+#define UART_LSR_RX_READY (1 << 0)
+#define UART_LSR_TX_IDLE (1 << 5)
+
+#define UART_BUF_SIZE 512
+
+static int uart_input_routine(void *arg) {
+  uart_t *uart = (uart_t *)arg;
+  char c;
+  while ((c = fgetc(uart->fi)) != EOF) {
+    mtx_lock(&uart->mutex);
+    uart->buf[uart->buf_wr_index++] = c;
+    mtx_unlock(&uart->mutex);
+  }
+  return 0;
+}
 
 void uart_init(uart_t *uart) {
   uart->fi = stdin;
   uart->fo = stdout;
-  uart->mode = UART_MODE_DEFAULT;
+  uart->mode = UART_LCR_DEFAULT_MODE;
+  uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
+  uart->buf_wr_index = 0;
+  uart->buf_rd_index = 0;
+  uart->intr_enable = 0;
+  mtx_init(&uart->mutex, mtx_plain);
+  if (thrd_create(&uart->i_thread, (thrd_start_t)uart_input_routine, (void *)uart) == thrd_error) {
+    printf("UART initialization error: thread create\n");
+  }
 }
 
 char uart_read(uart_t *uart, unsigned addr) {
   switch (addr) {
-  case 0x00000000: // RX Register
-    return 'a';
-  case 0x00000005: // Line Status Register
-    return 0x21; // always ready
+  case UART_ADDR_RHR: {
+    // RX Register (uart input)
+    char ret = 0;
+    mtx_lock(&uart->mutex);
+    ret = uart->buf[uart->buf_rd_index++];
+    if (uart->buf_rd_index == uart->buf_wr_index) {
+      uart->buf_rd_index = 0;
+      uart->buf_wr_index = 0;
+    }
+    mtx_unlock(&uart->mutex);
+    return ret;
+  }
+  case UART_ADDR_LSR: // Line Status Register
+    {
+      char ret = UART_LSR_TX_IDLE; // as default tx idle
+      if (uart->buf_wr_index > uart->buf_rd_index) {
+        ret |= UART_LSR_RX_READY;
+      }
+      return ret;
+    }
   default:
+    printf("uart unknown address read: %08x\n", addr);
     return 0;
   }
 }
 
+void uart_write(uart_t *uart, unsigned addr, char value) {
+  switch (addr) {
+  case UART_ADDR_IER:
+    if (value & UART_IER_ENABLE) {
+      uart->intr_enable = 1;
+    } else {
+      uart->intr_enable = 0;
+    }
+    break;
+  case UART_ADDR_FCR:
+    if (value & UART_FCR_CLEAR) {
+      mtx_lock(&uart->mutex);
+      uart->buf_wr_index = 0;
+      uart->buf_rd_index = 0;
+      mtx_unlock(&uart->mutex);
+    }
+    break;
+  case UART_ADDR_THR:
+    // TX Register (uart output)
+    if (uart->mode == UART_LCR_DEFAULT_MODE) {
+      fputc(value, uart->fo);
+      fflush(stdout);
+    }
+    break;
+  case UART_ADDR_LCR: // Line Control Register
+    uart->mode = value;
+    break;
+  default:
+    printf("uart unknown address write: %08x <- %08x\n", addr, value);
+    break;
+  }
+  return;
+}
+
 unsigned uart_irq(const uart_t *uart) {
-  return 0;
+  if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
+    return 1;
+  } else {
+    return 0;
+  }
 }
 
 void uart_irq_ack(uart_t *uart) {
   return;
 }
 
-void uart_write(uart_t *uart, unsigned addr, char value) {
-  switch (addr) {
-  case 0x00000000:
-    if (uart->mode == UART_MODE_DEFAULT) {
-      fputc(value, uart->fo);
-      fflush(stdout);
-    }
-    break;
-  case 0x00000003: // Line Control Register
-    uart->mode = value;
-    break;
-  default:
-    break;
-  }
-  return;
-}
-
 void uart_fini(uart_t *uart) {
   fclose(uart->fi);
   fclose(uart->fo);
+  free(uart->buf);
+  thrd_join(uart->i_thread, NULL);
+  mtx_destroy(&uart->mutex);
   return;
 }
 
@@ -217,12 +290,12 @@ static void disk_process_queue(disk_t *disk) {
       if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
         // disk -> memory
         for (unsigned j = 0; j < current_desc->len; j++) {
-          memory_store(disk->mem, dma_base + j, sector[j]);
+          memory_store(disk->mem, dma_base + j, sector[j], 1, 0);
         }
       } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
         // memory -> disk
         for (unsigned j = 0; j < current_desc->len; j++) {
-          sector[j] = memory_load(disk->mem, dma_base + j);
+          sector[j] = memory_load(disk->mem, dma_base + j, 1, 0);
         }
       } else {
         printf("[MMIO ERROR] invalid sequence\n");
@@ -230,7 +303,7 @@ static void disk_process_queue(disk_t *disk) {
     }
     if (i == VIRTQ_STAGE_COMPLETE && is_write) {
       // done
-      memory_store(disk->mem, current_desc->addr, VIRTQ_DONE);
+      memory_store(disk->mem, current_desc->addr, VIRTQ_DONE, 1, 0);
       used->ring[used->idx].id = avail->ring[disk->current_queue];
       used->ring[used->idx].len = 3;
       used->idx++; // increment when completed

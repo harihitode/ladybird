@@ -3,7 +3,7 @@ SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c
 HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h
 OBJS=$(SRCS:.c=.o)
 CFLAGS=-O3 -Wall
-LDLIBS=-lm
+LDLIBS=-lm -lpthread
 
 .PHONY: all clean
 .INTERMEDIATE: $(OBJS) $(TARGET).o

@@ -2,6 +2,7 @@
 #define MMIO_H
 
 #include <stdio.h>
+#include <threads.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
@@ -9,6 +10,12 @@ typedef struct uart_t {
   FILE *fi;
   FILE *fo;
   unsigned mode;
+  char *buf;
+  unsigned buf_wr_index;
+  unsigned buf_rd_index;
+  thrd_t i_thread;
+  mtx_t mutex;
+  unsigned intr_enable;
 } uart_t;
 
 void uart_init(uart_t *uart);
