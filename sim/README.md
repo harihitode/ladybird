@@ -12,6 +12,6 @@
 
 `$ ./launch_sim [ELF Executable] [Disk Image]`
 
-## Run XV6 [ladybird_xv6](https://github.com/harihitode/ladybird_xv6)
+## Run xv6 [xv6 (RV32IMA ported)](https://github.com/harihitode/ladybird_xv6)
 
 `$ make xv6`
