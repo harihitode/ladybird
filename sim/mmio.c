@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define UART_ADDR_RHR 0
 #define UART_ADDR_THR 0
@@ -25,12 +26,15 @@
 static int uart_input_routine(void *arg) {
   uart_t *uart = (uart_t *)arg;
   char c;
+  signal(SIGINT, SIG_DFL);
+  signal(SIGTERM, SIG_DFL);
+  signal(SIGABRT, SIG_DFL);
   while ((c = fgetc(uart->fi)) != EOF) {
     mtx_lock(&uart->mutex);
     uart->buf[uart->buf_wr_index++] = c;
     mtx_unlock(&uart->mutex);
   }
-  return 0;
+  thrd_exit(0);
 }
 
 void uart_init(uart_t *uart) {
