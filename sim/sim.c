@@ -2,13 +2,14 @@
 #include "elfloader.h"
 #include "memory.h"
 #include "csr.h"
+#include "mmio.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 #define NUM_GPR 32
 #define NUM_FPR 32
 
-void sim_init(sim_t *sim, const char *elf_path) {
+void sim_init(sim_t *sim) {
   // clear gpr
   sim->gpr = (unsigned *)calloc(NUM_GPR, sizeof(unsigned));
   // init csr
@@ -19,9 +20,18 @@ void sim_init(sim_t *sim, const char *elf_path) {
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem);
   memory_set_sim(sim->mem, sim);
+  sim->pc = 0;
+  return;
+}
+
+int sim_load_elf(sim_t *sim, const char *elf_path) {
+  int ret = 1;
   // init elf loader
   sim->elf = (elf_t *)malloc(sizeof(elf_t));
   elf_init(sim->elf, elf_path);
+  if (sim->elf->status != ELF_STATUS_LOADED) {
+    goto cleanup;
+  }
   // program load to memory
   for (unsigned i = 0; i < sim->elf->programs; i++) {
     for (unsigned j = 0; j < sim->elf->program_size[i]; j++) {
@@ -30,7 +40,12 @@ void sim_init(sim_t *sim, const char *elf_path) {
   }
   // set entry program counter
   sim->pc = sim->elf->entry_address;
-  return;
+  ret = 0;
+ cleanup:
+  elf_fini(sim->elf);
+  free(sim->elf);
+  sim->elf = NULL;
+  return ret;
 }
 
 void sim_fini(sim_t *sim) {
@@ -39,8 +54,6 @@ void sim_fini(sim_t *sim) {
   free(sim->mem);
   csr_fini(sim->csr);
   free(sim->csr);
-  elf_fini(sim->elf);
-  free(sim->elf);
   return;
 }
 
@@ -478,6 +491,16 @@ unsigned sim_get_epc(sim_t *sim) {
   } else {
     return sim->csr->sepc;
   }
+}
+
+int sim_virtio_disk(sim_t *sim, const char *img_path, int mode) {
+  disk_load(sim->mem->disk, img_path, mode);
+  return 0;
+}
+
+int sim_uart_io(sim_t *sim, FILE *in, FILE *out) {
+  uart_set_io(sim->mem->uart, in, out);
+  return 0;
 }
 
 void sim_debug_dump_status(sim_t *sim) {

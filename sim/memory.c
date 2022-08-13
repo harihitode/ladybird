@@ -24,7 +24,6 @@ void memory_init(memory_t *mem) {
   uart_init(mem->uart);
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(mem->disk);
-  disk_load(mem->disk, "../../ladybird_xv6/fs.img");
   mem->disk->mem = mem; // for DMA
   mem->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(mem->plic);

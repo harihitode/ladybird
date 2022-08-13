@@ -1,6 +1,8 @@
 #ifndef SIM_H
 #define SIM_H
 
+#include <stdio.h>
+
 struct memory_t;
 struct csr_t;
 struct elf_t;
@@ -13,7 +15,7 @@ typedef struct sim_t {
   struct elf_t *elf;
 } sim_t;
 
-void sim_init(sim_t *, const char *elf_path);
+void sim_init(sim_t *);
 void sim_step(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
@@ -26,6 +28,10 @@ void sim_trap(sim_t *, void (*func)(sim_t *sim));
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
 unsigned sim_get_epc(sim_t *);
+// mmio
+int sim_load_elf(sim_t *, const char *elf_path);
+int sim_virtio_disk(sim_t *, const char *img_path, int mode);
+int sim_uart_io(sim_t *, FILE *in, FILE *out);
 // debug
 void sim_debug_dump_status(sim_t *);
 
