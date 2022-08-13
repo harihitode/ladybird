@@ -27,7 +27,7 @@ void callback(sim_t *sim) {
     break;
   case TRAP_CODE_BREAKPOINT:
     fprintf(stderr, "BREAKPOINT\n");
-    trap = 1;
+    quit = 1;
     break;
   case TRAP_CODE_ILLEGAL_INSTRUCTION:
     fprintf(stderr, "ILLEGAL INSTRUCTION\n");
@@ -76,11 +76,15 @@ int main(int argc, char *argv[]) {
   sim_init(sim, argv[1]);
   sim_trap(sim, callback);
   signal(SIGINT, shndl);
-  // main loop
+
+#ifdef LADYBIRD_SIM_DEBUG
   char line[128];
   unsigned break_on = 0;
   unsigned break_addr = 0;
+#endif
+  // main loop
   while (quit == 0) {
+#ifdef LADYBIRD_SIM_DEBUG
     if (trap) {
       printf("(sim) ");
       if (fgets(line, 128, stdin) == NULL) {
@@ -112,6 +116,9 @@ int main(int argc, char *argv[]) {
         trap = 1;
       }
     }
+#else
+    sim_step(sim);
+#endif
   }
   sim_debug_dump_status(sim);
   sim_fini(sim);
