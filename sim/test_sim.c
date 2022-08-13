@@ -61,66 +61,29 @@ void callback(sim_t *sim) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    fprintf(stderr, "%s [ELF FILE]\n", argv[0]);
+  if (argc < 2) {
+    fprintf(stderr, "%s [ELF FILE] [DISK FILE]\n", argv[0]);
     return 0;
   }
-  FILE *fp = fopen(argv[1], "r");
-  if (fp == NULL) {
-    perror("fopen");
-    return 0;
-  }
-  fclose(fp);
-  sim_t *sim;
-  sim = (sim_t *)malloc(sizeof(sim_t));
-  sim_init(sim, argv[1]);
+  sim_t *sim = (sim_t *)malloc(sizeof(sim_t));
+  sim_init(sim);
   sim_trap(sim, callback);
+  if (sim_load_elf(sim, argv[1]) != 0) {
+    fprintf(stderr, "error in elf file: %s\n", argv[1]);
+    goto cleanup;
+  }
+  if (argc == 3) {
+    // if you open disk file read only mode, set 1 to the last argument below
+    sim_virtio_disk(sim, argv[2], 0);
+  }
+  sim_uart_io(sim, stdin, stdout);
   signal(SIGINT, shndl);
-
-#ifdef LADYBIRD_SIM_DEBUG
-  char line[128];
-  unsigned break_on = 0;
-  unsigned break_addr = 0;
-#endif
   // main loop
   while (quit == 0) {
-#ifdef LADYBIRD_SIM_DEBUG
-    if (trap) {
-      printf("(sim) ");
-      if (fgets(line, 128, stdin) == NULL) {
-        break;
-      }
-      if (strncmp(line, "info registers", 6) == 0) {
-        for (int i = 0; i < 32; i++) {
-          printf("[x%02d]\t0x%08x\n", i, sim_read_register(sim, i));
-        }
-        printf("[PC]\t0x%08x\n", sim_read_register(sim, 32));
-      } else if (strncmp(line, "step", 1) == 0) {
-        sim_step(sim);
-      } else if (strncmp(line, "c", 1) == 0) {
-        trap = 0;
-      } else if (strncmp(line, "b", 1) == 0) {
-        sscanf(line, "b %08x", &break_addr);
-        break_on = 1;
-        printf("break point set @ %08x\n", break_addr);
-      } else if (strncmp(line, "x", 1) == 0) {
-        unsigned addr;
-        sscanf(line, "x %08x", &addr);
-        printf("%08x (%08x)\n", addr, sim_read_memory(sim, addr));
-      }
-    } else {
-      sim_step(sim);
-      if (sim->pc == break_addr && break_on) {
-        printf("BREAK!\n");
-        break_on = 0;
-        trap = 1;
-      }
-    }
-#else
     sim_step(sim);
-#endif
   }
   sim_debug_dump_status(sim);
+ cleanup:
   sim_fini(sim);
   free(sim);
   return 0;
