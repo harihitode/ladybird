@@ -11,6 +11,7 @@
 void elf_init(elf_t *elf, const char *elf_path) {
   FILE *fp = NULL;
   Elf32_Ehdr *elf_header;
+  elf->status = ELF_STATUS_UNLOADED;
   // read headers
   if ((fp = fopen(elf_path, "r")) == NULL) {
     perror(FILE_LINE("fopen"));
@@ -48,9 +49,11 @@ void elf_init(elf_t *elf, const char *elf_path) {
       break;
     }
   }
-
+  elf->status = ELF_STATUS_LOADED;
  cleanup:
-  fclose(fp);
+  if (fp) {
+    fclose(fp);
+  }
   return;
 }
 

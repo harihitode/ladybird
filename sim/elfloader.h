@@ -3,8 +3,12 @@
 
 #include <sys/stat.h>
 
+#define ELF_STATUS_LOADED 0
+#define ELF_STATUS_UNLOADED 1
+
 typedef struct elf_t {
   unsigned entry_address;
+  int status;
   char *head;
   struct stat file_stat;
   unsigned programs;
