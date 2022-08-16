@@ -21,8 +21,10 @@ module ladybird_top
    inout wire [3:0]   qspi_dq,
    input wire         anrst
    );
+
   // Sync. Reset (negative)
   logic               nrst;
+  logic [3:0]         cled;
 
   // from core 2 bus data/instruction
   ladybird_bus core_bus[2]();
@@ -37,16 +39,11 @@ module ladybird_top
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
-  ladybird_bus peripheral_bus[5]();
+  ladybird_bus peripheral_bus[NUM_PERIPHERAL]();
 
-  assign led_r = '1;
-  assign led_b = '1;
-  assign led_g = '1;
-  assign qspi_cs = 'b1;
-  assign qspi_dq[0] = 1'b1;
-  assign qspi_dq[1] = 1'bz;
-  assign qspi_dq[2] = 1'b1; // not used
-  assign qspi_dq[3] = 1'b1; // not used
+  assign led_r = {2{cled[2]}};
+  assign led_g = {2{cled[1]}};
+  assign led_b = {2{cled[0]}};
 
   always_ff @(posedge clk) begin: synchronous_reset
     nrst <= anrst;
@@ -92,7 +89,7 @@ module ladybird_top
      .nrst(nrst)
      );
 
-  ladybird_inst_ram #(.DISTRIBUTED_RAM(SIMULATION))
+  ladybird_inst_ram #(.DISTRIBUTED_RAM(1))
   INST_RAM_INST
     (
      .clk(clk),
@@ -112,25 +109,51 @@ module ladybird_top
   always_comb begin
     complete_i = {8{complete}};
   end
-  ladybird_gpio #(.E_WIDTH(4), .N_INPUT(2), .N_OUTPUT(1))
+  ladybird_gpio #(.E_WIDTH(4), .N_INPUT(2), .N_OUTPUT(2))
   GPIO_INST
     (
      .clk(clk),
      .bus(peripheral_bus[GPIO]),
      .GPIO_I({sw, btn}),
-     .GPIO_O(led),
+     .GPIO_O({cled, led}),
      .pending(pending),
      .complete(complete_i),
      .nrst(nrst)
      );
 
-  ladybird_crossbar #(.N_PERIPHERAL_BUS(5))
+  ladybird_qspi_interface QSPI_IF
+    (
+     .sck(clk),
+     .cs(qspi_cs),
+     .dq(qspi_dq),
+     .bus(peripheral_bus[QSPI]),
+     .nrst(nrst)
+     );
+
+  ladybird_crossbar #(.N_PERIPHERAL_BUS(NUM_PERIPHERAL))
   CROSS_BAR
     (
      .clk(clk),
      .core_ports(core_bus),
      .peripheral_ports(peripheral_bus),
      .nrst(nrst)
+     );
+
+  STARTUPE2 QSPI_SCLK
+    (
+     .CFGCLK(),
+     .CFGMCLK(),
+     .EOS(),
+     .PREQ(),
+     .CLK(1'b0),
+     .GSR(1'b0),
+     .GTS(1'b0),
+     .KEYCLEARB(1'b0),
+     .PACK(1'b0),
+     .USRCCLKO(clk), // clk to QSPI's SCLK
+     .USRCCLKTS(1'b0),
+     .USRDONEO(1'b0),
+     .USRDONETS(1'b0)
      );
 
 endmodule

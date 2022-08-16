@@ -41,7 +41,9 @@ module ladybird_gpio
       end else if (bus.addr[3:0] == 4'h4) begin
         data_out = {{(32-E_WIDTH){1'b0}}, gpio_i_reg[2*E_WIDTH-1-:E_WIDTH]};
       end else if (bus.addr[3:0] == 4'h8) begin
-        data_out = {{(32-E_WIDTH){1'b0}}, gpio_o_reg[E_WIDTH-1:0]};
+        data_out = {{(32-E_WIDTH){1'b0}}, gpio_o_reg[1*E_WIDTH-1-:E_WIDTH]};
+      end else if (bus.addr[3:0] == 4'hc) begin
+        data_out = {{(32-E_WIDTH){1'b0}}, gpio_o_reg[2*E_WIDTH-1-:E_WIDTH]};
       end else begin
         data_out = '0;
       end
@@ -58,7 +60,8 @@ module ladybird_gpio
   assign GPIO_O = gpio_o_reg;
 
   always_comb begin
-    if ((bus.req & (|bus.wstrb)) && (bus.addr[3:0] == 4'h8)) begin
+    if ((bus.req & (|bus.wstrb)) && ((bus.addr[3:0] == 4'h8) ||
+                                     (bus.addr[3:0] == 4'hc))) begin
       gpio_write = 'b1;
     end else begin
       gpio_write = 'b0;
@@ -75,7 +78,11 @@ module ladybird_gpio
       gpio_i_reg <= ~complete_mask & (gpio_i_reg | GPIO_I);
       pending <= ~complete_mask & (gpio_i_reg ^ GPIO_I);
       if (gpio_write) begin
-        gpio_o_reg <= data_in[E_WIDTH-1:0];
+        if (bus.addr[3:0] == 4'h8) begin
+          gpio_o_reg[1*E_WIDTH-1-:E_WIDTH] <= data_in[E_WIDTH-1:0];
+        end else if (bus.addr[3:0] == 4'hc) begin
+          gpio_o_reg[2*E_WIDTH-1-:E_WIDTH] <= data_in[E_WIDTH-1:0];
+        end
       end
     end
   end

@@ -25,11 +25,12 @@ module ladybird_inst_ram
 
     automatic logic [XLEN-1:0] ram_vector [2**ADDR_W]
       = '{
-          0:LUI(5'd1, 20'hfffff),
-          1:SRAI(5'd1, 5'd1, 5'd12),
-          2:LB(5'd2, 12'h000, 5'd1),
-          3:LUI(5'd3, 20'h90000),
-          4:EBREAK(),
+          0:LUI(5'd1, 20'hD0010),
+          1:LB(5'd2, 12'h001, 5'd1),
+          2:LUI(5'd1, 20'hF0000),
+          3:SB(5'd2, 12'h000, 5'd1),
+          4:NOP(),
+          5:J(-'h4),
           default:NOP()
           };
     always_ff @(posedge clk) begin

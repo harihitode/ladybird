@@ -15,13 +15,53 @@ module tb_ladybird;
   wire [1:0]  led_g;
   wire [1:0]  led_b;
 
-  wire        qspi_cs;
-  wire [3:0]  qspi_dq;
-  logic [7:0] qspi_data = 8'h61;
+  always_ff @(posedge clk) begin
+    nrst <= anrst;
+  end
+
+  typedef enum logic [1:0] {
+                            IDLE,
+                            COMMAND,
+                            DATA
+                            } qspi_state_t;
+  qspi_state_t qspi_state;
+  logic [31:0] qspi_counter, qspi_command;
+  wire         qspi_cs;
+  wire [3:0]   qspi_dq;
+  logic [7:0]  qspi_data;
   assign qspi_dq[0] = 1'bz;
   assign qspi_dq[1] = qspi_data[7];
   assign qspi_dq[2] = 1'bz;
   assign qspi_dq[3] = 1'bz;
+
+  always_ff @(posedge clk, negedge anrst) begin
+    if (~anrst) begin
+      qspi_counter <= '0;
+      qspi_state <= IDLE;
+      qspi_command <= '0;
+      qspi_data <= '0;
+    end else begin
+      if ((qspi_state == IDLE) && ~qspi_cs) begin
+        qspi_state <= COMMAND;
+        qspi_counter <= '0;
+      end else if ((qspi_state == COMMAND) && (qspi_counter == 'd31)) begin
+        qspi_state <= DATA;
+        qspi_counter <= '0;
+      end else if ((qspi_state == DATA) && (qspi_counter == 'd6)) begin
+        qspi_state <= IDLE;
+      end else begin
+        qspi_counter <= qspi_counter + 'd1;
+      end
+      if (((qspi_state == IDLE) && ~qspi_cs) || (qspi_state == COMMAND)) begin
+        qspi_command <= {qspi_command[30:0], qspi_dq[0]};
+      end
+      if ((qspi_state == COMMAND) && (qspi_counter == 'd31)) begin
+        qspi_data <= 8'h61;
+      end else begin
+        qspi_data <= {qspi_data[6:0], 1'b0};
+      end
+    end
+  end
 
   logic [31:0] iram [] = '{
                            ADDI(5'd1, 5'd0, 12'hfff),
@@ -87,8 +127,7 @@ module tb_ladybird;
 
   ladybird_top #(.SIMULATION(1))
   DUT (
-       .*,
-       .anrst(anrst_c)
+       .*
        );
 
   ladybird_bus_arbitrator_beh #(.N_INPUT(2))
@@ -117,8 +156,7 @@ module tb_ladybird;
      .uart_txd_in(uart_rxd_out),
      .uart_rxd_out(uart_txd_in),
      .bus(host_uart_bus),
-     .nrst(nrst),
-     .anrst(anrst)
+     .nrst(nrst)
      );
 
 endmodule
