@@ -284,13 +284,14 @@ static void disk_process_queue(disk_t *disk) {
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
 #if 0
-  printf("avail flag: %d idx: %d unused: %d ring:", avail->flags, avail->idx, avail->unused);
+  printf("avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
     printf(" %d", avail->ring[i]);
   }
   printf("\n");
+  printf("init: -> %d\n", avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE]);
 #endif
-  virtq_desc *current_desc = desc + avail->ring[disk->current_queue];
+  virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
 #if 0
@@ -330,14 +331,18 @@ static void disk_process_queue(disk_t *disk) {
     if (i == VIRTQ_STAGE_COMPLETE && is_write) {
       // done
       memory_store(disk->mem, current_desc->addr, VIRTQ_DONE, 1, 0);
-      used->ring[used->idx].id = avail->ring[disk->current_queue];
-      used->ring[used->idx].len = 3;
+      // complete
+      used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
+      used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
       used->idx++; // increment when completed
     }
     // next queue
     if ((current_desc->flags & VIRTQ_DESC_F_NEXT) != VIRTQ_DESC_F_NEXT) {
       break;
     }
+#if 0
+    printf("next: -> %d\n", current_desc->next);
+#endif
     current_desc = desc + current_desc->next;
     if (i == VIRTIO_MMIO_MAX_QUEUE - 1) {
       printf("[MMIO ERROR] EXCEEDS MAX_QUEUE\n");
