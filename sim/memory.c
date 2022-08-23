@@ -31,6 +31,9 @@ void memory_init(memory_t *mem) {
   mem->plic->disk = mem->disk;
   mem->vmflag = 0;
   mem->vmrppn = 0;
+  mem->tlbs = 0;
+  mem->tlb_key = NULL;
+  mem->tlb_val = NULL;
 }
 
 void memory_set_sim(memory_t *mem, struct sim_t *sim) {
@@ -70,27 +73,45 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
     // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
     return addr;
   } else {
+    // search TLB first
     unsigned paddr = 0;
-    unsigned vpn1 = (addr >> 22) & 0x000003ff;
-    unsigned vpn0 = (addr >> 12) & 0x000003ff;
-    unsigned pte1 = 0, pte0 = 0;
-    unsigned pte1_addr = 0, pte0_addr = 0;
-    // level 1
-    pte1_addr = mem->vmrppn + (vpn1 << 2); // word
-    unsigned *pte1_p = (unsigned *)memory_get_page(mem, pte1_addr - MEMORY_BASE_ADDR_RAM);
-    pte1 = pte1_p[(pte1_addr & 0x00000fff) >> 2];
-    // level 0
-    pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
-    unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
-    pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
-    paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
-#if 0
-    if (addr >= 0x10000000 && addr < 0x10000400) {
-      printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
-      printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
-      printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
+    unsigned tlb_hit = 0;
+    for (unsigned i = 0; i < mem->tlbs; i++) {
+      if (mem->tlb_key[i] == (addr & 0xfffff000)) {
+        paddr = mem->tlb_val[i] | (addr & 0x00000fff);
+        tlb_hit = 1;
+        break;
+      }
     }
+    if (tlb_hit == 0) {
+      // hardware page walking
+      unsigned vpn1 = (addr >> 22) & 0x000003ff;
+      unsigned vpn0 = (addr >> 12) & 0x000003ff;
+      unsigned pte1 = 0, pte0 = 0;
+      unsigned pte1_addr = 0, pte0_addr = 0;
+      // level 1
+      pte1_addr = mem->vmrppn + (vpn1 << 2); // word
+      unsigned *pte1_p = (unsigned *)memory_get_page(mem, pte1_addr - MEMORY_BASE_ADDR_RAM);
+      pte1 = pte1_p[(pte1_addr & 0x00000fff) >> 2];
+      // level 0
+      pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
+      unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
+      pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
+      paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+      // register to TLB
+      mem->tlbs++;
+      mem->tlb_val = (unsigned *)realloc(mem->tlb_val, mem->tlbs * sizeof(unsigned));
+      mem->tlb_key = (unsigned *)realloc(mem->tlb_key, mem->tlbs * sizeof(unsigned));
+      mem->tlb_key[mem->tlbs - 1] = addr & 0xfffff000;
+      mem->tlb_val[mem->tlbs - 1] = paddr & 0xfffff000;
+#if 0
+      if (addr >= 0x10000000 && addr < 0x10000400) {
+        printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
+        printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
+        printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
+      }
 #endif
+    }
     return paddr;
   }
 }
@@ -259,6 +280,14 @@ void memory_atp_off(memory_t *mem) {
   return;
 }
 
+void memory_tlb_clear(memory_t *mem) {
+  mem->tlbs = 0;
+  free(mem->tlb_key);
+  free(mem->tlb_val);
+  mem->tlb_key = NULL;
+  mem->tlb_val = NULL;
+}
+
 void memory_fini(memory_t *mem) {
   free(mem->base);
   for (unsigned i = 0; i < mem->blocks; i++) {
@@ -272,5 +301,7 @@ void memory_fini(memory_t *mem) {
   free(mem->disk);
   plic_fini(mem->plic);
   free(mem->plic);
+  free(mem->tlb_key);
+  free(mem->tlb_val);
   return;
 }

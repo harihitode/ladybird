@@ -426,7 +426,7 @@ void sim_step(sim_t *sim) {
         break;
       case 0x09:
         // SFENCE.VMA
-        // TODO: clear TLA
+        memory_tlb_clear(sim->mem);
         sim->pc = sim->pc + 4;
         break;
       default:

@@ -20,6 +20,9 @@ typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
+  unsigned tlbs;
+  unsigned *tlb_key;
+  unsigned *tlb_val;
   char *reserve;
   struct csr_t *csr;
   // MMU
@@ -46,5 +49,6 @@ unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
 // mmu
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
+void memory_tlb_clear(memory_t *);
 
 #endif
