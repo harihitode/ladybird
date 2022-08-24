@@ -14,6 +14,13 @@
 #define MEMORY_ACLINT 4
 #define MEMORY_PLIC 5
 
+// SV32 page table
+#define PTE_V (1 << 0)
+#define PTE_R (1 << 1)
+#define PTE_W (1 << 2)
+#define PTE_X (1 << 3)
+#define PTE_U (1 << 4)
+
 void memory_init(memory_t *mem) {
   mem->blocks = 0;
   mem->base = NULL;
@@ -116,7 +123,7 @@ static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, uns
   return value;
 }
 
-static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
+static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned ecode) {
   if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
     // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
@@ -146,20 +153,24 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
       pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
       unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
       pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
-      paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
-      // register to TLB
-      mem->tlbs++;
-      mem->tlb_val = (unsigned *)realloc(mem->tlb_val, mem->tlbs * sizeof(unsigned));
-      mem->tlb_key = (unsigned *)realloc(mem->tlb_key, mem->tlbs * sizeof(unsigned));
-      mem->tlb_key[mem->tlbs - 1] = addr & 0xfffff000;
-      mem->tlb_val[mem->tlbs - 1] = paddr & 0xfffff000;
+      if (!(pte0 & PTE_V)) {
+        csr_exception(mem->csr, ecode);
+      } else {
+        paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+        // register to TLB
+        mem->tlbs++;
+        mem->tlb_val = (unsigned *)realloc(mem->tlb_val, mem->tlbs * sizeof(unsigned));
+        mem->tlb_key = (unsigned *)realloc(mem->tlb_key, mem->tlbs * sizeof(unsigned));
+        mem->tlb_key[mem->tlbs - 1] = addr & 0xfffff000;
+        mem->tlb_val[mem->tlbs - 1] = paddr & 0xfffff000;
 #if 0
-      if (addr >= 0x10000000 && addr < 0x10000400) {
-        printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
-        printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
-        printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
-      }
+        if (addr >= 0x10000000 && addr < 0x10000400) {
+          printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
+          printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
+          printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
+        }
 #endif
+      }
     }
     return paddr;
   }
@@ -221,7 +232,10 @@ static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
 }
 
 unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved) {
-  unsigned paddr = memory_address_translation(mem, addr);
+  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_LOAD_PAGE_FAULT);
+  if (mem->csr->exception) {
+    return 0;
+  }
   unsigned value = 0;
   switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
@@ -257,7 +271,10 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
 
 unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
   unsigned ret = MEMORY_STORE_SUCCESS;
-  unsigned paddr = memory_address_translation(mem, addr);
+  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_STORE_PAGE_FAULT);
+  if (mem->csr->exception) {
+    return MEMORY_STORE_FAILURE;
+  }
   switch (memory_get_memory_type(mem, paddr)) {
   case MEMORY_UART:
     for (unsigned i = 0; i < size; i++) {
@@ -306,8 +323,12 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
 }
 
 unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
-  unsigned paddr = memory_address_translation(mem, addr);
-  return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
+  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
+  if (mem->csr->exception) {
+    return 0;
+  } else {
+    return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
+  }
 }
 
 unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) {
