@@ -20,6 +20,12 @@ typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
+  unsigned dcache_block_base;
+  unsigned dcache_block_id;
+  unsigned dcache_valid;
+  unsigned icache_block_base;
+  unsigned icache_block_id;
+  unsigned icache_valid;
   unsigned tlbs;
   unsigned *tlb_key;
   unsigned *tlb_val;
@@ -40,6 +46,7 @@ typedef struct memory_t {
 void memory_init(memory_t *);
 void memory_set_sim(memory_t *, struct sim_t *);
 unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
+unsigned memory_load_instruction(memory_t *, unsigned addr);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
 void memory_fini(memory_t *);
 char *memory_get_page(memory_t *, unsigned);

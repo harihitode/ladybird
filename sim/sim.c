@@ -117,7 +117,7 @@ static unsigned get_immediate(unsigned inst) {
 
 void sim_step(sim_t *sim) {
   // fetch
-  unsigned inst = memory_load(sim->mem, sim->pc, 4, 0);
+  unsigned inst = memory_load_instruction(sim->mem, sim->pc);
   unsigned opcode;
   unsigned rs1, rs2, rd;
   unsigned src1, src2, immediate;

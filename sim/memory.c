@@ -18,6 +18,12 @@ void memory_init(memory_t *mem) {
   mem->blocks = 0;
   mem->base = NULL;
   mem->block = NULL;
+  mem->dcache_block_base = 0;
+  mem->dcache_block_id = 0;
+  mem->dcache_valid = 0;
+  mem->icache_block_base = 0;
+  mem->icache_block_id = 0;
+  mem->icache_valid = 0;
   mem->reserve = NULL;
   mem->csr = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
@@ -42,22 +48,29 @@ void memory_set_sim(memory_t *mem, struct sim_t *sim) {
 }
 
 static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
+  unsigned block_id = 0;
+  unsigned hit = 0;
   for (unsigned i = 0; i < mem->blocks; i++) {
     // search blocks allocated for the base addr
     // block size is 4KB
     if (mem->base[i] == (addr & 0xfffff000)) {
-      return i;
+      block_id = i;
+      hit = 1;
+      break;
     }
   }
-  unsigned last_block = mem->blocks;
-  mem->blocks++; // increment
-  mem->base = (unsigned *)realloc(mem->base, mem->blocks * sizeof(unsigned));
-  mem->block = (char **)realloc(mem->block, mem->blocks * sizeof(char *));
-  mem->reserve = (char *)realloc(mem->reserve, mem->blocks * sizeof(char));
-  mem->base[last_block] = (addr & 0xfffff000);
-  mem->block[last_block] = (char *)malloc(0x00001000 * sizeof(char));
-  mem->reserve[last_block] = 0;
-  return last_block;
+  if (hit == 0) {
+    unsigned last_block = mem->blocks;
+    mem->blocks++; // increment
+    mem->base = (unsigned *)realloc(mem->base, mem->blocks * sizeof(unsigned));
+    mem->block = (char **)realloc(mem->block, mem->blocks * sizeof(char *));
+    mem->reserve = (char *)realloc(mem->reserve, mem->blocks * sizeof(char));
+    mem->base[last_block] = (addr & 0xfffff000);
+    mem->block[last_block] = (char *)malloc(0x00001000 * sizeof(char));
+    mem->reserve[last_block] = 0;
+    block_id = last_block;
+  }
+  return block_id;
 }
 
 char *memory_get_page(memory_t *mem, unsigned addr) {
@@ -65,6 +78,42 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   char *page = mem->block[bid];
   mem->reserve[bid] = 0; // expire
   return page;
+}
+
+static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, unsigned icache) {
+  char *page = NULL;
+  unsigned value = 0;
+  unsigned block_id = 0;
+  if (icache) {
+    if (mem->icache_valid && ((addr & 0xfffff000) == mem->icache_block_base)) {
+      page = mem->block[mem->icache_block_id];
+      block_id = mem->icache_block_id;
+    } else {
+      mem->icache_block_id = memory_get_block_id(mem, addr);
+      mem->icache_block_base = addr & 0xfffff000;
+      mem->icache_valid = 1;
+      page = memory_get_page(mem, addr);
+      block_id = mem->icache_block_id;
+    }
+  } else {
+    if (mem->dcache_valid && ((addr & 0xfffff000) == mem->dcache_block_base)) {
+      page = mem->block[mem->dcache_block_id];
+      block_id = mem->dcache_block_id;
+    } else {
+      mem->dcache_block_id = memory_get_block_id(mem, addr);
+      mem->dcache_block_base = addr & 0xfffff000;
+      mem->dcache_valid = 1;
+      page = memory_get_page(mem, addr);
+      block_id = mem->dcache_block_id;
+    }
+  }
+  for (unsigned i = 0; i < size; i++) {
+    value |= ((0x000000ff & page[((addr + i) & 0x00000fff)]) << (8 * i));
+  }
+  if (reserved) {
+    mem->reserve[block_id] = 1;
+  }
+  return value;
 }
 
 static unsigned memory_address_translation(memory_t *mem, unsigned addr) {
@@ -186,15 +235,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     }
     break;
   case MEMORY_RAM:
-    {
-      char *page = memory_get_page(mem, paddr - MEMORY_BASE_ADDR_RAM);
-      for (unsigned i = 0; i < size; i++) {
-        value |= ((0x000000ff & page[((paddr + i) & 0x00000fff)]) << (8 * i));
-      }
-      if (reserved) {
-        mem->reserve[memory_get_block_id(mem, paddr - MEMORY_BASE_ADDR_RAM)] = 1;
-      }
-    }
+    value = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, size, reserved, 0);
     break;
   case MEMORY_ACLINT:
     for (unsigned i = 0; i < size; i++) {
@@ -262,6 +303,11 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
   unsigned ret;
   ret = memory_load(mem, addr, 4, 1);
   return ret;
+}
+
+unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
+  unsigned paddr = memory_address_translation(mem, addr);
+  return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
 }
 
 unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) {
