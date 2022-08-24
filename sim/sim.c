@@ -118,13 +118,17 @@ static unsigned get_immediate(unsigned inst) {
 void sim_step(sim_t *sim) {
   // fetch
   unsigned inst = memory_load_instruction(sim->mem, sim->pc);
+  unsigned result = 0;
+  unsigned f7 = 0, f5 = 0, f3 = 0;
+  if (sim->csr->exception) {
+    goto csr_update;
+  }
   unsigned opcode;
   unsigned rs1, rs2, rd;
   unsigned src1, src2, immediate;
-  unsigned result = 0;
-  unsigned f7 = get_funct7(inst);
-  unsigned f5 = get_funct5(inst);
-  unsigned f3 = get_funct3(inst);
+  f7 = get_funct7(inst);
+  f5 = get_funct5(inst);
+  f3 = get_funct3(inst);
   opcode = get_opcode(inst);
   rs1 = get_rs1(inst);
   rs2 = get_rs2(inst);
@@ -333,6 +337,9 @@ void sim_step(sim_t *sim) {
     csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
     break;
   }
+  if (sim->csr->exception) {
+    goto csr_update;
+  }
   // writeback
   switch (opcode) {
   case OPCODE_OP_IMM:
@@ -441,7 +448,7 @@ void sim_step(sim_t *sim) {
     sim->pc = sim->pc + 4;
     break;
   }
-  // csr updates
+ csr_update:
   csr_cycle(sim->csr, 1); // 1.0 ipc
   return;
 }
