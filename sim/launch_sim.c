@@ -30,14 +30,20 @@ void callback(sim_t *sim) {
     quit = 1;
     break;
   case TRAP_CODE_ILLEGAL_INSTRUCTION:
-    fprintf(stderr, "ILLEGAL INSTRUCTION\n");
+    {
+      unsigned addr = sim_get_epc(sim);
+      fprintf(stderr, "ILLEGAL INSTRUCTION addr %08x\n", addr);
+    }
     quit = 1;
     break;
-  case TRAP_CODE_STORE_ACCESS_FAULT:
-    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
+  case TRAP_CODE_INSTRUCTION_ACCESS_FAULT:
+    fprintf(stderr, "Instruction Access Fault: %08x\n", sim_get_trap_value(sim));
     break;
   case TRAP_CODE_LOAD_ACCESS_FAULT:
     fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
+    break;
+  case TRAP_CODE_STORE_ACCESS_FAULT:
+    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
     // fprintf(stderr, "Timer Interrupt [M]\n");
@@ -50,6 +56,10 @@ void callback(sim_t *sim) {
     break;
   case TRAP_CODE_S_EXTERNAL_INTERRUPT:
     // fprintf(stderr, "EX Interrupt [S]\n");
+    break;
+  case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+  case TRAP_CODE_LOAD_PAGE_FAULT:
+  case TRAP_CODE_STORE_PAGE_FAULT:
     break;
   default:
     fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
@@ -89,7 +99,6 @@ int main(int argc, char *argv[]) {
   while (quit == 0) {
     sim_step(sim);
   }
-  sim_debug_dump_status(sim);
  cleanup:
   sim_fini(sim);
   free(sim);
