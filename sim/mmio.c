@@ -51,7 +51,7 @@ void uart_set_io(uart_t *uart, FILE *fi, FILE *fo) {
   if (fi) {
     uart->fi = fi;
     if (thrd_create(&uart->i_thread, (thrd_start_t)uart_input_routine, (void *)uart) == thrd_error) {
-      printf("uart initialization error: thread create\n");
+      fprintf(stderr, "uart initialization error: thread create\n");
     }
     mtx_init(&uart->mutex, mtx_plain);
   }
@@ -84,7 +84,7 @@ char uart_read(uart_t *uart, unsigned addr) {
       return ret;
     }
   default:
-    printf("uart unknown address read: %08x\n", addr);
+    fprintf(stderr, "uart unknown address read: %08x\n", addr);
     return 0;
   }
 }
@@ -117,7 +117,7 @@ void uart_write(uart_t *uart, unsigned addr, char value) {
     uart->mode = value;
     break;
   default:
-    printf("uart unknown address write: %08x <- %08x\n", addr, value);
+    fprintf(stderr, "uart unknown address write: %08x <- %08x\n", addr, value);
     break;
   }
   return;
@@ -225,7 +225,7 @@ char disk_read(disk_t *disk, unsigned addr) {
     break;
   default:
     ret = 0;
-    printf("mmio (disk): unknown addr read: %08x\n", addr);
+    fprintf(stderr, "mmio (disk): unknown addr read: %08x\n", addr);
     break;
   }
   return ret;
@@ -284,32 +284,32 @@ static void disk_process_queue(disk_t *disk) {
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
 #if 0
-  printf("avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
+  fprintf(stderr, "avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-    printf(" %d", avail->ring[i]);
+    fprintf(stderr, " %d", avail->ring[i]);
   }
-  printf("\n");
-  printf("init: -> %d\n", avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE]);
+  fprintf(stderr, "\n");
+  fprintf(stderr, "init: -> %d\n", avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE]);
 #endif
   virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
 #if 0
-    printf("Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
-           i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
-           );
+    fprintf(stderr, "Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
+            i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
+            );
 #endif
     int is_write = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
       req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr - MEMORY_BASE_ADDR_RAM) + (current_desc->addr & 0x00000FFF));
 #if 0
-      printf("REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
+      fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
     }
     if (i == VIRTQ_STAGE_RW_SECTOR) {
       if (disk->data == NULL) {
-        printf("mmio disk (RW queue): no disk\n");
+        fprintf(stderr, "mmio disk (RW queue): no disk\n");
       } else {
         char *sector = disk->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
@@ -324,7 +324,7 @@ static void disk_process_queue(disk_t *disk) {
             sector[j] = memory_load(disk->mem, dma_base + j, 1, 0);
           }
         } else {
-          printf("[MMIO ERROR] invalid sequence\n");
+          fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
         }
       }
     }
@@ -341,11 +341,11 @@ static void disk_process_queue(disk_t *disk) {
       break;
     }
 #if 0
-    printf("next: -> %d\n", current_desc->next);
+    fprintf(stderr, "next: -> %d\n", current_desc->next);
 #endif
     current_desc = desc + current_desc->next;
     if (i == VIRTIO_MMIO_MAX_QUEUE - 1) {
-      printf("[MMIO ERROR] EXCEEDS MAX_QUEUE\n");
+      fprintf(stderr, "[MMIO ERROR] EXCEEDS MAX_QUEUE\n");
     }
   }
   disk->queue_notify = 1;
@@ -389,7 +389,7 @@ void disk_write(disk_t *disk, unsigned addr, char value) {
     // TODO
     break;
   default:
-    printf("mmio (disk): unknown addr write: %08x, %08x\n", addr, value);
+    fprintf(stderr, "mmio (disk): unknown addr write: %08x, %08x\n", addr, value);
     break;
   }
   return;

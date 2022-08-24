@@ -134,7 +134,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_S_SCRATCH:
     return csr->sscratch;
   default:
-    printf("unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
+    fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
     return 0;
   }
 }
@@ -212,7 +212,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->sscratch = value;
     break;
   default:
-    printf("unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
+    fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
     break;
   }
   return;
@@ -285,7 +285,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_mpp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    printf("[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
+    fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
 #endif
   } else {
     csr->scause = trap_code;
@@ -299,7 +299,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    printf("[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->pc);
+    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->pc);
 #endif
   }
   if (csr->trap_handler) csr->trap_handler(csr->sim);
@@ -428,8 +428,8 @@ void csr_cycle(csr_t *csr, int n_instret) {
     csr_trap(csr, csr->exception_code);
   } else if (intr) {
 #if 0
-    printf("mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
-    printf("%016lx, %016lx\n", csr->time, csr->timecmp);
+    fprintf(stderr, "mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
+    fprintf(stderr, "%016lx, %016lx\n", csr->time, csr->timecmp);
 #endif
     csr_trap(csr, trap_code);
   }
