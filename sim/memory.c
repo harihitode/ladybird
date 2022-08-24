@@ -141,21 +141,36 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigne
     }
     if (tlb_hit == 0) {
       // hardware page walking
-      unsigned vpn1 = (addr >> 22) & 0x000003ff;
-      unsigned vpn0 = (addr >> 12) & 0x000003ff;
+      unsigned pte1_offs = ((addr >> 22) & 0x000003ff) << 2; // word offset
+      unsigned pte0_offs = ((addr >> 12) & 0x000003ff) << 2; // word offset
       unsigned pte1 = 0, pte0 = 0;
       unsigned pte1_addr = 0, pte0_addr = 0;
       // level 1
-      pte1_addr = mem->vmrppn + (vpn1 << 2); // word
+      pte1_addr = mem->vmrppn + pte1_offs;
       unsigned *pte1_p = (unsigned *)memory_get_page(mem, pte1_addr - MEMORY_BASE_ADDR_RAM);
       pte1 = pte1_p[(pte1_addr & 0x00000fff) >> 2];
       // level 0
-      pte0_addr = ((pte1 >> 10) << 12) + (vpn0 << 2);
+      pte0_addr = ((pte1 >> 10) << 12) + pte0_offs;
       unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
       pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
-      if (!(pte0 & PTE_V)) {
-        csr_exception(mem->csr, ecode);
-      } else {
+      int protect = (pte0 & PTE_V);
+      if (mem->csr->mode == PRIVILEGE_MODE_U)
+        protect = (protect && (pte0 & PTE_V));
+      switch (ecode) {
+      case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+        protect = (protect && (pte0 & PTE_X));
+        break;
+      case TRAP_CODE_LOAD_PAGE_FAULT:
+        protect = (protect && (pte0 & PTE_R));
+        break;
+      case TRAP_CODE_STORE_PAGE_FAULT:
+        protect = (protect && (pte0 & PTE_W));
+        break;
+      default:
+        break;
+      }
+      if (protect) {
+        // TODO: super page support
         paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
         // register to TLB
         mem->tlbs++;
@@ -170,6 +185,8 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigne
           printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
         }
 #endif
+      } else {
+        csr_exception(mem->csr, ecode);
       }
     }
     return paddr;
@@ -189,7 +206,7 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
   } else if (base == MEMORY_BASE_ADDR_PLIC) {
     return MEMORY_PLIC;
   } else {
-    if (base >= MEMORY_BASE_ADDR_RAM) {
+    if ((base >= MEMORY_BASE_ADDR_RAM) && (base < MEMORY_BASE_ADDR_RAM + (128 << 20))) {
       return MEMORY_RAM;
     } else {
       return MEMORY_NONE;
@@ -324,10 +341,16 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
 
 unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
   unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
+  // pmp check
   if (mem->csr->exception) {
     return 0;
   } else {
-    return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
+    if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
+      return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
+    } else {
+      csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
+      return 0;
+    }
   }
 }
 
