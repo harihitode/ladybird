@@ -136,10 +136,8 @@ void uart_irq_ack(uart_t *uart) {
 }
 
 void uart_fini(uart_t *uart) {
-  if (uart->fo) fclose(uart->fo);
   if (uart->buf) free(uart->buf);
   if (uart->fi) {
-    fclose(uart->fi);
     thrd_join(uart->i_thread, NULL);
     mtx_destroy(&uart->mutex);
   }

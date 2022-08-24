@@ -35,11 +35,9 @@ void callback(sim_t *sim) {
     break;
   case TRAP_CODE_STORE_ACCESS_FAULT:
     fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
-    quit = 1;
     break;
   case TRAP_CODE_LOAD_ACCESS_FAULT:
     fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
-    quit = 1;
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
     // fprintf(stderr, "Timer Interrupt [M]\n");
@@ -66,17 +64,26 @@ int main(int argc, char *argv[]) {
     return 0;
   }
   sim_t *sim = (sim_t *)malloc(sizeof(sim_t));
+  FILE *fi = stdin;
+  FILE *fo = stdout;
+  // initialization
   sim_init(sim);
   sim_trap(sim, callback);
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
     goto cleanup;
   }
-  if (argc == 3) {
+  if (argc >= 3) {
     // if you open disk file read only mode, set 1 to the last argument below
     sim_virtio_disk(sim, argv[2], 0);
   }
-  sim_uart_io(sim, stdin, stdout);
+  if (argc >= 4) {
+    fi = fopen(argv[3], "r");
+  }
+  if (argc >= 5) {
+    fo = fopen(argv[4], "w");
+  }
+  sim_uart_io(sim, fi, fo);
   signal(SIGINT, shndl);
   // main loop
   while (quit == 0) {
@@ -86,5 +93,11 @@ int main(int argc, char *argv[]) {
  cleanup:
   sim_fini(sim);
   free(sim);
+  if (fi != stdin && fi) {
+    fclose(fi);
+  }
+  if (fo != stdout && fo) {
+    fclose(fo);
+  }
   return 0;
 }
