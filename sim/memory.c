@@ -144,6 +144,19 @@ static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, uns
   return value;
 }
 
+static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
+  unsigned ret = MEMORY_STORE_SUCCESS;
+  if (!conditional || mem->reserve[memory_get_block_id(mem, addr)]) {
+    char *page = memory_get_page(mem, addr);
+    for (unsigned i = 0; i < size; i++) {
+      page[(addr + i) & 0x00000fff] = (char)(value >> (i * 8));
+    }
+  } else {
+    ret = MEMORY_STORE_FAILURE;
+  }
+  return ret;
+}
+
 static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned ecode) {
   if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
@@ -177,8 +190,7 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigne
           access_fault = 1;
           break;
         }
-        unsigned *pte_block = (unsigned *)memory_get_page(mem, pte_addr - MEMORY_BASE_ADDR_RAM);
-        pte = pte_block[(pte_addr & 0x00000fff) >> 2];
+        pte = memory_ram_load(mem, pte_addr - MEMORY_BASE_ADDR_RAM, 4, 0, 0);
         protect = (pte & PTE_V);
         // check protect
         if (i == 1) {
@@ -336,16 +348,7 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
     }
     break;
   case MEMORY_RAM:
-    {
-      if (!conditional || mem->reserve[memory_get_block_id(mem, paddr - MEMORY_BASE_ADDR_RAM)]) {
-        char *page = memory_get_page(mem, paddr - MEMORY_BASE_ADDR_RAM);
-        for (unsigned i = 0; i < size; i++) {
-          page[(paddr + i) & 0x00000fff] = (char)(value >> (i * 8));
-        }
-      } else {
-        ret = MEMORY_STORE_FAILURE;
-      }
-    }
+    ret = memory_ram_store(mem, paddr - MEMORY_BASE_ADDR_RAM, value, size, conditional);
     break;
   case MEMORY_ACLINT:
     for (unsigned i = 0; i < size; i++) {
