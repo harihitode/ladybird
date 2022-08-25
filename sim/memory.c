@@ -14,6 +14,27 @@
 #define MEMORY_ACLINT 4
 #define MEMORY_PLIC 5
 
+static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
+  unsigned base = (addr & 0xff000000);
+  if (base == MEMORY_BASE_ADDR_UART) {
+    if (addr < MEMORY_BASE_ADDR_DISK) {
+      return MEMORY_UART;
+    } else {
+      return MEMORY_DISK;
+    }
+  } else if (base == MEMORY_BASE_ADDR_ACLINT) {
+    return MEMORY_ACLINT;
+  } else if (base == MEMORY_BASE_ADDR_PLIC) {
+    return MEMORY_PLIC;
+  } else {
+    if ((base >= MEMORY_BASE_ADDR_RAM) && (base < MEMORY_BASE_ADDR_RAM + (128 << 20))) {
+      return MEMORY_RAM;
+    } else {
+      return MEMORY_NONE;
+    }
+  }
+}
+
 // SV32 page table
 #define PTE_V (1 << 0)
 #define PTE_R (1 << 1)
@@ -141,37 +162,55 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigne
     }
     if (tlb_hit == 0) {
       // hardware page walking
-      unsigned pte1_offs = ((addr >> 22) & 0x000003ff) << 2; // word offset
-      unsigned pte0_offs = ((addr >> 12) & 0x000003ff) << 2; // word offset
-      unsigned pte1 = 0, pte0 = 0;
-      unsigned pte1_addr = 0, pte0_addr = 0;
       // level 1
-      pte1_addr = mem->vmrppn + pte1_offs;
-      unsigned *pte1_p = (unsigned *)memory_get_page(mem, pte1_addr - MEMORY_BASE_ADDR_RAM);
-      pte1 = pte1_p[(pte1_addr & 0x00000fff) >> 2];
-      // level 0
-      pte0_addr = ((pte1 >> 10) << 12) + pte0_offs;
-      unsigned *pte0_p = (unsigned *)memory_get_page(mem, pte0_addr - MEMORY_BASE_ADDR_RAM);
-      pte0 = pte0_p[(pte0_addr & 0x00000fff) >> 2];
-      int protect = (pte0 & PTE_V);
-      if (mem->csr->mode == PRIVILEGE_MODE_U)
-        protect = (protect && (pte0 & PTE_V));
-      switch (ecode) {
-      case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
-        protect = (protect && (pte0 & PTE_X));
-        break;
-      case TRAP_CODE_LOAD_PAGE_FAULT:
-        protect = (protect && (pte0 & PTE_R));
-        break;
-      case TRAP_CODE_STORE_PAGE_FAULT:
-        protect = (protect && (pte0 & PTE_W));
-        break;
-      default:
-        break;
+      unsigned pte_base = mem->vmrppn;
+      unsigned pte = 0;
+      int protect = 0;
+      int access_fault = 0;
+      for (int i = 1; i >= 0; i--) {
+        unsigned pte_offs = ((addr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
+        unsigned pte_addr = pte_base + pte_offs;
+        if (memory_get_memory_type(mem, pte_addr) != MEMORY_RAM) {
+#if 0
+          fprintf(stderr, "access fault pte%d: %08x, addr: %08x\n", i, pte1_addr, addr);
+#endif
+          access_fault = 1;
+          break;
+        }
+        unsigned *pte_block = (unsigned *)memory_get_page(mem, pte_addr - MEMORY_BASE_ADDR_RAM);
+        pte = pte_block[(pte_addr & 0x00000fff) >> 2];
+        protect = (pte & PTE_V);
+        // check protect
+        if (i == 1) {
+          // TODO: super page: currently level 1 should not be a leaf page table
+          protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
+        } else {
+          // level 0 should be leaf page table
+          if (mem->csr->mode == PRIVILEGE_MODE_U)
+            protect = (protect && (pte & PTE_U));
+          switch (ecode) {
+          case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+            protect = (protect && (pte & PTE_X));
+            break;
+          case TRAP_CODE_LOAD_PAGE_FAULT:
+            protect = (protect && (pte & PTE_R));
+            break;
+          case TRAP_CODE_STORE_PAGE_FAULT:
+            protect = (protect && (pte & PTE_W));
+            break;
+          default:
+            break;
+          }
+        }
+        if (!protect) {
+          break;
+        }
+        pte_base = ((pte >> 10) << 12);
       }
-      if (protect) {
+
+      if (protect && !access_fault) {
         // TODO: super page support
-        paddr = ((pte0 & 0xfff00000) << 2) | ((pte0 & 0x000ffc00) << 2) | (addr & 0x00000fff);
+        paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
         // register to TLB
         mem->tlbs++;
         mem->tlb_val = (unsigned *)realloc(mem->tlb_val, mem->tlbs * sizeof(unsigned));
@@ -186,31 +225,24 @@ static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigne
         }
 #endif
       } else {
-        csr_exception(mem->csr, ecode);
+        if (access_fault) {
+          switch (ecode) {
+          case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+            csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
+            break;
+          case TRAP_CODE_LOAD_PAGE_FAULT:
+            csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+            break;
+          default:
+            csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+            break;
+          }
+        } else {
+          csr_exception(mem->csr, ecode);
+        }
       }
     }
     return paddr;
-  }
-}
-
-static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
-  unsigned base = (addr & 0xff000000);
-  if (base == MEMORY_BASE_ADDR_UART) {
-    if (addr < MEMORY_BASE_ADDR_DISK) {
-      return MEMORY_UART;
-    } else {
-      return MEMORY_DISK;
-    }
-  } else if (base == MEMORY_BASE_ADDR_ACLINT) {
-    return MEMORY_ACLINT;
-  } else if (base == MEMORY_BASE_ADDR_PLIC) {
-    return MEMORY_PLIC;
-  } else {
-    if ((base >= MEMORY_BASE_ADDR_RAM) && (base < MEMORY_BASE_ADDR_RAM + (128 << 20))) {
-      return MEMORY_RAM;
-    } else {
-      return MEMORY_NONE;
-    }
   }
 }
 
