@@ -15,20 +15,16 @@ struct sim_t;
 struct uart_t;
 struct disk_t;
 struct csr_t;
+struct cache_t;
+struct tlb_t;
 
 typedef struct memory_t {
   unsigned blocks;
   unsigned *base;
   char **block;
-  unsigned dcache_block_base;
-  unsigned dcache_block_id;
-  unsigned dcache_valid;
-  unsigned icache_block_base;
-  unsigned icache_block_id;
-  unsigned icache_valid;
-  unsigned tlbs;
-  unsigned *tlb_key;
-  unsigned *tlb_val;
+  struct cache_t *dcache;
+  struct cache_t *icache;
+  struct tlb_t *tlb;
   char *reserve;
   struct csr_t *csr;
   // MMU
@@ -42,6 +38,37 @@ typedef struct memory_t {
   // PLIC
   struct plic_t *plic;
 } memory_t;
+
+typedef struct cache_line_t {
+  unsigned valid;
+  unsigned dirty;
+  unsigned tag;
+  unsigned id; // ram block id
+} cache_line_t;
+
+typedef struct cache_t {
+  struct memory_t *mem;
+  unsigned line_len; // should be power of 2
+  cache_line_t *line;
+  // performance count
+  unsigned long access_count;
+  unsigned long hit_count;
+} cache_t;
+
+typedef struct tlb_line_t {
+  unsigned valid;
+  unsigned dirty;
+  unsigned tag;
+  unsigned value;
+} tlb_line_t;
+
+typedef struct tlb_t {
+  struct memory_t *mem;
+  unsigned line_len;
+  tlb_line_t *line;
+  unsigned long access_count;
+  unsigned long hit_count;
+} tlb_t;
 
 void memory_init(memory_t *);
 void memory_set_sim(memory_t *, struct sim_t *);
@@ -57,5 +84,15 @@ unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
+
+void cache_init(cache_t *, memory_t *, unsigned size);
+unsigned cache_get(cache_t *, unsigned addr);
+void cache_clear(cache_t *);
+void cache_fini(cache_t *);
+
+void tlb_init(tlb_t *, memory_t *, unsigned size);
+unsigned tlb_get(tlb_t *, unsigned addr, unsigned access_type);
+void tlb_clear(tlb_t *);
+void tlb_fini(tlb_t *);
 
 #endif

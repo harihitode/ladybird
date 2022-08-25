@@ -14,6 +14,10 @@
 #define MEMORY_ACLINT 4
 #define MEMORY_PLIC 5
 
+#define ACCESS_TYPE_INSTRUCTION 0
+#define ACCESS_TYPE_LOAD 1
+#define ACCESS_TYPE_STORE 2
+
 static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
   unsigned base = (addr & 0xff000000);
   if (base == MEMORY_BASE_ADDR_UART) {
@@ -46,12 +50,6 @@ void memory_init(memory_t *mem) {
   mem->blocks = 0;
   mem->base = NULL;
   mem->block = NULL;
-  mem->dcache_block_base = 0;
-  mem->dcache_block_id = 0;
-  mem->dcache_valid = 0;
-  mem->icache_block_base = 0;
-  mem->icache_block_id = 0;
-  mem->icache_valid = 0;
   mem->reserve = NULL;
   mem->csr = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
@@ -65,9 +63,12 @@ void memory_init(memory_t *mem) {
   mem->plic->disk = mem->disk;
   mem->vmflag = 0;
   mem->vmrppn = 0;
-  mem->tlbs = 0;
-  mem->tlb_key = NULL;
-  mem->tlb_val = NULL;
+  mem->icache = (cache_t *)malloc(sizeof(cache_t));
+  mem->dcache = (cache_t *)malloc(sizeof(cache_t));
+  mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
+  cache_init(mem->icache, mem, 512);
+  cache_init(mem->dcache, mem, 512);
+  tlb_init(mem->tlb, mem, 512);
 }
 
 void memory_set_sim(memory_t *mem, struct sim_t *sim) {
@@ -108,33 +109,10 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   return page;
 }
 
-static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, unsigned icache) {
-  char *page = NULL;
+static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, cache_t *cache) {
   unsigned value = 0;
-  unsigned block_id = 0;
-  if (icache) {
-    if (mem->icache_valid && ((addr & 0xfffff000) == mem->icache_block_base)) {
-      page = mem->block[mem->icache_block_id];
-      block_id = mem->icache_block_id;
-    } else {
-      mem->icache_block_id = memory_get_block_id(mem, addr);
-      mem->icache_block_base = addr & 0xfffff000;
-      mem->icache_valid = 1;
-      page = memory_get_page(mem, addr);
-      block_id = mem->icache_block_id;
-    }
-  } else {
-    if (mem->dcache_valid && ((addr & 0xfffff000) == mem->dcache_block_base)) {
-      page = mem->block[mem->dcache_block_id];
-      block_id = mem->dcache_block_id;
-    } else {
-      mem->dcache_block_id = memory_get_block_id(mem, addr);
-      mem->dcache_block_base = addr & 0xfffff000;
-      mem->dcache_valid = 1;
-      page = memory_get_page(mem, addr);
-      block_id = mem->dcache_block_id;
-    }
-  }
+  unsigned block_id = cache_get(cache, addr);
+  char *page = mem->block[block_id];
   for (unsigned i = 0; i < size; i++) {
     value |= ((0x000000ff & page[((addr + i) & 0x00000fff)]) << (8 * i));
   }
@@ -144,117 +122,28 @@ static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, uns
   return value;
 }
 
-static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
+static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional, cache_t *cache) {
   unsigned ret = MEMORY_STORE_SUCCESS;
-  if (!conditional || mem->reserve[memory_get_block_id(mem, addr)]) {
-    char *page = memory_get_page(mem, addr);
+  unsigned block_id = cache_get(cache, addr);
+  if (!conditional || mem->reserve[block_id]) {
+    char *page = mem->block[block_id];
     for (unsigned i = 0; i < size; i++) {
       page[(addr + i) & 0x00000fff] = (char)(value >> (i * 8));
     }
   } else {
     ret = MEMORY_STORE_FAILURE;
   }
+  mem->reserve[block_id] = 0;
   return ret;
 }
 
-static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned ecode) {
+static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type) {
   if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
     // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
     return addr;
   } else {
-    // search TLB first
-    unsigned paddr = 0;
-    unsigned tlb_hit = 0;
-    for (unsigned i = 0; i < mem->tlbs; i++) {
-      if (mem->tlb_key[i] == (addr & 0xfffff000)) {
-        paddr = mem->tlb_val[i] | (addr & 0x00000fff);
-        tlb_hit = 1;
-        break;
-      }
-    }
-    if (tlb_hit == 0) {
-      // hardware page walking
-      // level 1
-      unsigned pte_base = mem->vmrppn;
-      unsigned pte = 0;
-      int protect = 0;
-      int access_fault = 0;
-      for (int i = 1; i >= 0; i--) {
-        unsigned pte_offs = ((addr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
-        unsigned pte_addr = pte_base + pte_offs;
-        if (memory_get_memory_type(mem, pte_addr) != MEMORY_RAM) {
-#if 0
-          fprintf(stderr, "access fault pte%d: %08x, addr: %08x\n", i, pte1_addr, addr);
-#endif
-          access_fault = 1;
-          break;
-        }
-        pte = memory_ram_load(mem, pte_addr - MEMORY_BASE_ADDR_RAM, 4, 0, 0);
-        protect = (pte & PTE_V);
-        // check protect
-        if (i == 1) {
-          // TODO: super page: currently level 1 should not be a leaf page table
-          protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
-        } else {
-          // level 0 should be leaf page table
-          if (mem->csr->mode == PRIVILEGE_MODE_U)
-            protect = (protect && (pte & PTE_U));
-          switch (ecode) {
-          case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
-            protect = (protect && (pte & PTE_X));
-            break;
-          case TRAP_CODE_LOAD_PAGE_FAULT:
-            protect = (protect && (pte & PTE_R));
-            break;
-          case TRAP_CODE_STORE_PAGE_FAULT:
-            protect = (protect && (pte & PTE_W));
-            break;
-          default:
-            break;
-          }
-        }
-        if (!protect) {
-          break;
-        }
-        pte_base = ((pte >> 10) << 12);
-      }
-
-      if (protect && !access_fault) {
-        // TODO: super page support
-        paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
-        // register to TLB
-        mem->tlbs++;
-        mem->tlb_val = (unsigned *)realloc(mem->tlb_val, mem->tlbs * sizeof(unsigned));
-        mem->tlb_key = (unsigned *)realloc(mem->tlb_key, mem->tlbs * sizeof(unsigned));
-        mem->tlb_key[mem->tlbs - 1] = addr & 0xfffff000;
-        mem->tlb_val[mem->tlbs - 1] = paddr & 0xfffff000;
-#if 0
-        if (addr >= 0x10000000 && addr < 0x10000400) {
-          printf("VADDR: %08x -> PADDR: %08x\n", addr, paddr);
-          printf("pte1: %08x, pte1_addr: %08x, vpn1: %08x\n", pte1, pte1_addr, vpn1);
-          printf("pte0: %08x, pte0_addr: %08x, vpn0: %08x\n", pte0, pte0_addr, vpn0);
-        }
-#endif
-      } else {
-        if (access_fault) {
-          switch (ecode) {
-          case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
-            csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
-            break;
-          case TRAP_CODE_LOAD_PAGE_FAULT:
-            csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
-            break;
-          default:
-            csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
-            break;
-          }
-        } else {
-          csr_exception(mem->csr, ecode);
-        }
-      }
-    }
-    return paddr;
+    return tlb_get(mem->tlb, addr, access_type);
   }
 }
 
@@ -293,7 +182,7 @@ static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
 }
 
 unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved) {
-  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_LOAD_PAGE_FAULT);
+  unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_LOAD);
   if (mem->csr->exception) {
     return 0;
   }
@@ -310,7 +199,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     }
     break;
   case MEMORY_RAM:
-    value = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, size, reserved, 0);
+    value = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, size, reserved, mem->dcache);
     break;
   case MEMORY_ACLINT:
     for (unsigned i = 0; i < size; i++) {
@@ -332,7 +221,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
 
 unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
   unsigned ret = MEMORY_STORE_SUCCESS;
-  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_STORE_PAGE_FAULT);
+  unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_STORE);
   if (mem->csr->exception) {
     return MEMORY_STORE_FAILURE;
   }
@@ -348,7 +237,7 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
     }
     break;
   case MEMORY_RAM:
-    ret = memory_ram_store(mem, paddr - MEMORY_BASE_ADDR_RAM, value, size, conditional);
+    ret = memory_ram_store(mem, paddr - MEMORY_BASE_ADDR_RAM, value, size, conditional, mem->dcache);
     break;
   case MEMORY_ACLINT:
     for (unsigned i = 0; i < size; i++) {
@@ -375,13 +264,13 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
 }
 
 unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
-  unsigned paddr = memory_address_translation(mem, addr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
+  unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
   // pmp check
   if (mem->csr->exception) {
     return 0;
   } else {
     if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
-      return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, 1);
+      return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, mem->icache);
     } else {
       csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
       return 0;
@@ -406,11 +295,7 @@ void memory_atp_off(memory_t *mem) {
 }
 
 void memory_tlb_clear(memory_t *mem) {
-  mem->tlbs = 0;
-  free(mem->tlb_key);
-  free(mem->tlb_val);
-  mem->tlb_key = NULL;
-  mem->tlb_val = NULL;
+  tlb_clear(mem->tlb);
 }
 
 void memory_fini(memory_t *mem) {
@@ -426,7 +311,152 @@ void memory_fini(memory_t *mem) {
   free(mem->disk);
   plic_fini(mem->plic);
   free(mem->plic);
-  free(mem->tlb_key);
-  free(mem->tlb_val);
+  cache_fini(mem->dcache);
+  free(mem->dcache);
+  cache_fini(mem->icache);
+  free(mem->icache);
+  tlb_fini(mem->tlb);
+  free(mem->tlb);
   return;
+}
+
+void cache_init(cache_t *cache, memory_t *mem, unsigned size) {
+  cache->mem = mem;
+  cache->access_count = 0;
+  cache->hit_count = 0;
+  cache->line_len = size;
+  cache->line = (cache_line_t *)calloc(size, sizeof(cache_line_t));
+}
+
+unsigned cache_get(cache_t *cache, unsigned addr) {
+  unsigned index = (addr >> 12) & 0x000000ff; // 512
+  unsigned tag = addr & 0xfff00000;
+  if (cache->line[index].valid && (cache->line[index].tag == tag)) {
+    return cache->line[index].id;
+  } else {
+    cache->line[index].valid = 1;
+    cache->line[index].id = memory_get_block_id(cache->mem, addr);
+    cache->line[index].tag = tag;
+    return cache->line[index].id;
+  }
+}
+
+void cache_clear(cache_t *cache) {
+  for (unsigned i = 0; i < cache->line_len; i++) {
+    cache->line[i].valid = 0;
+  }
+}
+
+void cache_fini(cache_t *cache) {
+  free(cache->line);
+  return;
+}
+
+void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
+  tlb->mem = mem;
+  tlb->line_len = size;
+  tlb->line = (tlb_line_t *)calloc(size, sizeof(tlb_line_t));
+  tlb->access_count = 0;
+  tlb->hit_count = 0;
+}
+
+void tlb_clear(tlb_t *tlb) {
+  for (unsigned i = 0; i < tlb->line_len; i++) {
+    tlb->line[i].valid = 0;
+  }
+}
+
+void tlb_fini(tlb_t *tlb) {
+  free(tlb->line);
+}
+
+unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
+  unsigned paddr = 0;
+  // search TLB first
+  unsigned index = (addr >> 12) & 0x000000ff; // 512
+  unsigned tag = addr & 0xfff00000;
+  if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {
+    paddr = tlb->line[index].value | (addr & 0x00000fff);
+  } else {
+    // hardware page walking
+    // level 1
+    unsigned pte_base = tlb->mem->vmrppn;
+    unsigned pte = 0;
+    int protect = 0;
+    int access_fault = 0;
+    for (int i = 1; i >= 0; i--) {
+      unsigned pte_offs = ((addr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
+      unsigned pte_addr = pte_base + pte_offs;
+      if (memory_get_memory_type(tlb->mem, pte_addr) != MEMORY_RAM) {
+#if 0
+        fprintf(stderr, "access fault pte%d: %08x, addr: %08x\n", i, pte1_addr, addr);
+#endif
+        access_fault = 1;
+        break;
+      }
+      pte = memory_ram_load(tlb->mem, pte_addr - MEMORY_BASE_ADDR_RAM, 4, 0, tlb->mem->dcache);
+      protect = (pte & PTE_V);
+      // check protect
+      if (i == 1) {
+        // TODO: super page: currently level 1 should not be a leaf page table
+        protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
+      } else {
+        // level 0 should be leaf page table
+        if (tlb->mem->csr->mode == PRIVILEGE_MODE_U)
+          protect = (protect && (pte & PTE_U));
+        switch (access_type) {
+        case ACCESS_TYPE_INSTRUCTION:
+          protect = (protect && (pte & PTE_X));
+          break;
+        case ACCESS_TYPE_LOAD:
+          protect = (protect && (pte & PTE_R));
+          break;
+        case ACCESS_TYPE_STORE:
+          protect = (protect && (pte & PTE_W));
+          break;
+        default:
+          break;
+        }
+      }
+      if (!protect) {
+        break;
+      }
+      pte_base = ((pte >> 10) << 12);
+    }
+
+    if (protect && !access_fault) {
+      // register to TLB
+      tlb->line[index].valid = 1;
+      tlb->line[index].tag = tag;
+      tlb->line[index].value = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2);
+      paddr = tlb->line[index].value | (addr & 0x00000fff);
+    } else {
+      if (access_fault) {
+        switch (access_type) {
+        case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+          csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
+          break;
+        case TRAP_CODE_LOAD_PAGE_FAULT:
+          csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+          break;
+        default:
+          csr_exception(tlb->mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+          break;
+        }
+      } else {
+        switch (access_type) {
+        case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+          csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
+          break;
+        case TRAP_CODE_LOAD_PAGE_FAULT:
+          csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_PAGE_FAULT);
+          break;
+        default:
+          csr_exception(tlb->mem->csr, TRAP_CODE_STORE_PAGE_FAULT);
+          break;
+        }
+      }
+    }
+  }
+  return paddr;
 }
