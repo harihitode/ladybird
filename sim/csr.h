@@ -22,6 +22,7 @@ typedef struct csr_t {
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
   unsigned hartid;
+  unsigned interrupt;
   unsigned exception;
   unsigned exception_code;
   unsigned interrupts_enable;
