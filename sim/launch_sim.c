@@ -29,20 +29,20 @@ void callback(sim_t *sim) {
     quit = 1;
     break;
   case TRAP_CODE_ILLEGAL_INSTRUCTION:
-    {
-      unsigned addr = sim_get_epc(sim);
-      fprintf(stderr, "ILLEGAL INSTRUCTION addr %08x\n", addr);
-    }
+    fprintf(stderr, "ILLEGAL INSTRUCTION addr %08x\n", sim_get_epc(sim));
     quit = 1;
     break;
   case TRAP_CODE_INSTRUCTION_ACCESS_FAULT:
     fprintf(stderr, "Instruction Access Fault: %08x\n", sim_get_trap_value(sim));
+    quit = 1;
     break;
   case TRAP_CODE_LOAD_ACCESS_FAULT:
     fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
+    quit = 1;
     break;
   case TRAP_CODE_STORE_ACCESS_FAULT:
     fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
+    quit = 1;
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
     // fprintf(stderr, "Timer Interrupt [M]\n");
