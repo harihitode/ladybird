@@ -137,7 +137,7 @@ static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, u
   return ret;
 }
 
-static unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type) {
+unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type) {
   if (mem->vmflag == 0 || mem->csr->mode == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
     // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.

@@ -84,6 +84,7 @@ unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
+unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type);
 
 void cache_init(cache_t *, memory_t *, unsigned size);
 unsigned cache_get(cache_t *, unsigned addr);
