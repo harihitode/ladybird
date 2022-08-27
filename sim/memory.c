@@ -212,7 +212,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     }
     break;
   default:
-    csr_set_tval(mem->csr, addr);
+    csr_set_tval(mem->csr, paddr);
     csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
     break;
   }
@@ -250,7 +250,7 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
     }
     break;
   default:
-    csr_set_tval(mem->csr, addr);
+    csr_set_tval(mem->csr, paddr);
     csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
     break;
   }
@@ -272,6 +272,7 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
     if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
       return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, mem->icache);
     } else {
+      csr_set_tval(mem->csr, paddr);
       csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
       return 0;
     }
@@ -436,6 +437,7 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
       paddr = tlb->line[index].value | (addr & 0x00000fff);
     } else {
       if (access_fault) {
+        csr_set_tval(tlb->mem->csr, addr);
         switch (access_type) {
         case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
           csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
