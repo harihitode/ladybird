@@ -526,6 +526,7 @@ void sim_debug_dump_status(sim_t *sim) {
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
     break;
   }
+  fprintf(stderr, "PC: %08x, (RAM: %08x, %08x)\n", sim->pc, memory_address_translation(sim->mem, sim->pc, 0), memory_load_instruction(sim->mem, sim->pc));
   fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
   fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
   fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));
