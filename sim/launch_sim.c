@@ -5,7 +5,6 @@
 #include "sim.h"
 
 sig_atomic_t quit = 0;
-int trap = 1;
 
 void shndl(int signum) {
   if (signum == SIGINT) {
@@ -100,6 +99,7 @@ int main(int argc, char *argv[]) {
     sim_step(sim);
   }
  cleanup:
+  sim_debug_dump_status(sim);
   sim_fini(sim);
   free(sim);
   if (fi != stdin && fi) {
