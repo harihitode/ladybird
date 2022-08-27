@@ -331,7 +331,9 @@ void cache_init(cache_t *cache, memory_t *mem, unsigned size) {
 unsigned cache_get(cache_t *cache, unsigned addr) {
   unsigned index = (addr >> 12) & 0x000000ff; // 512
   unsigned tag = addr & 0xfff00000;
+  cache->access_count++;
   if (cache->line[index].valid && (cache->line[index].tag == tag)) {
+    cache->hit_count++;
     return cache->line[index].id;
   } else {
     cache->line[index].valid = 1;
@@ -375,7 +377,9 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
   // search TLB first
   unsigned index = (addr >> 12) & 0x000000ff; // 512
   unsigned tag = addr & 0xfff00000;
+  tlb->access_count++;
   if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {
+    tlb->hit_count++;
     paddr = tlb->line[index].value | (addr & 0x00000fff);
   } else {
     // hardware page walking
