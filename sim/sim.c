@@ -104,38 +104,26 @@ static unsigned get_load_offset(unsigned inst) {
 static unsigned get_csr_addr(unsigned inst) {
   return ((inst >> 20) & 0x00000fff);
 }
+static unsigned get_immediate(unsigned inst) {
+  return ((int)inst >> 20);
+}
 
 void sim_step(sim_t *sim) {
   // fetch
   unsigned inst = memory_load_instruction(sim->mem, sim->pc);
   unsigned result = 0;
   unsigned opcode;
-  unsigned rs1, rs2;
-  unsigned src1, src2;
   if (sim->csr->exception) {
     goto csr_update;
   }
   opcode = get_opcode(inst);
-  rs1 = get_rs1(inst);
-  rs2 = get_rs2(inst);
-  // read
-  src1 = sim_read_register(sim, rs1);
-  src2 = sim_read_register(sim, rs2);
   // exec
   switch (opcode) {
   case OPCODE_OP_IMM:
-    switch (get_funct3(inst)) {
-    case 0x2:
-    case 0x5: // for shift
-      src2 = ((int)inst >> 20) & 0x0000001f;
-      break;
-    default:
-      src2 = ((int)inst >> 20);
-      break;
-    }
-    // fall-through
   case OPCODE_OP:
     if (opcode == OPCODE_OP && get_funct7(inst) == 0x00000001) {
+      unsigned src1 = sim_read_register(sim, get_rs1(inst));
+      unsigned src2 = sim_read_register(sim, get_rs2(inst));
       // MUL/DIV
       switch (get_funct3(inst)) {
       case 0x0:
@@ -164,9 +152,11 @@ void sim_step(sim_t *sim) {
         break;
       }
     } else {
+      unsigned src1 = sim_read_register(sim, get_rs1(inst));
+      unsigned src2 = (opcode == OPCODE_OP) ? sim_read_register(sim, get_rs2(inst)) : get_immediate(inst);
       switch (get_funct3(inst)) {
       case 0x0: // ADD, SUB, ADDI
-        if ((get_opcode(inst) == OPCODE_OP) && (inst & 0x40000000)) {
+        if ((opcode == OPCODE_OP) && (inst & 0x40000000)) {
           result = src1 - src2; // SUB
         } else {
           result = src1 + src2; // ADD, ADDI
@@ -211,45 +201,52 @@ void sim_step(sim_t *sim) {
     // for link address
     result = sim->pc + 4;
     break;
-  case OPCODE_STORE:
+  case OPCODE_STORE: {
+    unsigned addr = sim_read_register(sim, get_rs1(inst)) + get_store_offset(inst);
+    unsigned data = sim_read_register(sim, get_rs2(inst));
     switch (get_funct3(inst)) {
     case 0x0:
-      memory_store(sim->mem, src1 + get_store_offset(inst), src2, 1, 0);
+      memory_store(sim->mem, addr, data, 1, 0);
       break;
     case 0x1:
-      memory_store(sim->mem, src1 + get_store_offset(inst), src2, 2, 0);
+      memory_store(sim->mem, addr, data, 2, 0);
       break;
     case 0x2:
-      memory_store(sim->mem, src1 + get_store_offset(inst), src2, 4, 0);
+      memory_store(sim->mem, addr, data, 4, 0);
       break;
     default:
       csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     }
     break;
-  case OPCODE_LOAD:
+  }
+  case OPCODE_LOAD: {
+    unsigned addr = sim_read_register(sim, get_rs1(inst)) + get_load_offset(inst);
     switch (get_funct3(inst)) {
     case 0x0: // singed ext byte
-      result = (int)((char)memory_load(sim->mem, src1 + get_load_offset(inst), 1, 0));
+      result = (int)((char)memory_load(sim->mem, addr, 1, 0));
       break;
     case 0x1: // signed ext half
-      result = (int)((short)memory_load(sim->mem, src1 + get_load_offset(inst), 2, 0));
+      result = (int)((short)memory_load(sim->mem, addr, 2, 0));
       break;
     case 0x2:
-      result = memory_load(sim->mem, src1 + get_load_offset(inst), 4, 0);
+      result = memory_load(sim->mem, addr, 4, 0);
       break;
     case 0x4:
-      result = (unsigned char)memory_load(sim->mem, src1 + get_load_offset(inst), 1, 0);
+      result = (unsigned char)memory_load(sim->mem, addr, 1, 0);
       break;
     case 0x5:
-      result = (unsigned short)memory_load(sim->mem, src1 + get_load_offset(inst), 2, 0);
+      result = (unsigned short)memory_load(sim->mem, addr, 2, 0);
       break;
     default:
       csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     }
     break;
-  case OPCODE_AMO:
+  }
+  case OPCODE_AMO: {
+    unsigned src1 = sim_read_register(sim, get_rs1(inst));
+    unsigned src2 = sim_read_register(sim, get_rs2(inst));
     switch (get_funct5(inst)) {
     case 0x002: // Load Reserved
       result = memory_load_reserved(sim->mem, src1);
@@ -258,50 +255,53 @@ void sim_step(sim_t *sim) {
       result = memory_store_conditional(sim->mem, src1, src2);
       break;
     case 0x000: // AMOADD
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, result + src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, result + src2, 4, 0);
       break;
     case 0x001: // AMOSWAP
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, src2, 4, 0);
       break;
     case 0x004: // AMOXOR
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, result ^ src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, result ^ src2, 4, 0);
       break;
     case 0x008: // AMOOR
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, result | src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, result | src2, 4, 0);
       break;
     case 0x00c: // AMOAND
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, result & src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, result & src2, 4, 0);
       break;
     case 0x010: // AMOMIN
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, ((int)result < (int)src2) ? result : src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, ((int)result < (int)src2) ? result : src2, 4, 0);
       break;
     case 0x014: // AMOMAX
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, ((int)result < (int)src2) ? src2 : result);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, ((int)result < (int)src2) ? src2 : result, 4, 0);
       break;
     case 0x018: // AMOMINU
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, (result < src2) ? result : src2);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, (result < src2) ? result : src2, 4, 0);
       break;
     case 0x01c: // AMOMAXU
-      result = sim_read_memory(sim, src1);
-      sim_write_memory(sim, src1, (result < src2) ? src2 : result);
+      result = memory_load(sim->mem, src1, 4, 0);
+      memory_store(sim->mem, src1, (result < src2) ? src2 : result, 4, 0);
       break;
     default:
       csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     }
     break;
+  }
   case OPCODE_MISC_MEM:
     // TODO: currently no implementataion
     break;
-  case OPCODE_SYSTEM:
+  case OPCODE_SYSTEM: {
+    // read
+    unsigned src1 = sim_read_register(sim, get_rs1(inst));
     // CSR OPERATIONS
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
@@ -317,18 +317,18 @@ void sim_step(sim_t *sim) {
       csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     case 0x5: // READ_WRITE (imm)
-      result = csr_csrrw(sim->csr, get_csr_addr(inst), rs1);
+      result = csr_csrrw(sim->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     case 0x6: // READ_SET (imm)
-      result = csr_csrrs(sim->csr, get_csr_addr(inst), rs1);
+      result = csr_csrrs(sim->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     case 0x7: // READ_CLEAR (imm)
-      result = csr_csrrc(sim->csr, get_csr_addr(inst), rs1);
+      result = csr_csrrc(sim->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct7(inst)) {
       case 0x00:
-        if (rs2 == 0) {
+        if (get_rs2(inst) == 0) {
           if (sim->csr->mode == PRIVILEGE_MODE_M) {
             csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
           } else if (sim->csr->mode == PRIVILEGE_MODE_S) {
@@ -336,14 +336,14 @@ void sim_step(sim_t *sim) {
           } else {
             csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_U);
           }
-        } else if (rs2 == 1) {
+        } else if (get_rs2(inst) == 1) {
           csr_exception(sim->csr, TRAP_CODE_BREAKPOINT);
         } else {
           csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
         break;
       case 0x18:
-        if (rs2 == 2) {
+        if (get_rs2(inst) == 2) {
           // MRET
           csr_trapret(sim->csr);
         } else {
@@ -351,7 +351,7 @@ void sim_step(sim_t *sim) {
         }
         break;
       case 0x08:
-        if (rs2 == 2) {
+        if (get_rs2(inst) == 2) {
           // SRET
           csr_trapret(sim->csr);
         } else {
@@ -368,7 +368,11 @@ void sim_step(sim_t *sim) {
       }
     }
     break;
-  case OPCODE_BRANCH:
+  }
+  case OPCODE_BRANCH: {
+    // read
+    unsigned src1 = sim_read_register(sim, get_rs1(inst));
+    unsigned src2 = sim_read_register(sim, get_rs2(inst));
     switch (get_funct3(inst)) {
     case 0x0:
       result = (src1 == src2) ? 1 : 0;
@@ -393,6 +397,7 @@ void sim_step(sim_t *sim) {
       break;
     }
     break;
+  }
   default:
     // invalid opcode
     csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
@@ -412,10 +417,10 @@ void sim_step(sim_t *sim) {
   case OPCODE_AMO:
     // when rd = 0, SYSTEM is a csr instruction.
   case OPCODE_SYSTEM:
+    sim->pc += 4;
     if ((rd = get_rd(inst)) != 0) {
       sim_write_register(sim, rd, result);
     }
-    sim->pc += 4;
     break;
   case OPCODE_BRANCH:
     if (result) {
@@ -425,16 +430,16 @@ void sim_step(sim_t *sim) {
     }
     break;
   case OPCODE_JAL:
+    sim->pc = sim->pc + get_jal_offset(inst);
     if ((rd = get_rd(inst)) != 0) {
       sim_write_register(sim, rd, result);
     }
-    sim->pc = sim->pc + get_jal_offset(inst);
     break;
   case OPCODE_JALR:
+    sim->pc = sim_read_register(sim, get_rs1(inst)) + get_jalr_offset(inst);
     if ((rd = get_rd(inst)) != 0) {
       sim_write_register(sim, rd, result);
     }
-    sim->pc = src1 + get_jalr_offset(inst);
     break;
   default:
     sim->pc += 4;
