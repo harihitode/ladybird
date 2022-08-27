@@ -36,6 +36,7 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
+  csr->trapret = 0;
   csr->interrupt = 0;
   csr->exception = 0;
   csr->exception_code = 0;
@@ -310,28 +311,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
 }
 
 void csr_trapret(csr_t *csr) {
-  unsigned from_mode = csr->mode;
-  if (from_mode == PRIVILEGE_MODE_M) {
-    // pc
-    csr->sim->pc = csr->mepc;
-    csr->mepc = 0;
-    // enable
-    csr->status_mie = csr->status_mpie;
-    csr->status_mpie = 1;
-    // mode
-    csr->mode = csr->status_mpp;
-    csr->status_mpp = 0;
-  } else {
-    // pc
-    csr->sim->pc = csr->sepc;
-    csr->sepc = 0;
-    // enable
-    csr->status_sie = csr->status_spie;
-    csr->status_spie = 1;
-    // mode
-    csr->mode = csr->status_spp;
-    csr->status_spp = 0;
-  }
+  csr->trapret = 1;
   return;
 }
 
@@ -379,8 +359,32 @@ void csr_cycle(csr_t *csr, int n_instret) {
     csr->interrupt = 1;
   }
 
+  if (csr->trapret) {
+    csr->trapret = 0;
+    unsigned from_mode = csr->mode;
+    if (from_mode == PRIVILEGE_MODE_M) {
+      // pc
+      csr->sim->pc = csr->mepc;
+      csr->mepc = 0;
+      // enable
+      csr->status_mie = csr->status_mpie;
+      csr->status_mpie = 1;
+      // mode
+      csr->mode = csr->status_mpp;
+      csr->status_mpp = 0;
+    } else {
+      // pc
+      csr->sim->pc = csr->sepc;
+      csr->sepc = 0;
+      // enable
+      csr->status_sie = csr->status_spie;
+      csr->status_spie = 1;
+      // mode
+      csr->mode = csr->status_spp;
+      csr->status_spp = 0;
+    }
   // catch exception
-  if (csr->exception) {
+  } else if (csr->exception) {
     csr->exception = 0;
     csr_trap(csr, csr->exception_code);
   } else if (csr->interrupt) {
