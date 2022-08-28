@@ -95,9 +95,7 @@ static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
     mem->block = (char **)realloc(mem->block, mem->blocks * sizeof(char *));
     mem->reserve = (char *)realloc(mem->reserve, mem->blocks * sizeof(char));
     mem->base[last_block] = (addr & 0xfffff000);
-    // the xv6 requires loader to clear BSS, therefore using calloc rather than malloc
-    mem->block[last_block] = (char *)calloc(0x00001000, sizeof(char));
-    // mem->block[last_block] = (char *)malloc(0x00001000 * sizeof(char));
+    mem->block[last_block] = (char *)malloc(0x00001000 * sizeof(char));
     mem->reserve[last_block] = 0;
     block_id = last_block;
   }

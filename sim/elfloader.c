@@ -30,15 +30,18 @@ void elf_init(elf_t *elf, const char *elf_path) {
 
   // set programs
   elf->programs = 0;
-  elf->program_size = NULL;
+  elf->program_file_size = NULL;
+  elf->program_mem_size = NULL;
   elf->program = NULL;
   elf->program_base = NULL;
   for (int i = 0; i < elf_header->e_phnum; i++) {
     Elf32_Phdr *ph = (Elf32_Phdr *)(&elf->head[elf_header->e_phoff + elf_header->e_phentsize * i]);
     switch (ph->p_type) {
     case PT_LOAD:
-      elf->program_size = (unsigned *)realloc(elf->program_size, (elf->programs + 1) * sizeof(unsigned));
-      elf->program_size[elf->programs] = ph->p_filesz;
+      elf->program_file_size = (unsigned *)realloc(elf->program_file_size, (elf->programs + 1) * sizeof(unsigned));
+      elf->program_mem_size = (unsigned *)realloc(elf->program_mem_size, (elf->programs + 1) * sizeof(unsigned));
+      elf->program_file_size[elf->programs] = ph->p_filesz;
+      elf->program_mem_size[elf->programs] = ph->p_memsz;
       elf->program_base = (unsigned *)realloc(elf->program_base, (elf->programs + 1) * sizeof(unsigned));
       elf->program_base[elf->programs] = ph->p_paddr;
       elf->program = (char **)realloc(elf->program, (elf->programs + 1) * sizeof(char *));
@@ -60,7 +63,8 @@ void elf_init(elf_t *elf, const char *elf_path) {
 void elf_fini(elf_t *elf) {
   munmap(elf->head, elf->file_stat.st_size);
   free(elf->program);
-  free(elf->program_size);
+  free(elf->program_file_size);
+  free(elf->program_mem_size);
   free(elf->program_base);
   return;
 }

@@ -34,8 +34,13 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
   }
   // program load to memory
   for (unsigned i = 0; i < sim->elf->programs; i++) {
-    for (unsigned j = 0; j < sim->elf->program_size[i]; j++) {
-      memory_store(sim->mem, sim->elf->program_base[i] + j, sim->elf->program[i][j], 1, 0);
+    for (unsigned j = 0; j < sim->elf->program_mem_size[i]; j++) {
+      if (j < sim->elf->program_file_size[i]) {
+        memory_store(sim->mem, sim->elf->program_base[i] + j, sim->elf->program[i][j], 1, 0);
+      } else {
+        // zero clear for BSS
+        memory_store(sim->mem, sim->elf->program_base[i] + j, 0x00, 1, 0);
+      }
     }
   }
   // set entry program counter

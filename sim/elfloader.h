@@ -12,7 +12,8 @@ typedef struct elf_t {
   char *head;
   struct stat file_stat;
   unsigned programs;
-  unsigned *program_size;
+  unsigned *program_file_size;
+  unsigned *program_mem_size;
   unsigned *program_base;
   char **program;
 } elf_t;
