@@ -161,7 +161,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_S_STATUS:
     csr->status_sie = (value >> 1) & 0x00000001;
     csr->status_spie = (value >> 5) & 0x00000001;
-    csr->status_spp = (value >> 8) & 0x00000003;
+    csr->status_spp = (value >> 8) & 0x00000001;
     break;
   case CSR_ADDR_M_HARTID:
   case CSR_ADDR_U_TIME:
@@ -393,8 +393,9 @@ void csr_cycle(csr_t *csr, int n_instret) {
     if (csr->mode == PRIVILEGE_MODE_M) {
       interrupts_enable = (csr->status_mie) ? csr_csrr(csr, CSR_ADDR_M_IE) : 0;
     } else if (csr->mode == PRIVILEGE_MODE_S) {
-      interrupts_enable = (csr->status_sie) ? csr_csrr(csr, CSR_ADDR_S_IE) : 0;
+      interrupts_enable = (csr->status_sie) ? csr_csrr(csr, CSR_ADDR_M_IE) : 0;
     } else {
+      // all interrupts are enabled
       interrupts_enable = 0x0000FFFF;
     }
 
