@@ -373,20 +373,62 @@ void tlb_fini(tlb_t *tlb) {
   free(tlb->line);
 }
 
+static int tlb_check_privilege(tlb_t *tlb, unsigned pte, unsigned level, unsigned access_type) {
+  int protect = (pte & PTE_V);
+  // check protect
+  if (level > 0) {
+    // TODO: super page: currently level 1 should not be a leaf page table
+    protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
+  } else {
+    // level 0 should be leaf page table
+    if (tlb->mem->csr->mode == PRIVILEGE_MODE_U)
+      protect = (protect && (pte & PTE_U));
+    switch (access_type) {
+    case ACCESS_TYPE_INSTRUCTION:
+      protect = (protect && (pte & PTE_X));
+      break;
+    case ACCESS_TYPE_LOAD:
+      protect = (protect && (pte & PTE_R));
+      break;
+    case ACCESS_TYPE_STORE:
+      protect = (protect && (pte & PTE_W));
+      break;
+    default:
+      break;
+    }
+  }
+  return protect;
+}
+
 unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
   unsigned paddr = 0;
   // search TLB first
   unsigned index = (addr >> 12) & 0x000000ff; // 512
   unsigned tag = addr & 0xfff00000;
+  unsigned pte = 0;
   tlb->access_count++;
   if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {
     tlb->hit_count++;
-    paddr = tlb->line[index].value | (addr & 0x00000fff);
+    pte = tlb->line[index].value;
+    if (tlb_check_privilege(tlb, pte, 0, access_type)) {
+      paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
+    } else {
+      switch (access_type) {
+      case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+        csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
+        break;
+      case TRAP_CODE_LOAD_PAGE_FAULT:
+        csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_PAGE_FAULT);
+        break;
+      default:
+        csr_exception(tlb->mem->csr, TRAP_CODE_STORE_PAGE_FAULT);
+        break;
+      }
+    }
   } else {
     // hardware page walking
     // level 1
     unsigned pte_base = tlb->mem->vmrppn;
-    unsigned pte = 0;
     int protect = 0;
     int access_fault = 0;
     for (int i = 1; i >= 0; i--) {
@@ -400,29 +442,7 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
         break;
       }
       pte = memory_ram_load(tlb->mem, pte_addr - MEMORY_BASE_ADDR_RAM, 4, 0, tlb->mem->dcache);
-      protect = (pte & PTE_V);
-      // check protect
-      if (i == 1) {
-        // TODO: super page: currently level 1 should not be a leaf page table
-        protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
-      } else {
-        // level 0 should be leaf page table
-        if (tlb->mem->csr->mode == PRIVILEGE_MODE_U)
-          protect = (protect && (pte & PTE_U));
-        switch (access_type) {
-        case ACCESS_TYPE_INSTRUCTION:
-          protect = (protect && (pte & PTE_X));
-          break;
-        case ACCESS_TYPE_LOAD:
-          protect = (protect && (pte & PTE_R));
-          break;
-        case ACCESS_TYPE_STORE:
-          protect = (protect && (pte & PTE_W));
-          break;
-        default:
-          break;
-        }
-      }
+      protect = tlb_check_privilege(tlb, pte, i, access_type);
       if (!protect) {
         break;
       }
@@ -433,8 +453,8 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
       // register to TLB
       tlb->line[index].valid = 1;
       tlb->line[index].tag = tag;
-      tlb->line[index].value = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2);
-      paddr = tlb->line[index].value | (addr & 0x00000fff);
+      tlb->line[index].value = pte;
+      paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
     } else {
       if (access_fault) {
         csr_set_tval(tlb->mem->csr, addr);
