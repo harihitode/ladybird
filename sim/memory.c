@@ -66,9 +66,9 @@ void memory_init(memory_t *mem) {
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
   mem->dcache = (cache_t *)malloc(sizeof(cache_t));
   mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  cache_init(mem->icache, mem, 512);
-  cache_init(mem->dcache, mem, 512);
-  tlb_init(mem->tlb, mem, 512);
+  cache_init(mem->icache, mem, 32);
+  cache_init(mem->dcache, mem, 64);
+  tlb_init(mem->tlb, mem, 64);
 }
 
 void memory_set_sim(memory_t *mem, struct sim_t *sim) {
@@ -326,12 +326,14 @@ void cache_init(cache_t *cache, memory_t *mem, unsigned size) {
   cache->access_count = 0;
   cache->hit_count = 0;
   cache->line_len = size;
+  cache->index_mask = cache->line_len - 1;
+  cache->tag_mask = (0xffffffff ^ cache->index_mask) << 12;
   cache->line = (cache_line_t *)calloc(size, sizeof(cache_line_t));
 }
 
 unsigned cache_get(cache_t *cache, unsigned addr) {
-  unsigned index = (addr >> 12) & 0x000000ff; // 512
-  unsigned tag = addr & 0xfff00000;
+  unsigned index = (addr >> 12) & cache->index_mask;
+  unsigned tag = addr & cache->tag_mask;
   cache->access_count++;
   if (cache->line[index].valid && (cache->line[index].tag == tag)) {
     cache->hit_count++;
@@ -358,6 +360,8 @@ void cache_fini(cache_t *cache) {
 void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
   tlb->mem = mem;
   tlb->line_len = size;
+  tlb->index_mask = tlb->line_len - 1;
+  tlb->tag_mask = (0xffffffff ^ tlb->index_mask) << 12;
   tlb->line = (tlb_line_t *)calloc(size, sizeof(tlb_line_t));
   tlb->access_count = 0;
   tlb->hit_count = 0;
@@ -403,8 +407,8 @@ static int tlb_check_privilege(tlb_t *tlb, unsigned pte, unsigned level, unsigne
 unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
   unsigned paddr = 0;
   // search TLB first
-  unsigned index = (addr >> 12) & 0x000000ff; // 512
-  unsigned tag = addr & 0xfff00000;
+  unsigned index = (addr >> 12) & tlb->index_mask;
+  unsigned tag = addr & tlb->tag_mask;
   unsigned pte = 0;
   tlb->access_count++;
   if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {

@@ -50,7 +50,10 @@ typedef struct cache_t {
   struct memory_t *mem;
   unsigned line_len; // should be power of 2
   cache_line_t *line;
-  // performance count
+  // mask
+  unsigned index_mask;
+  unsigned tag_mask;
+  // performance counter
   unsigned long access_count;
   unsigned long hit_count;
 } cache_t;
@@ -64,8 +67,12 @@ typedef struct tlb_line_t {
 
 typedef struct tlb_t {
   struct memory_t *mem;
-  unsigned line_len;
+  unsigned line_len; // should be power of 2
   tlb_line_t *line;
+  // mask
+  unsigned index_mask;
+  unsigned tag_mask;
+  // performance counter
   unsigned long access_count;
   unsigned long hit_count;
 } tlb_t;
