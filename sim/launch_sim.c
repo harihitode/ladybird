@@ -29,7 +29,7 @@ void callback(sim_t *sim) {
     quit = 1;
     break;
   case TRAP_CODE_ILLEGAL_INSTRUCTION:
-    fprintf(stderr, "ILLEGAL INSTRUCTION addr %08x\n", sim_get_epc(sim));
+    fprintf(stderr, "ILLEGAL INSTRUCTION addr: %08x inst: %08x\n", sim_get_epc(sim), sim_get_instruction(sim, sim_get_epc(sim)));
     quit = 1;
     break;
   case TRAP_CODE_INSTRUCTION_ACCESS_FAULT:

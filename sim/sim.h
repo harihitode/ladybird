@@ -28,6 +28,7 @@ void sim_trap(sim_t *, void (*func)(sim_t *sim));
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
 unsigned sim_get_epc(sim_t *);
+unsigned sim_get_instruction(sim_t *, unsigned pc);
 // mmio
 int sim_load_elf(sim_t *, const char *elf_path);
 int sim_virtio_disk(sim_t *, const char *img_path, int mode);
