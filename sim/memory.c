@@ -270,7 +270,12 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
     return 0;
   } else {
     if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
-      return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 4, 1, mem->icache);
+      char opcode = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 1, 1, mem->icache);
+      if ((opcode & 0x03) == 3) {
+        return (memory_ram_load(mem, paddr + 2 - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache) << 16) | memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
+      } else {
+        return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
+      }
     } else {
       csr_set_tval(mem->csr, paddr);
       csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
