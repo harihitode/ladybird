@@ -18,7 +18,7 @@ void sim_init(sim_t *sim) {
   csr_set_sim(sim->csr, sim);
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  memory_init(sim->mem);
+  memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
   memory_set_sim(sim->mem, sim);
   sim->pc = 0;
   return;
@@ -611,7 +611,7 @@ void sim_step(sim_t *sim) {
     break;
   }
   case OPCODE_MISC_MEM:
-    // TODO: currently no implementataion
+    memory_cache_write_back(sim->mem);
     break;
   case OPCODE_SYSTEM: {
     // read
