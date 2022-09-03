@@ -67,8 +67,8 @@ void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
   mem->dcache = (cache_t *)malloc(sizeof(cache_t));
   mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  cache_init(mem->icache, mem, 32, 32); // 32byte/line, 32 entry
-  cache_init(mem->dcache, mem, 32, 64); // 32byte/line, 64 entry
+  cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
+  cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(mem->tlb, mem, 64); // 64 entry
 }
 
@@ -244,12 +244,11 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
     return 0;
   } else {
     if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
-      char opcode = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 1, 1, mem->icache);
-      if ((opcode & 0x03) == 3) {
-        return (memory_ram_load(mem, paddr + 2 - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache) << 16) | memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
-      } else {
-        return memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
+      unsigned inst = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
+      if ((inst & 0x03) == 3) {
+        inst = (memory_ram_load(mem, paddr + 2 - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache) << 16) | inst;
       }
+      return inst;
     } else {
       csr_set_tval(mem->csr, paddr);
       csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
@@ -367,6 +366,7 @@ void cache_write_back(cache_t *cache, unsigned index) {
     for (unsigned i = 0; i < cache->line_len; i++) {
       cache->mem->ram_block[victim_block_id][victim_block_base + i] = cache->line[index].data[i];
     }
+    cache->line[index].dirty = 0;
   }
   return;
 }
