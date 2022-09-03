@@ -29,7 +29,7 @@ char plic_read(plic_t *plic, unsigned addr) {
     }
     break;
   default:
-    printf("PLIC: unknown addr read: %08x\n", addr);
+    fprintf(stderr, "PLIC: unknown addr read: %08x\n", addr);
     break;
   }
   return value;
@@ -77,7 +77,7 @@ void plic_write(plic_t *plic, unsigned addr, char value) {
     }
     break;
   default:
-    printf("PLIC: unknown addr write: %08x, %08x\n", addr, value);
+    fprintf(stderr, "PLIC: unknown addr write: %08x, %08x\n", addr, value);
     break;
   }
   return;

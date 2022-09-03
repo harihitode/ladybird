@@ -15,12 +15,19 @@ struct sim_t;
 struct uart_t;
 struct disk_t;
 struct csr_t;
+struct cache_t;
+struct tlb_t;
 
 typedef struct memory_t {
-  unsigned blocks;
-  unsigned *base;
-  char **block;
-  char *reserve;
+  unsigned ram_size;
+  unsigned ram_block_size;
+  unsigned ram_blocks;
+  char **ram_block;
+  char *ram_reserve;
+  // cache for ram
+  struct cache_t *dcache;
+  struct cache_t *icache;
+  struct tlb_t *tlb;
   struct csr_t *csr;
   // MMU
   char vmflag;
@@ -34,9 +41,50 @@ typedef struct memory_t {
   struct plic_t *plic;
 } memory_t;
 
-void memory_init(memory_t *);
+typedef struct cache_line_t {
+  unsigned valid;
+  unsigned dirty;
+  unsigned tag;
+  char *data;
+} cache_line_t;
+
+typedef struct cache_t {
+  struct memory_t *mem;
+  unsigned line_len; // should be power of 2
+  unsigned line_size; // should be power of 2
+  cache_line_t *line;
+  // mask
+  unsigned index_mask;
+  unsigned tag_mask;
+  unsigned line_mask;
+  // performance counter
+  unsigned long access_count;
+  unsigned long hit_count;
+} cache_t;
+
+typedef struct tlb_line_t {
+  unsigned valid;
+  unsigned dirty;
+  unsigned tag;
+  unsigned value;
+} tlb_line_t;
+
+typedef struct tlb_t {
+  struct memory_t *mem;
+  unsigned line_size; // should be power of 2
+  tlb_line_t *line;
+  // mask
+  unsigned index_mask;
+  unsigned tag_mask;
+  // performance counter
+  unsigned long access_count;
+  unsigned long hit_count;
+} tlb_t;
+
+void memory_init(memory_t *, unsigned ram_size, unsigned ram_block_size);
 void memory_set_sim(memory_t *, struct sim_t *);
 unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
+unsigned memory_load_instruction(memory_t *, unsigned addr);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
 void memory_fini(memory_t *);
 char *memory_get_page(memory_t *, unsigned);
@@ -46,5 +94,18 @@ unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
 // mmu
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
+void memory_tlb_clear(memory_t *);
+void memory_cache_write_back(memory_t *);
+unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type);
+
+void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);
+char *cache_get(cache_t *, unsigned addr, char write);
+void cache_write_back(cache_t *, unsigned line);
+void cache_fini(cache_t *);
+
+void tlb_init(tlb_t *, memory_t *, unsigned line_size);
+unsigned tlb_get(tlb_t *, unsigned addr, unsigned access_type);
+void tlb_clear(tlb_t *);
+void tlb_fini(tlb_t *);
 
 #endif
