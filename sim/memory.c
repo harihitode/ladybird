@@ -46,11 +46,12 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
 #define PTE_X (1 << 3)
 #define PTE_U (1 << 4)
 
-void memory_init(memory_t *mem) {
-  mem->blocks = 0;
-  mem->base = NULL;
-  mem->block = NULL;
-  mem->reserve = NULL;
+void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
+  mem->ram_size = ram_size;
+  mem->ram_block_size = ram_block_size;
+  mem->ram_blocks = ram_size / ram_block_size;
+  mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
+  mem->ram_reserve = (char *)calloc(mem->ram_blocks, sizeof(char));
   mem->csr = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
   uart_init(mem->uart);
@@ -66,9 +67,9 @@ void memory_init(memory_t *mem) {
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
   mem->dcache = (cache_t *)malloc(sizeof(cache_t));
   mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  cache_init(mem->icache, mem, 32);
-  cache_init(mem->dcache, mem, 64);
-  tlb_init(mem->tlb, mem, 64);
+  cache_init(mem->icache, mem, 32, 32); // 32byte/line, 32 entry
+  cache_init(mem->dcache, mem, 32, 64); // 32byte/line, 64 entry
+  tlb_init(mem->tlb, mem, 64); // 64 entry
 }
 
 void memory_set_sim(memory_t *mem, struct sim_t *sim) {
@@ -76,64 +77,37 @@ void memory_set_sim(memory_t *mem, struct sim_t *sim) {
   return;
 }
 
-static unsigned memory_get_block_id(memory_t *mem, unsigned addr) {
-  unsigned block_id = 0;
-  unsigned hit = 0;
-  for (unsigned i = 0; i < mem->blocks; i++) {
-    // search blocks allocated for the base addr
-    // block size is 4KB
-    if (mem->base[i] == (addr & 0xfffff000)) {
-      block_id = i;
-      hit = 1;
-      break;
-    }
-  }
-  if (hit == 0) {
-    unsigned last_block = mem->blocks;
-    mem->blocks++; // increment
-    mem->base = (unsigned *)realloc(mem->base, mem->blocks * sizeof(unsigned));
-    mem->block = (char **)realloc(mem->block, mem->blocks * sizeof(char *));
-    mem->reserve = (char *)realloc(mem->reserve, mem->blocks * sizeof(char));
-    mem->base[last_block] = (addr & 0xfffff000);
-    mem->block[last_block] = (char *)malloc(0x00001000 * sizeof(char));
-    mem->reserve[last_block] = 0;
-    block_id = last_block;
-  }
-  return block_id;
-}
-
 char *memory_get_page(memory_t *mem, unsigned addr) {
-  unsigned bid = memory_get_block_id(mem, addr);
-  char *page = mem->block[bid];
-  mem->reserve[bid] = 0; // expire
-  return page;
+  unsigned bid = addr / mem->ram_block_size;
+  if (mem->ram_block[bid] == NULL) {
+    mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
+  }
+  mem->ram_reserve[bid] = 0; // expire
+  return mem->ram_block[bid];
 }
 
 static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, cache_t *cache) {
   unsigned value = 0;
-  unsigned block_id = cache_get(cache, addr);
-  char *page = mem->block[block_id];
+  char *line = cache_get(cache, addr, 0);
   for (unsigned i = 0; i < size; i++) {
-    value |= ((0x000000ff & page[((addr + i) & 0x00000fff)]) << (8 * i));
+    value |= ((0x000000ff & line[i]) << (8 * i));
   }
   if (reserved) {
-    mem->reserve[block_id] = 1;
+    mem->ram_reserve[addr / mem->ram_block_size] = 1;
   }
   return value;
 }
 
 static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional, cache_t *cache) {
   unsigned ret = MEMORY_STORE_SUCCESS;
-  unsigned block_id = cache_get(cache, addr);
-  if (!conditional || mem->reserve[block_id]) {
-    char *page = mem->block[block_id];
+  if (!conditional || mem->ram_reserve[addr / mem->ram_block_size]) {
+    char *line = cache_get(cache, addr, 1);
     for (unsigned i = 0; i < size; i++) {
-      page[(addr + i) & 0x00000fff] = (char)(value >> (i * 8));
+      line[i] = (char)(value >> (i * 8));
     }
   } else {
     ret = MEMORY_STORE_FAILURE;
   }
-  mem->reserve[block_id] = 0;
   return ret;
 }
 
@@ -305,12 +279,11 @@ void memory_tlb_clear(memory_t *mem) {
 }
 
 void memory_fini(memory_t *mem) {
-  free(mem->base);
-  for (unsigned i = 0; i < mem->blocks; i++) {
-    free(mem->block[i]);
+  for (unsigned i = 0; i < mem->ram_blocks; i++) {
+    free(mem->ram_block[i]);
   }
-  free(mem->block);
-  free(mem->reserve);
+  free(mem->ram_block);
+  free(mem->ram_reserve);
   uart_fini(mem->uart);
   free(mem->uart);
   disk_fini(mem->disk);
@@ -326,46 +299,90 @@ void memory_fini(memory_t *mem) {
   return;
 }
 
-void cache_init(cache_t *cache, memory_t *mem, unsigned size) {
+void memory_cache_write_back(memory_t *mem) {
+  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
+    cache_write_back(mem->dcache, i);
+  }
+}
+
+void cache_init(cache_t *cache, memory_t *mem, unsigned line_len, unsigned line_size) {
   cache->mem = mem;
   cache->access_count = 0;
   cache->hit_count = 0;
-  cache->line_len = size;
-  cache->index_mask = cache->line_len - 1;
-  cache->tag_mask = (0xffffffff ^ cache->index_mask) << 12;
-  cache->line = (cache_line_t *)calloc(size, sizeof(cache_line_t));
+  cache->line_len = line_len;
+  cache->line_size = line_size;
+  cache->line_mask = line_len - 1;
+  cache->index_mask = ((cache->line_size * cache->line_len) - 1) ^ cache->line_mask;
+  cache->tag_mask = (0xffffffff ^ (cache->index_mask | cache->line_mask));
+  cache->line = (cache_line_t *)calloc(line_size, sizeof(cache_line_t));
+  for (unsigned i = 0; i < line_size; i++) {
+    cache->line[i].data = (char *)malloc(line_len * sizeof(char));
+  }
 }
 
-unsigned cache_get(cache_t *cache, unsigned addr) {
-  unsigned index = (addr >> 12) & cache->index_mask;
+char *cache_get(cache_t *cache, unsigned addr, char write) {
+  unsigned index = (addr & cache->index_mask) / cache->line_len;
   unsigned tag = addr & cache->tag_mask;
+  char *line = NULL;
   cache->access_count++;
-  if (cache->line[index].valid && (cache->line[index].tag == tag)) {
-    cache->hit_count++;
-    return cache->line[index].id;
+  if (cache->line[index].valid) {
+    if (cache->line[index].tag == tag) {
+      // hit
+      cache->hit_count++;
+    } else {
+      unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
+      // write back
+      cache_write_back(cache, index);
+      // read memory
+      char *page = memory_get_page(cache->mem, addr);
+      for (unsigned i = 0; i < cache->line_len; i++) {
+        cache->line[index].data[i] = page[block_base + i];
+      }
+      cache->line[index].valid = 1;
+      cache->line[index].tag = tag;
+      cache->line[index].dirty = 0;
+    }
   } else {
+    unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
+    // read memory
+    char *page = memory_get_page(cache->mem, addr);
+    for (unsigned i = 0; i < cache->line_len; i++) {
+      cache->line[index].data[i] = page[block_base + i];
+    }
     cache->line[index].valid = 1;
-    cache->line[index].id = memory_get_block_id(cache->mem, addr);
     cache->line[index].tag = tag;
-    return cache->line[index].id;
+    cache->line[index].dirty = 0;
   }
+  cache->line[index].dirty |= write;
+  line = &(cache->line[index].data[addr & cache->line_mask]);
+  return line;
 }
 
-void cache_clear(cache_t *cache) {
-  for (unsigned i = 0; i < cache->line_len; i++) {
-    cache->line[i].valid = 0;
+void cache_write_back(cache_t *cache, unsigned index) {
+  if (cache->line[index].valid && cache->line[index].dirty) {
+    unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
+    unsigned victim_block_id = victim_addr / cache->mem->ram_block_size;
+    unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
+    // write back
+    for (unsigned i = 0; i < cache->line_len; i++) {
+      cache->mem->ram_block[victim_block_id][victim_block_base + i] = cache->line[index].data[i];
+    }
   }
+  return;
 }
 
 void cache_fini(cache_t *cache) {
+  for (unsigned i = 0; i < cache->line_size; i++) {
+    free(cache->line[i].data);
+  }
   free(cache->line);
   return;
 }
 
 void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
   tlb->mem = mem;
-  tlb->line_len = size;
-  tlb->index_mask = tlb->line_len - 1;
+  tlb->line_size = size;
+  tlb->index_mask = tlb->line_size - 1;
   tlb->tag_mask = (0xffffffff ^ tlb->index_mask) << 12;
   tlb->line = (tlb_line_t *)calloc(size, sizeof(tlb_line_t));
   tlb->access_count = 0;
@@ -373,7 +390,7 @@ void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
 }
 
 void tlb_clear(tlb_t *tlb) {
-  for (unsigned i = 0; i < tlb->line_len; i++) {
+  for (unsigned i = 0; i < tlb->line_size; i++) {
     tlb->line[i].valid = 0;
   }
 }
