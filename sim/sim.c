@@ -422,6 +422,72 @@ struct result_t {
   unsigned pc_next;
 };
 
+void process_alu(sim_t *sim, unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct result_t *result) {
+  switch (funct) {
+  case 0x0: // ADD, SUB, ADDI
+    if (alt) {
+      result->rd_data = src1 - src2; // SUB
+    } else {
+      result->rd_data = src1 + src2; // ADD, ADDI
+    }
+    break;
+  case 0x1: // SLL
+    result->rd_data = (src1 << (src2 & 0x0000001F));
+    break;
+  case 0x2: // Set Less-Than
+    result->rd_data = ((int)src1 < (int)src2) ? 1 : 0;
+    break;
+  case 0x3: // Set Less-Than Unsigned
+    result->rd_data = (src1 < src2) ? 1 : 0;
+    break;
+  case 0x4: // Logical XOR
+    result->rd_data = src1 ^ src2;
+    break;
+  case 0x5: // SRA, SRL
+    if (alt) {
+      result->rd_data = (int)src1 >> (src2 & 0x0000001F);
+    } else {
+      result->rd_data = src1 >> (src2 & 0x0000001F);
+    }
+    break;
+  case 0x6: // Logical OR
+    result->rd_data = src1 | src2;
+    break;
+  case 0x7: // Logical AND
+    result->rd_data = src1 & src2;
+    break;
+  }
+}
+
+void process_muldiv(sim_t *sim, unsigned funct, unsigned src1, unsigned src2, struct result_t *result) {
+  switch (funct) {
+  case 0x0:
+    result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
+    break;
+  case 0x1: // MULH (extended: signed * signedb)
+    result->rd_data = ((long long)src1 * (long long)src2) >> 32;
+    break;
+  case 0x2: // MULHSU (extended: signed * unsigned)
+    result->rd_data = ((long long)src1 * (unsigned long long)src2) >> 32;
+    break;
+  case 0x3: // MULHU (extended: unsigned * unsigned)
+    result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
+    break;
+  case 0x4: // DIV
+    result->rd_data = (int)src1 / (int)src2;
+    break;
+  case 0x5: // DIVU
+    result->rd_data = (unsigned)src1 / (unsigned)src2;
+    break;
+  case 0x6: // REM
+    result->rd_data = (int)src1 % (int)src2;
+    break;
+  case 0x7: // REMU
+    result->rd_data = (unsigned)src1 % (unsigned)src2;
+    break;
+  }
+}
+
 void sim_step(sim_t *sim) {
   // fetch
   unsigned inst = memory_load_instruction(sim->mem, sim->pc);
@@ -439,78 +505,24 @@ void sim_step(sim_t *sim) {
   }
   opcode = get_opcode(inst);
   switch (opcode) {
-  case OPCODE_OP_IMM:
-  case OPCODE_OP:
+  case OPCODE_OP_IMM: {
     result.rd = get_rd(inst);
-    if (opcode == OPCODE_OP && get_funct7(inst) == 0x00000001) {
-      unsigned src1 = sim_read_register(sim, get_rs1(inst));
-      unsigned src2 = sim_read_register(sim, get_rs2(inst));
-      // MUL/DIV
-      switch (get_funct3(inst)) {
-      case 0x0:
-        result.rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
-        break;
-      case 0x1: // MULH (extended: signed * signedb)
-        result.rd_data = ((long long)src1 * (long long)src2) >> 32;
-        break;
-      case 0x2: // MULHSU (extended: signed * unsigned)
-        result.rd_data = ((long long)src1 * (unsigned long long)src2) >> 32;
-        break;
-      case 0x3: // MULHU (extended: unsigned * unsigned)
-        result.rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
-        break;
-      case 0x4: // DIV
-        result.rd_data = (int)src1 / (int)src2;
-        break;
-      case 0x5: // DIVU
-        result.rd_data = (unsigned)src1 / (unsigned)src2;
-        break;
-      case 0x6: // REM
-        result.rd_data = (int)src1 % (int)src2;
-        break;
-      case 0x7: // REMU
-        result.rd_data = (unsigned)src1 % (unsigned)src2;
-        break;
-      }
+    unsigned src1 = sim_read_register(sim, get_rs1(inst));
+    unsigned src2 = get_immediate(inst);
+    process_alu(sim, get_funct3(inst), src1, src2, 0, &result);
+    break;
+  }
+  case OPCODE_OP: {
+    result.rd = get_rd(inst);
+    unsigned src1 = sim_read_register(sim, get_rs1(inst));
+    unsigned src2 = sim_read_register(sim, get_rs2(inst));
+    if (get_funct7(inst) == 0x01) {
+      process_muldiv(sim, get_funct3(inst), src1, src2, &result);
     } else {
-      unsigned src1 = sim_read_register(sim, get_rs1(inst));
-      unsigned src2 = (opcode == OPCODE_OP) ? sim_read_register(sim, get_rs2(inst)) : get_immediate(inst);
-      switch (get_funct3(inst)) {
-      case 0x0: // ADD, SUB, ADDI
-        if ((opcode == OPCODE_OP) && (inst & 0x40000000)) {
-          result.rd_data = src1 - src2; // SUB
-        } else {
-          result.rd_data = src1 + src2; // ADD, ADDI
-        }
-        break;
-      case 0x1: // SLL
-        result.rd_data = (src1 << (src2 & 0x0000001F));
-        break;
-      case 0x2: // Set Less-Than
-        result.rd_data = ((int)src1 < (int)src2) ? 1 : 0;
-        break;
-      case 0x3: // Set Less-Than Unsigned
-        result.rd_data = (src1 < src2) ? 1 : 0;
-        break;
-      case 0x4: // Logical XOR
-        result.rd_data = src1 ^ src2;
-        break;
-      case 0x5: // SRA, SRL
-        if (inst & 0x40000000) {
-          result.rd_data = (int)src1 >> (src2 & 0x0000001F);
-        } else {
-          result.rd_data = src1 >> (src2 & 0x0000001F);
-        }
-        break;
-      case 0x6: // Logical OR
-        result.rd_data = src1 | src2;
-        break;
-      case 0x7: // Logical AND
-        result.rd_data = src1 & src2;
-        break;
-      }
+      process_alu(sim, get_funct3(inst), src1, src2, (inst & 0x40000000), &result);
     }
     break;
+  }
   case OPCODE_AUIPC:
     result.rd = get_rd(inst);
     result.rd_data = sim->pc + (inst & 0xfffff000);
@@ -629,22 +641,20 @@ void sim_step(sim_t *sim) {
   case OPCODE_MISC_MEM:
     memory_cache_write_back(sim->mem);
     break;
-  case OPCODE_SYSTEM: {
-    // read
-    unsigned src1 = sim_read_register(sim, get_rs1(inst));
+  case OPCODE_SYSTEM:
     if (get_funct3(inst) & 0x03) {
       result.rd = get_rd(inst);
     }
     // CSR OPERATIONS
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
-      result.rd_data = csr_csrrw(sim->csr, get_csr_addr(inst), src1);
+      result.rd_data = csr_csrrw(sim->csr, get_csr_addr(inst), sim_read_register(sim, get_rs1(inst)));
       break;
     case 0x2: // READ_SET
-      result.rd_data = csr_csrrs(sim->csr, get_csr_addr(inst), src1);
+      result.rd_data = csr_csrrs(sim->csr, get_csr_addr(inst), sim_read_register(sim, get_rs1(inst)));
       break;
     case 0x3: // READ_CLEAR
-      result.rd_data = csr_csrrc(sim->csr, get_csr_addr(inst), src1);
+      result.rd_data = csr_csrrc(sim->csr, get_csr_addr(inst), sim_read_register(sim, get_rs1(inst)));
       break;
     case 0x4: // Hypervisor Extension
       csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
@@ -701,7 +711,6 @@ void sim_step(sim_t *sim) {
       }
     }
     break;
-  }
   case OPCODE_BRANCH: {
     // read
     unsigned src1 = sim_read_register(sim, get_rs1(inst));
