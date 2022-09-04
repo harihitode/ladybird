@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MEMORY_NONE 0
 #define MEMORY_RAM 1
@@ -13,10 +14,6 @@
 #define MEMORY_DISK 3
 #define MEMORY_ACLINT 4
 #define MEMORY_PLIC 5
-
-#define ACCESS_TYPE_INSTRUCTION 0
-#define ACCESS_TYPE_LOAD 1
-#define ACCESS_TYPE_STORE 2
 
 static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
   unsigned base = (addr & 0xff000000);
@@ -46,6 +43,10 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
 #define PTE_X (1 << 3)
 #define PTE_U (1 << 4)
 
+#define ACCESS_TYPE_INSTRUCTION PTE_X
+#define ACCESS_TYPE_LOAD PTE_R
+#define ACCESS_TYPE_STORE PTE_W
+
 void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   mem->ram_size = ram_size;
   mem->ram_block_size = ram_block_size;
@@ -54,6 +55,8 @@ void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   mem->ram_reserve = (char *)calloc(mem->ram_blocks, sizeof(char));
   mem->csr = NULL;
   mem->uart = (uart_t *)malloc(sizeof(uart_t));
+  mem->inst_line = NULL;
+  mem->inst_line_pc = 0;
   uart_init(mem->uart);
   mem->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(mem->disk);
@@ -89,8 +92,18 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
 static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, cache_t *cache) {
   unsigned value = 0;
   char *line = cache_get(cache, addr, 0);
-  for (unsigned i = 0; i < size; i++) {
-    value |= ((0x000000ff & line[i]) << (8 * i));
+  switch (size) {
+  case 1:
+    value = (unsigned char)(line[0]);
+    break;
+  case 2:
+    value = (unsigned short)(((unsigned short *)line)[0]);
+    break;
+  case 4:
+    value = (unsigned)(((unsigned *)line)[0]);
+    break;
+  default:
+    break;
   }
   if (reserved) {
     mem->ram_reserve[addr / mem->ram_block_size] = 1;
@@ -102,8 +115,18 @@ static unsigned memory_ram_store(memory_t *mem, unsigned addr, unsigned value, u
   unsigned ret = MEMORY_STORE_SUCCESS;
   if (!conditional || mem->ram_reserve[addr / mem->ram_block_size]) {
     char *line = cache_get(cache, addr, 1);
-    for (unsigned i = 0; i < size; i++) {
-      line[i] = (char)(value >> (i * 8));
+    switch (size) {
+    case 1:
+      line[0] = (unsigned char)value;
+      break;
+    case 2:
+      ((unsigned short *)line)[0] = (unsigned short)value;
+      break;
+    case 4:
+      ((unsigned *)line)[0] = value;
+      break;
+    default:
+      break;
     }
   } else {
     ret = MEMORY_STORE_FAILURE;
@@ -238,23 +261,41 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr) {
 }
 
 unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
-  unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
-  // pmp check
-  if (mem->csr->exception) {
-    return 0;
-  } else {
-    if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
-      unsigned inst = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache);
-      if ((inst & 0x03) == 3) {
-        inst = (memory_ram_load(mem, paddr + 2 - MEMORY_BASE_ADDR_RAM, 2, 1, mem->icache) << 16) | inst;
+  unsigned inst = 0;
+  if (mem->inst_line && (mem->inst_line_pc == (addr & ~(mem->icache->line_mask)))) {
+    mem->icache->access_count++;
+    mem->icache->hit_count++;
+    inst = ((unsigned short *)(&mem->inst_line[addr & mem->icache->line_mask]))[0];
+    if ((inst & 0x03) == 3) {
+      if ((addr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
+        unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
+        mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
+        mem->inst_line = cache_get(mem->icache, (paddr + 2 - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
       }
-      return inst;
-    } else {
-      csr_set_tval(mem->csr, paddr);
-      csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
-      return 0;
+      inst |= (((unsigned short *)(&mem->inst_line[(addr + 2) & mem->icache->line_mask]))[0] << 16);
+    }
+  } else {
+    unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
+    // pmp check
+    if (!mem->csr->exception) {
+      if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
+        mem->inst_line_pc = (addr & ~(mem->icache->line_mask));
+        mem->inst_line = cache_get(mem->icache, (paddr - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
+        inst = ((unsigned short *)(&mem->inst_line[paddr & mem->icache->line_mask]))[0];
+        if ((inst & 0x03) == 3) {
+          if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
+            mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
+            mem->inst_line = cache_get(mem->icache, (paddr + 2 - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
+          }
+          inst |= (((unsigned short *)(&mem->inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
+        }
+      } else {
+        csr_set_tval(mem->csr, paddr);
+        csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
+      }
     }
   }
+  return inst;
 }
 
 unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value) {
@@ -334,9 +375,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
       cache_write_back(cache, index);
       // read memory
       char *page = memory_get_page(cache->mem, addr);
-      for (unsigned i = 0; i < cache->line_len; i++) {
-        cache->line[index].data[i] = page[block_base + i];
-      }
+      memcpy(cache->line[index].data, &page[block_base], cache->line_len);
       cache->line[index].valid = 1;
       cache->line[index].tag = tag;
       cache->line[index].dirty = 0;
@@ -345,9 +384,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
     unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
     // read memory
     char *page = memory_get_page(cache->mem, addr);
-    for (unsigned i = 0; i < cache->line_len; i++) {
-      cache->line[index].data[i] = page[block_base + i];
-    }
+    memcpy(cache->line[index].data, &page[block_base], cache->line_len);
     cache->line[index].valid = 1;
     cache->line[index].tag = tag;
     cache->line[index].dirty = 0;
@@ -363,9 +400,7 @@ int cache_write_back(cache_t *cache, unsigned index) {
     unsigned victim_block_id = victim_addr / cache->mem->ram_block_size;
     unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
     // write back
-    for (unsigned i = 0; i < cache->line_len; i++) {
-      cache->mem->ram_block[victim_block_id][victim_block_base + i] = cache->line[index].data[i];
-    }
+    memcpy(&cache->mem->ram_block[victim_block_id][victim_block_base], cache->line[index].data, cache->line_len);
     cache->line[index].dirty = 0;
     return 1;
   } else {
@@ -411,19 +446,7 @@ static int tlb_check_privilege(tlb_t *tlb, unsigned pte, unsigned level, unsigne
     // level 0 should be leaf page table
     if (tlb->mem->csr->mode == PRIVILEGE_MODE_U)
       protect = (protect && (pte & PTE_U));
-    switch (access_type) {
-    case ACCESS_TYPE_INSTRUCTION:
-      protect = (protect && (pte & PTE_X));
-      break;
-    case ACCESS_TYPE_LOAD:
-      protect = (protect && (pte & PTE_R));
-      break;
-    case ACCESS_TYPE_STORE:
-      protect = (protect && (pte & PTE_W));
-      break;
-    default:
-      break;
-    }
+    protect = (protect && (pte & access_type));
   }
   return protect;
 }
@@ -439,13 +462,13 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
     tlb->hit_count++;
     pte = tlb->line[index].value;
     if (tlb_check_privilege(tlb, pte, 0, access_type)) {
-      paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
+      paddr = ((pte & 0xfffffc00) << 2) | (addr & 0x00000fff);
     } else {
       switch (access_type) {
-      case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+      case ACCESS_TYPE_INSTRUCTION:
         csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
         break;
-      case TRAP_CODE_LOAD_PAGE_FAULT:
+      case ACCESS_TYPE_LOAD:
         csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_PAGE_FAULT);
         break;
       default:
@@ -487,10 +510,10 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
       if (access_fault) {
         csr_set_tval(tlb->mem->csr, addr);
         switch (access_type) {
-        case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+        case ACCESS_TYPE_INSTRUCTION:
           csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
           break;
-        case TRAP_CODE_LOAD_PAGE_FAULT:
+        case ACCESS_TYPE_LOAD:
           csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
           break;
         default:
@@ -499,10 +522,10 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
         }
       } else {
         switch (access_type) {
-        case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
+        case ACCESS_TYPE_INSTRUCTION:
           csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_PAGE_FAULT);
           break;
-        case TRAP_CODE_LOAD_PAGE_FAULT:
+        case ACCESS_TYPE_LOAD:
           csr_exception(tlb->mem->csr, TRAP_CODE_LOAD_PAGE_FAULT);
           break;
         default:

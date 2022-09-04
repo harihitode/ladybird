@@ -29,6 +29,9 @@ typedef struct memory_t {
   struct cache_t *icache;
   struct tlb_t *tlb;
   struct csr_t *csr;
+  // cache for instruction
+  char *inst_line;
+  unsigned inst_line_pc;
   // MMU
   char vmflag;
   // To support a physical address space larger than 4GiB,
