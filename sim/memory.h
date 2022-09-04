@@ -100,7 +100,7 @@ unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned acces
 
 void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);
 char *cache_get(cache_t *, unsigned addr, char write);
-void cache_write_back(cache_t *, unsigned line);
+int cache_write_back(cache_t *, unsigned line);
 void cache_fini(cache_t *);
 
 void tlb_init(tlb_t *, memory_t *, unsigned line_size);

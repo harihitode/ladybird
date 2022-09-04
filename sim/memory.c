@@ -357,7 +357,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
   return line;
 }
 
-void cache_write_back(cache_t *cache, unsigned index) {
+int cache_write_back(cache_t *cache, unsigned index) {
   if (cache->line[index].valid && cache->line[index].dirty) {
     unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
     unsigned victim_block_id = victim_addr / cache->mem->ram_block_size;
@@ -367,8 +367,10 @@ void cache_write_back(cache_t *cache, unsigned index) {
       cache->mem->ram_block[victim_block_id][victim_block_base + i] = cache->line[index].data[i];
     }
     cache->line[index].dirty = 0;
+    return 1;
+  } else {
+    return 0;
   }
-  return;
 }
 
 void cache_fini(cache_t *cache) {
