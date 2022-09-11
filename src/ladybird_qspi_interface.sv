@@ -5,7 +5,7 @@ module ladybird_qspi_interface
    input wire       sck,
    output logic     cs,
    inout wire [3:0] dq,
-   ladybird_bus.secondary bus,
+   ladybird_bus_interface.secondary bus,
    input wire       nrst
    );
 
@@ -30,15 +30,15 @@ module ladybird_qspi_interface
   assign cs = ((state == COMMAND) || (state == READING)) ? 1'b0 : 1'b1;
   // bus control
   assign bus.gnt = (state == IDLE) ? 1'b1 : 1'b0;
-  assign bus.data_gnt = (state == WAITREADY) ? 1'b1 : 1'b0;
-  assign bus.data = (state == WAITREADY) ? {4{rd_data}} : 'z;
+  assign bus.rdgnt = (state == WAITREADY) ? 1'b1 : 1'b0;
+  assign bus.rdata = {4{rd_data}};
 
   // this is specific to each SPI flash
   localparam logic [7:0] CMD_REMS = 8'h90;
   localparam logic [7:0] CMD_RDCR = 8'h35;
   localparam logic [7:0] CMD_RDSR = 8'h05;
   localparam logic [7:0] CMD_WRR = 8'h01;
-  localparam logic [7:0] CMD_WREN = 7'h06;
+  localparam logic [7:0] CMD_WREN = 8'h06;
   localparam logic [7:0] CMD_FAST_READ = 8'h0c;
   localparam logic [7:0] CMD_PAGE_PRAGRAM = 8'h12;
 
@@ -121,7 +121,7 @@ module ladybird_qspi_interface
     end else begin
       if (|bus.wstrb) begin
         // write
-        command_i = {CMD_PAGE_PRAGRAM, 16'd0, bus.addr[15:0], bus.data[7:0], 16'd0};
+        command_i = {CMD_PAGE_PRAGRAM, 16'd0, bus.addr[15:0], bus.wdata[7:0], 16'd0};
         command_limit_i = 'd47;
         data_limit_i = 'd0;
       end else begin

@@ -10,18 +10,19 @@ module ladybird_serial_interface
    // serial ports
    input logic                  uart_txd_in,
    output logic                 uart_rxd_out,
-   ladybird_bus.secondary       bus,
+   ladybird_bus_interface.secondary bus,
    input logic                  nrst
    );
 
+  localparam CNT_WIDTH = (O_BYTES == 1) ? 1 : $clog2(O_BYTES);
   logic [O_BYTES*8-1:0]         recv_data_buf;
-  logic [$clog2(O_BYTES)-1:0]   recv_cnt;
+  logic [CNT_WIDTH-1:0]         recv_cnt;
   logic                         recv_fifo_valid;
   logic                         recv_ready, recv_valid;
   logic [7:0]                   recv_data;
 
   logic [I_BYTES*8-1:0]         trns_data_buf;
-  logic [$clog2(I_BYTES)-1:0]   trns_cnt;
+  logic [CNT_WIDTH-1:0]         trns_cnt;
   logic                         trns_fifo_ready;
   logic                         trns_ready, trns_valid;
   logic [7:0]                   trns_data;
@@ -84,12 +85,12 @@ module ladybird_serial_interface
   logic [O_BYTES*8-1:0] read_data;
   logic [I_BYTES*8-1:0] write_data;
 
-  assign write_data = bus.data[I_BYTES*8-1:0];
-  assign bus.data = (read_data_req & read_data_valid) ? {24'd0, read_data} : 'z;
+  assign write_data = bus.wdata[I_BYTES*8-1:0];
+  assign bus.rdata = {24'd0, read_data};
   assign read_req = bus.req & ~(|bus.wstrb);
   assign write_req = bus.req & (|bus.wstrb);
   assign bus.gnt = (read_req & read_ready) | (write_req & write_ready);
-  assign bus.data_gnt = (read_data_req & read_data_valid);
+  assign bus.rdgnt = (read_data_req & read_data_valid);
   assign read_data_req = ~read_ready;
 
   always_ff @(posedge clk) begin
@@ -98,7 +99,7 @@ module ladybird_serial_interface
     end else begin
       if (read_req & read_ready) begin
         read_ready <= '0;
-      end else if (bus.data_gnt) begin
+      end else if (bus.rdgnt) begin
         read_ready <= '1;
       end
     end

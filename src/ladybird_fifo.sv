@@ -19,9 +19,9 @@ module ladybird_fifo
   localparam logic [1:0]     FIFO_W = 2'b10;
   localparam logic [1:0]     FIFO_WR = 2'b11;
 
-  localparam logic           NEXT_POS = (FIFO_DEPTH_W > 0) ? 1'b1 : 1'b0;
+  localparam NEXT_POS = (FIFO_DEPTH_W > 0) ? 'd1 : 'd0;
 
-  logic [0:(2**FIFO_DEPTH_W)-1][DATA_W-1:0] mem;
+  logic [(2**FIFO_DEPTH_W)-1:0][DATA_W-1:0] mem;
   logic                                     full;
   logic [1:0]                               instruction;
   logic [((FIFO_DEPTH_W > 0) ? FIFO_DEPTH_W : 1)-1:0] read_pos, write_pos;
@@ -37,9 +37,9 @@ module ladybird_fifo
       write_pos <= 'd0;
       mem <= '{default:'0};
     end else begin
-      if (instruction & FIFO_R) read_pos <= read_pos + NEXT_POS;
-      if (instruction & FIFO_W) write_pos <= write_pos + NEXT_POS;
-      if (instruction & FIFO_W) mem[write_pos] <= a_data;
+      if (|(instruction & FIFO_R)) read_pos <= read_pos + NEXT_POS;
+      if (|(instruction & FIFO_W)) write_pos <= write_pos + NEXT_POS;
+      if (|(instruction & FIFO_W)) mem[write_pos] <= a_data;
     end
   end
 

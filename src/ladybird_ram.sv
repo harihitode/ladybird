@@ -8,7 +8,7 @@ module ladybird_ram
     )
   (
    input logic clk,
-   ladybird_bus.secondary bus,
+   ladybird_bus_interface.secondary bus,
    input logic nrst
    );
 
@@ -18,9 +18,9 @@ module ladybird_ram
   logic              data_gnt;
 
   assign bus.gnt = 'b1;
-  assign bus.data = (bus.data_gnt) ? data_out : 'z;
-  assign bus.data_gnt = data_gnt;
-  assign data_in = bus.data;
+  assign bus.rdata = data_out;
+  assign bus.rdgnt = data_gnt;
+  assign data_in = bus.wdata;
 
   always_ff @(posedge clk) begin
     if (~nrst) begin

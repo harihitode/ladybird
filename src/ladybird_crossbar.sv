@@ -7,8 +7,8 @@ module ladybird_crossbar
     )
   (
    input logic clk,
-   interface.secondary core_ports [N_CORE_BUS],
-   interface.primary peripheral_ports [N_PERIPHERAL_BUS],
+   ladybird_bus_interface.secondary core_ports [N_CORE_BUS],
+   ladybird_bus_interface.primary peripheral_ports [N_PERIPHERAL_BUS],
    input logic nrst
    );
 
@@ -26,8 +26,7 @@ module ladybird_crossbar
   logic [N_CORE_BUS-1:0]     requests_data_gnt;
   logic [N_CORE_BUS-1:0]     core_ports_load_completed;;
   logic [N_CORE_BUS-1:0]     core_ports_store_completed;
-  access_t [0:N_CORE_BUS-1]  core_ports_access;
-  logic [N_CORE_BUS-1:0][31:0] core_ports_data;
+  access_t [N_CORE_BUS-1:0]  core_ports_access;
 
   logic [N_PERIPHERAL_BUS-1:0] p_gnt;
   logic [N_PERIPHERAL_BUS-1:0] p_data_gnt;
@@ -35,8 +34,8 @@ module ladybird_crossbar
 
   generate for (genvar i = 0; i < N_PERIPHERAL_BUS; i++) begin
     assign p_gnt[i] = peripheral_ports[i].gnt;
-    assign p_data_gnt[i] = peripheral_ports[i].data_gnt;
-    assign p_data[i] = peripheral_ports[i].data_gnt ? peripheral_ports[i].data : '0;
+    assign p_data_gnt[i] = peripheral_ports[i].rdgnt;
+    assign p_data[i] = peripheral_ports[i].rdata;
   end endgenerate
 
   generate for (genvar i = 0; i < N_CORE_BUS; i++) begin
@@ -64,7 +63,7 @@ module ladybird_crossbar
         if (core_ports[i].req & ~requests[i].valid) begin
           requests[i].valid <= 'b1;
           requests[i].addr <= core_ports[i].addr;
-          requests[i].data <= core_ports_data[i];
+          requests[i].data <= core_ports[i].wdata;
           requests[i].wstrb <= core_ports[i].wstrb;
         end else if (core_ports_store_completed[i] | core_ports_load_completed[i])begin
           requests[i] <= '0;
@@ -72,7 +71,7 @@ module ladybird_crossbar
           requests[i].requested <= 'b1;
         end else if (requests_data_gnt[i]) begin
           requests[i].filled <= 'b1;
-          requests[i].data <= core_ports_data[i];
+          requests[i].data <= p_data[core_ports_access[i]];
         end
       end
     end
@@ -81,9 +80,8 @@ module ladybird_crossbar
   generate for (genvar i = 0; i < N_CORE_BUS; i++) begin
     assign core_ports_access[i] = ACCESS_TYPE(requests[i].addr);
     assign core_ports[i].gnt = ~requests[i].valid;
-    assign core_ports[i].data_gnt = requests[i].valid & requests[i].filled;
-    assign core_ports[i].data = (requests[i].valid & requests[i].filled) ? requests[i].data : 'z;
-    assign core_ports_data[i] = p_data_gnt[core_ports_access[i]] ? p_data[core_ports_access[i]] : core_ports[i].data;
+    assign core_ports[i].rdgnt = requests[i].valid & requests[i].filled;
+    assign core_ports[i].rdata = requests[i].data;
   end endgenerate
 
   logic [N_PERIPHERAL_BUS-1:0] peripheral_ports_valid;
@@ -113,6 +111,6 @@ module ladybird_crossbar
     assign peripheral_ports[i].req = peripheral_ports_valid[i] & ~peripheral_ports_requested[i];
     assign peripheral_ports[i].addr = peripheral_ports_addr[i];
     assign peripheral_ports[i].wstrb = peripheral_ports_wstrb[i];
-    assign peripheral_ports[i].data = (peripheral_ports_valid[i] & |peripheral_ports_wstrb[i]) ? peripheral_ports_data[i] : 'z;
+    assign peripheral_ports[i].wdata = peripheral_ports_data[i];
   end endgenerate
 endmodule

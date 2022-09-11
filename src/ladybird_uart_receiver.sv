@@ -34,15 +34,15 @@ module ladybird_uart_receiver
   assign statemachine_receive = (index == 8) ? reading & statemachine_countup : 0;
   assign statemachine_countup = (counter == 0) ? 1'b1 : 1'b0; // counter == 0
 
-  assign next_counter = (reset || state == SLEEP) ? {6'd0, WTIME[15:1]} :
-                        (statemachine_countup) ? {5'd0, WTIME[15:0]} :
+  assign next_counter = (reset || state == SLEEP) ? {5'd0, WTIME[15:1]} :
+                        (statemachine_countup) ? {4'd0, WTIME[15:0]} :
                         counter + 20'hfffff;
 
   assign next_state = (statemachine_start) ? RUNNING :
                       (reset)              ? SLEEP :
                       state;
 
-  assign next_index = (statemachine_start)   ? 3'b000 :
+  assign next_index = (statemachine_start)   ? 4'b000 :
                       (statemachine_countup) ? index + 1 :
                       index;
 
@@ -60,12 +60,12 @@ module ladybird_uart_receiver
       rx_ll <= 'b1;
       state <= SLEEP;
       counter <= {5'd0, WTIME[15:1]};
-      index <= 1'b0;
+      index <= '0;
       waitsleep <= 1'b0;
       reading <= 1'b0;
       valid_i <= 1'b0;
       data_i <= 8'hff;
-      current_buff = 8'hff;
+      current_buff <= 8'hff;
     end else begin
       rx_l <= rx;
       rx_ll <= rx_l;

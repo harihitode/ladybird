@@ -17,7 +17,7 @@ module ladybird_uart_transmitter
 
   logic [9:0]            buff;
   logic [3:0]            state;
-  logic [19:0]           counter;
+  logic [15:0]           counter;
 
   always_comb begin
     tx = buff[0];

@@ -42,7 +42,6 @@ module ladybird_core
                                        COMMIT
                                        } state_t;
   state_t                 state, state_n;
-  logic                   state_progress, state_progress_n;
 
   // GENERAL PURPOSE REGISTER
   logic [XLEN-1:0]        gpr [32];
@@ -79,49 +78,43 @@ module ladybird_core
       I_FETCH: begin
         if (pc_valid & pc_ready) begin
           state_n = D_FETCH;
-          state_progress_n = 1'b1;
         end else begin
           state_n = I_FETCH;
-          state_progress_n = 1'b0;
         end
       end
       D_FETCH: begin
         if (inst_valid) begin
           state_n = EXEC;
-          state_progress_n = 1'b1;
         end else begin
           state_n = D_FETCH;
-          state_progress_n = 1'b0;
         end
       end
       EXEC: begin
         state_n = MEMORY;
-        state_progress_n = 1'b1;
       end
       MEMORY: begin
-        state_n = COMMIT;
         if ((inst_l[6:2] == OPCODE_LOAD) || (inst_l[6:2] == OPCODE_STORE)) begin
-          state_progress_n = mmu_req & mmu_gnt;
+          if (mmu_req & mmu_gnt) begin
+            state_n = COMMIT;
+          end else begin
+            state_n = MEMORY;
+          end
         end else begin
-          state_progress_n = 1'b1;
+          state_n = COMMIT;
         end
       end
       COMMIT: begin
         if (commit_valid) begin
           state_n = I_FETCH;
-          state_progress_n = 1'b1;
         end else begin
           state_n = COMMIT;
-          state_progress_n = 1'b0;
         end
       end
       default: begin
         if (start) begin
           state_n = I_FETCH;
-          state_progress_n = 1'b1;
         end else begin
           state_n = IDLE;
-          state_progress_n = 1'b0;
         end
       end
     endcase
@@ -326,7 +319,6 @@ module ladybird_core
     if (~nrst) begin
       pc <= '0;
       state <= IDLE;
-      state_progress <= 'b0;
       inst_l <= '0;
       alu_res_l <= '0;
     end else begin
@@ -342,7 +334,6 @@ module ladybird_core
         end
       end
       state <= state_n;
-      state_progress <= state_progress_n;
       if ((state == D_FETCH) && inst_valid) begin
         inst_l <= inst;
       end

@@ -27,7 +27,7 @@ module ladybird_top
   logic [3:0]         cled;
 
   // from core 2 bus data/instruction
-  ladybird_bus core_bus[2]();
+  ladybird_bus_interface core_bus[2]();
 
   localparam logic [XLEN-1:0] START_PC = 32'h9000_0000;
   localparam logic [XLEN-1:0] TVEC_PC = 32'h9000_0010;
@@ -39,11 +39,11 @@ module ladybird_top
   //////////////////////////////////////////////////////////////////////
 
   // internal bus
-  ladybird_bus peripheral_bus[NUM_PERIPHERAL]();
+  ladybird_bus_interface peripheral_bus[NUM_PERIPHERAL]();
 
-  assign led_r = {2{cled[2]}};
-  assign led_g = {2{cled[1]}};
-  assign led_b = {2{cled[0]}};
+  assign led_r = {2{cled[2] & cled[3]}};
+  assign led_g = {2{cled[1] & cled[3]}};
+  assign led_b = {2{cled[0] & cled[3]}};
 
   always_ff @(posedge clk) begin: synchronous_reset
     nrst <= anrst;
@@ -139,6 +139,7 @@ module ladybird_top
      .nrst(nrst)
      );
 
+`ifndef SIMULATION
   STARTUPE2 QSPI_SCLK
     (
      .CFGCLK(),
@@ -155,6 +156,7 @@ module ladybird_top
      .USRDONEO(1'b0),
      .USRDONETS(1'b0)
      );
+`endif
 
 endmodule
 
