@@ -16,3 +16,4 @@ gmon.out
 sim/kernel
 sim/*.elf
 sim/*.img
+sim/gmon.out
