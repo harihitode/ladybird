@@ -13,8 +13,7 @@ void shndl(int signum) {
 }
 
 void callback(sim_t *sim) {
-  unsigned trap_code = sim_get_trap_code(sim);
-  switch (trap_code) {
+  switch (sim->signum) {
   case TRAP_CODE_ENVIRONMENT_CALL_M:
     // fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
     break;
@@ -61,7 +60,7 @@ void callback(sim_t *sim) {
   case TRAP_CODE_STORE_PAGE_FAULT:
     break;
   default:
-    fprintf(stderr, "Unknown Trap: %08x\n", trap_code);
+    fprintf(stderr, "Unknown Trap: %08x\n", sim->signum);
     break;
   }
   return;

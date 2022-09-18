@@ -143,7 +143,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_S_SCRATCH:
     return csr->sscratch;
   default:
-    fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->pc);
+    fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->registers[REG_PC]);
     return 0;
   }
 }
@@ -221,7 +221,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->sscratch = value;
     break;
   default:
-    fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->pc);
+    fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->registers[REG_PC]);
     break;
   }
   return;
@@ -280,8 +280,8 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
     // pc
-    csr->mepc = csr->sim->pc;
-    csr->sim->pc = csr->mtvec;
+    csr->mepc = csr->sim->registers[REG_PC];
+    csr->sim->registers[REG_PC] = csr->mtvec;
     // enable
     csr->status_mpie = csr->status_mie;
     csr->status_mie = 0;
@@ -294,8 +294,8 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   } else {
     csr->scause = trap_code;
     // pc
-    csr->sepc = csr->sim->pc;
-    csr->sim->pc = csr->stvec;
+    csr->sepc = csr->sim->registers[REG_PC];
+    csr->sim->registers[REG_PC] = csr->stvec;
     // enable
     csr->status_spie = csr->status_sie;
     csr->status_sie = 0;
@@ -303,9 +303,10 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->pc);
+    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->registers[REG_PC]);
 #endif
   }
+  csr->sim->signum = trap_code;
   if (csr->trap_handler) csr->trap_handler(csr->sim);
   return;
 }
@@ -364,7 +365,7 @@ void csr_cycle(csr_t *csr, int n_instret) {
     unsigned from_mode = csr->mode;
     if (from_mode == PRIVILEGE_MODE_M) {
       // pc
-      csr->sim->pc = csr->mepc;
+      csr->sim->registers[REG_PC] = csr->mepc;
       csr->mepc = 0;
       // enable
       csr->status_mie = csr->status_mpie;
@@ -374,7 +375,7 @@ void csr_cycle(csr_t *csr, int n_instret) {
       csr->status_mpp = 0;
     } else {
       // pc
-      csr->sim->pc = csr->sepc;
+      csr->sim->registers[REG_PC] = csr->sepc;
       csr->sepc = 0;
       // enable
       csr->status_sie = csr->status_spie;

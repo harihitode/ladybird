@@ -6,12 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define NUM_GPR 32
-#define NUM_FPR 32
-
 void sim_init(sim_t *sim) {
   // clear gpr
-  sim->gpr = (unsigned *)calloc(NUM_GPR, sizeof(unsigned));
+  sim->registers = (unsigned *)calloc(NUM_REGISTERS, sizeof(unsigned));
   // init csr
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
@@ -20,7 +17,6 @@ void sim_init(sim_t *sim) {
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
   memory_set_sim(sim->mem, sim);
-  sim->pc = 0;
   return;
 }
 
@@ -44,7 +40,7 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
     }
   }
   // set entry program counter
-  sim->pc = sim->elf->entry_address;
+  sim->registers[REG_PC] = sim->elf->entry_address;
   ret = 0;
  cleanup:
   elf_fini(sim->elf);
@@ -54,7 +50,7 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
 }
 
 void sim_fini(sim_t *sim) {
-  free(sim->gpr);
+  free(sim->registers);
   memory_fini(sim->mem);
   free(sim->mem);
   csr_fini(sim->csr);
@@ -490,7 +486,7 @@ void process_muldiv(sim_t *sim, unsigned funct, unsigned src1, unsigned src2, st
 
 void sim_step(sim_t *sim) {
   // fetch
-  unsigned inst = memory_load_instruction(sim->mem, sim->pc);
+  unsigned inst = memory_load_instruction(sim->mem, sim->registers[REG_PC]);
   struct result_t result;
   result.rd = 0;
   unsigned opcode;
@@ -498,9 +494,9 @@ void sim_step(sim_t *sim) {
     goto csr_update;
   }
   if ((inst & 0x03) == 0x03) {
-    result.pc_next = sim->pc + 4;
+    result.pc_next = sim->registers[REG_PC] + 4;
   } else {
-    result.pc_next = sim->pc + 2;
+    result.pc_next = sim->registers[REG_PC] + 2;
     inst = decompress(inst);
   }
   opcode = get_opcode(inst);
@@ -525,7 +521,7 @@ void sim_step(sim_t *sim) {
   }
   case OPCODE_AUIPC:
     result.rd = get_rd(inst);
-    result.rd_data = sim->pc + (inst & 0xfffff000);
+    result.rd_data = sim->registers[REG_PC] + (inst & 0xfffff000);
     break;
   case OPCODE_LUI:
     result.rd = get_rd(inst);
@@ -539,7 +535,7 @@ void sim_step(sim_t *sim) {
   case OPCODE_JAL:
     result.rd = get_rd(inst);
     result.rd_data = result.pc_next;
-    result.pc_next = sim->pc + get_jal_offset(inst);
+    result.pc_next = sim->registers[REG_PC] + get_jal_offset(inst);
     break;
   case OPCODE_STORE: {
     unsigned addr = sim_read_register(sim, get_rs1(inst)) + get_store_offset(inst);
@@ -740,7 +736,7 @@ void sim_step(sim_t *sim) {
       break;
     }
     if (pred == 1) {
-      result.pc_next = sim->pc + get_branch_offset(inst);
+      result.pc_next = sim->registers[REG_PC] + get_branch_offset(inst);
     }
     break;
   }
@@ -756,7 +752,7 @@ void sim_step(sim_t *sim) {
   if (result.rd != 0) {
     sim_write_register(sim, result.rd, result.rd_data);
   }
-  sim->pc = result.pc_next;
+  sim->registers[REG_PC] = result.pc_next;
  csr_update:
   csr_cycle(sim->csr, 1); // 1.0 ipc
   return;
@@ -765,16 +761,16 @@ void sim_step(sim_t *sim) {
 unsigned sim_read_register(sim_t *sim, unsigned regno) {
   if (regno == 0) {
     return 0;
-  } else if (regno < NUM_GPR) {
-    return sim->gpr[regno];
+  } else if (regno < NUM_REGISTERS) {
+    return sim->registers[regno];
   } else {
-    return sim->pc;
+    return 0;
   }
 }
 
 void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
-  if (regno < NUM_GPR) {
-    sim->gpr[regno] = value;
+  if (regno < NUM_REGISTERS) {
+    sim->registers[regno] = value;
   }
   return;
 }
@@ -839,7 +835,7 @@ void sim_debug_dump_status(sim_t *sim) {
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
     break;
   }
-  fprintf(stderr, "PC: %08x, (RAM: %08x, %08x)\n", sim->pc, memory_address_translation(sim->mem, sim->pc, 0), memory_load_instruction(sim->mem, sim->pc));
+  fprintf(stderr, "PC: %08x, (RAM: %08x, %08x)\n", sim->registers[REG_PC], memory_address_translation(sim->mem, sim->registers[REG_PC], 0), memory_load_instruction(sim->mem, sim->registers[REG_PC]));
   fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
   fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
   fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));
