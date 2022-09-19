@@ -57,6 +57,7 @@ int main(int argc, char *argv[]) {
   unsigned client_len;
   // initialization
   sim_init(sim);
+  sim_debug_enable(sim);
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
     goto cleanup;
@@ -71,6 +72,8 @@ int main(int argc, char *argv[]) {
   if (argc >= 5) {
     fo = fopen(argv[4], "w");
   }
+  sim_uart_io(sim, fi, fo);
+  // config TCP
   port = 12345;
   sock = socket(AF_INET, SOCK_STREAM, 0);
   server_addr.sin_family = AF_INET;
@@ -79,7 +82,7 @@ int main(int argc, char *argv[]) {
   bind(sock, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in));
   listen(sock, 1);
   client = accept(sock, (struct sockaddr *)&client_addr, &client_len);
-  sim_uart_io(sim, fi, fo);
+  // start simulation
   dbg_main(sim);
  cleanup:
   close(client);
