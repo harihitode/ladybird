@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define SIGTRAP 5
+
 void sim_init(sim_t *sim) {
   // clear gpr
   sim->registers = (unsigned *)calloc(NUM_REGISTERS, sizeof(unsigned));
@@ -13,6 +15,8 @@ void sim_init(sim_t *sim) {
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
   csr_set_sim(sim->csr, sim);
+  sim->signum = SIGTRAP;
+  sim->dbg_mode = 0;
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
@@ -490,6 +494,7 @@ void sim_step(sim_t *sim) {
   struct result_t result;
   result.rd = 0;
   unsigned opcode;
+  unsigned instret = 1;
   if (sim->csr->exception) {
     goto csr_update;
   }
@@ -635,7 +640,8 @@ void sim_step(sim_t *sim) {
     break;
   }
   case OPCODE_MISC_MEM:
-    memory_cache_write_back(sim->mem);
+    // any fence means cache flush for this system
+    memory_dcache_write_back(sim->mem);
     break;
   case OPCODE_SYSTEM:
     if (get_funct3(inst) & 0x03) {
@@ -667,6 +673,7 @@ void sim_step(sim_t *sim) {
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct7(inst)) {
       case 0x00:
+        instret = 0;
         if (get_rs2(inst) == 0) {
           if (sim->csr->mode == PRIVILEGE_MODE_M) {
             csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
@@ -676,7 +683,11 @@ void sim_step(sim_t *sim) {
             csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_U);
           }
         } else if (get_rs2(inst) == 1) {
-          csr_exception(sim->csr, TRAP_CODE_BREAKPOINT);
+          if (sim->dbg_mode) {
+            sim->signum = SIGTRAP;
+          } else {
+            csr_exception(sim->csr, TRAP_CODE_BREAKPOINT);
+          }
         } else {
           csr_exception(sim->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
         }
@@ -754,7 +765,7 @@ void sim_step(sim_t *sim) {
   }
   sim->registers[REG_PC] = result.pc_next;
  csr_update:
-  csr_cycle(sim->csr, 1); // 1.0 ipc
+  csr_cycle(sim->csr, instret);
   return;
 }
 
@@ -775,13 +786,15 @@ void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
   return;
 }
 
-unsigned sim_read_memory(sim_t *sim, unsigned addr) {
-  unsigned ret = memory_load(sim->mem, addr, 4, 0);
+char sim_read_memory(sim_t *sim, unsigned addr) {
+  unsigned ret = memory_load(sim->mem, addr, 1, 0);
   return ret;
 }
 
-void sim_write_memory(sim_t *sim, unsigned addr, unsigned value) {
-  memory_store(sim->mem, addr, value, 4, 0);
+void sim_write_memory(sim_t *sim, unsigned addr, char value) {
+  memory_store(sim->mem, addr, value, 1, 0);
+  memory_dcache_write_back(sim->mem);
+  memory_icache_invalidate(sim->mem);
   return;
 }
 
@@ -817,6 +830,23 @@ int sim_uart_io(sim_t *sim, FILE *in, FILE *out) {
 
 unsigned sim_get_instruction(sim_t *sim, unsigned pc) {
   return memory_load_instruction(sim->mem, pc);
+}
+
+void sim_clear_exception(sim_t *sim) {
+  sim->csr->exception = 0;
+}
+
+void sim_debug_enable(sim_t *sim) {
+  sim->dbg_mode = 1;
+}
+
+void sim_debug_continue(sim_t *sim) {
+  // continue to ebreak
+  sim->signum = 0;
+  sim_clear_exception(sim);
+  while (sim->signum == 0) {
+    sim_step(sim);
+  }
 }
 
 void sim_debug_dump_status(sim_t *sim) {

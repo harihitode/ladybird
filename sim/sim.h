@@ -16,9 +16,10 @@ struct elf_t;
 #define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
 #define REG_PC 32
 
-typedef struct sim_t {
+typedef struct dbg_state {
   unsigned signum;
   unsigned *registers;
+  unsigned dbg_mode;
   struct memory_t *mem;
   struct csr_t *csr;
   struct elf_t *elf;
@@ -28,12 +29,13 @@ void sim_init(sim_t *);
 void sim_step(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
-unsigned sim_read_memory(sim_t *, unsigned addr);
-void sim_write_memory(sim_t *, unsigned addr, unsigned value);
+char sim_read_memory(sim_t *, unsigned addr);
+void sim_write_memory(sim_t *, unsigned addr, char value);
 void sim_fini(sim_t *);
 // trap
 // set callback function when exception occurs
 void sim_trap(sim_t *, void (*func)(sim_t *sim));
+void sim_clear_exception(sim_t *);
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
 unsigned sim_get_epc(sim_t *);
@@ -43,6 +45,8 @@ int sim_load_elf(sim_t *, const char *elf_path);
 int sim_virtio_disk(sim_t *, const char *img_path, int mode);
 int sim_uart_io(sim_t *, FILE *in, FILE *out);
 // debug
+void sim_debug_enable(sim_t *); // enter debug mode when execute ebreak
+void sim_debug_continue(sim_t *);
 void sim_debug_dump_status(sim_t *);
 
 // trap code below
