@@ -11,7 +11,7 @@
 #define MEMORY_STORE_SUCCESS 0
 #define MEMORY_STORE_FAILURE 1
 
-struct sim_t;
+struct dbg_state;
 struct uart_t;
 struct disk_t;
 struct csr_t;
@@ -85,7 +85,7 @@ typedef struct tlb_t {
 } tlb_t;
 
 void memory_init(memory_t *, unsigned ram_size, unsigned ram_block_size);
-void memory_set_sim(memory_t *, struct sim_t *);
+void memory_set_sim(memory_t *, struct dbg_state *);
 unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
 unsigned memory_load_instruction(memory_t *, unsigned addr);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
@@ -98,7 +98,8 @@ unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
-void memory_cache_write_back(memory_t *);
+void memory_icache_invalidate(memory_t *);
+void memory_dcache_write_back(memory_t *);
 unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type);
 
 void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);

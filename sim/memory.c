@@ -75,7 +75,7 @@ void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   tlb_init(mem->tlb, mem, 64); // 64 entry
 }
 
-void memory_set_sim(memory_t *mem, struct sim_t *sim) {
+void memory_set_sim(memory_t *mem, sim_t *sim) {
   mem->csr = sim->csr;
   return;
 }
@@ -156,7 +156,7 @@ static char memory_aclint_load(memory_t *mem, unsigned addr) {
       ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
   } else {
     csr_set_tval(mem->csr, addr);
-    csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+    csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
   }
   value = (value64 >> (8 * byte_offset));
   return value;
@@ -174,13 +174,14 @@ static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
     // mtime read only
   } else {
     csr_set_tval(mem->csr, addr);
-    csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+    csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
   }
 }
 
 unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved) {
   unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_LOAD);
   if (mem->csr->exception) {
+    printf("exception!\n");
     return 0;
   }
   unsigned value = 0;
@@ -210,7 +211,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     break;
   default:
     csr_set_tval(mem->csr, paddr);
-    csr_trap(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+    csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
     break;
   }
   return value;
@@ -248,7 +249,7 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
     break;
   default:
     csr_set_tval(mem->csr, paddr);
-    csr_trap(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+    csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
     break;
   }
   return ret;
@@ -339,7 +340,14 @@ void memory_fini(memory_t *mem) {
   return;
 }
 
-void memory_cache_write_back(memory_t *mem) {
+void memory_icache_invalidate(memory_t *mem) {
+  for (unsigned i = 0; i < mem->icache->line_size; i++) {
+    mem->icache->line[i].valid = 0;
+  }
+  mem->inst_line = NULL;
+}
+
+void memory_dcache_write_back(memory_t *mem) {
   for (unsigned i = 0; i < mem->dcache->line_size; i++) {
     cache_write_back(mem->dcache, i);
   }
