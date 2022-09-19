@@ -306,7 +306,6 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->registers[REG_PC]);
 #endif
   }
-  csr->sim->signum = trap_code;
   if (csr->trap_handler) csr->trap_handler(csr->sim);
   return;
 }
@@ -348,6 +347,32 @@ void csr_exception(csr_t *csr, unsigned code) {
   return;
 }
 
+void csr_restore_trap(csr_t *csr) {
+  csr->trapret = 0;
+  unsigned from_mode = csr->mode;
+  if (from_mode == PRIVILEGE_MODE_M) {
+    // pc
+    csr->sim->registers[REG_PC] = csr->mepc;
+    csr->mepc = 0;
+    // enable
+    csr->status_mie = csr->status_mpie;
+    csr->status_mpie = 1;
+    // mode
+    csr->mode = csr->status_mpp;
+    csr->status_mpp = 0;
+  } else {
+    // pc
+    csr->sim->registers[REG_PC] = csr->sepc;
+    csr->sepc = 0;
+    // enable
+    csr->status_sie = csr->status_spie;
+    csr->status_spie = 1;
+    // mode
+    csr->mode = csr->status_spp;
+    csr->status_spp = 0;
+  }
+}
+
 void csr_cycle(csr_t *csr, int n_instret) {
   csr->cycle++; // assume 100 MHz
   csr->instret += n_instret;
@@ -361,31 +386,9 @@ void csr_cycle(csr_t *csr, int n_instret) {
   }
 
   if (csr->trapret) {
-    csr->trapret = 0;
-    unsigned from_mode = csr->mode;
-    if (from_mode == PRIVILEGE_MODE_M) {
-      // pc
-      csr->sim->registers[REG_PC] = csr->mepc;
-      csr->mepc = 0;
-      // enable
-      csr->status_mie = csr->status_mpie;
-      csr->status_mpie = 1;
-      // mode
-      csr->mode = csr->status_mpp;
-      csr->status_mpp = 0;
-    } else {
-      // pc
-      csr->sim->registers[REG_PC] = csr->sepc;
-      csr->sepc = 0;
-      // enable
-      csr->status_sie = csr->status_spie;
-      csr->status_spie = 1;
-      // mode
-      csr->mode = csr->status_spp;
-      csr->status_spp = 0;
-    }
-  // catch exception
+    csr_restore_trap(csr);
   } else if (csr->exception) {
+    // catch exception
     csr->exception = 0;
     csr_trap(csr, csr->exception_code);
   } else if (csr->interrupt) {
