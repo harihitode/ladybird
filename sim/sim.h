@@ -2,29 +2,9 @@
 #define SIM_H
 
 #include <stdio.h>
+#include "gdbstub_sys.h"
 
-struct memory_t;
-struct csr_t;
-struct elf_t;
-
-#define NUM_GPR 32
-#ifdef F_EXTENSION
-#define NUM_FPR 32
-#else
-#define NUM_FPR 0
-#endif
-#define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
-#define REG_PC 32
-
-typedef struct dbg_state {
-  unsigned signum;
-  unsigned *registers;
-  unsigned dbg_mode;
-  struct memory_t *mem;
-  struct csr_t *csr;
-  struct elf_t *elf;
-} sim_t;
-
+// sim_t is declared in gdbstub_sys.h
 void sim_init(sim_t *);
 void sim_step(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);

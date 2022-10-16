@@ -1,19 +1,25 @@
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "gdbstub/gdbstub.h"
+#include "sim.h"
 
 // global
 static sim_t *sim;
 int sock, client;
+int dbg_main(struct dbg_state *state);
 
 int dbg_sys_getc() {
   char ch;
-  recv(client, &ch, 1, MSG_WAITALL);
-  return (unsigned)ch;
+  size_t size = recv(client, &ch, 1, MSG_WAITALL);
+  if (size == 0) {
+    return EOF;
+  } else {
+    return (unsigned)ch;
+  }
 }
 
 int dbg_sys_putchar(int ch) {
@@ -52,9 +58,10 @@ int main(int argc, char *argv[]) {
   sim = (sim_t *)malloc(sizeof(sim_t));
   FILE *fi = stdin;
   FILE *fo = stdout;
-  struct sockaddr_in server_addr, client_addr;
-  int port;
-  unsigned client_len;
+  char addr[32];
+  unsigned short port;
+  struct sockaddr_in client_addr;
+  unsigned client_len = sizeof(client_addr);
   // initialization
   sim_init(sim);
   sim_debug_enable(sim);
@@ -75,12 +82,25 @@ int main(int argc, char *argv[]) {
   sim_uart_io(sim, fi, fo);
   // config TCP
   port = 12345;
-  sock = socket(AF_INET, SOCK_STREAM, 0);
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(port);
-  server_addr.sin_addr.s_addr = INADDR_ANY;
-  bind(sock, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in));
-  listen(sock, 1);
+  strncpy(addr, "127.0.0.1", 32);
+  {
+    struct sockaddr_in server_addr;
+    char yes = 1;
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    inet_pton(AF_INET, addr, &server_addr.sin_addr.s_addr);
+    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) < 0) {
+      perror("bind");
+      goto cleanup;
+    }
+    if (listen(sock, 1) < 0) {
+      perror("listen");
+      goto cleanup;
+    }
+  }
+  printf("Debug Server Started: %s:%d\n", addr, port);
   client = accept(sock, (struct sockaddr *)&client_addr, &client_len);
   // start simulation
   dbg_main(sim);

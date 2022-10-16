@@ -5,6 +5,7 @@
 #include "mmio.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define SIGTRAP 5
 
@@ -21,6 +22,26 @@ void sim_init(sim_t *sim) {
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
   memory_set_sim(sim->mem, sim);
+
+  sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
+  for (int i = 0; i < NUM_REGISTERS; i++) {
+    char *buf = (char *)malloc(128 * sizeof(char));
+    if (i >= 0 && i <= 31) {
+      sprintf(buf,
+              "name:x%d;bitsize:32;offset:%d;format:hex;set:General Purpose "
+              "Registers;",
+              i, i * 4);
+      if (i == 2) {
+        sprintf(&buf[strlen(buf)], "alt-name:sp;generic:sp;");
+      } else if (i == 8) {
+        sprintf(&buf[strlen(buf)], "alt-name:fp;generic:fp;");
+      }
+    } else if (i == 32) {
+      sprintf(buf, "name:pc;bitsize:32;offset:128;format:hex;set:General "
+              "Purpose Registers;generic:pc;");
+    }
+    sim->reginfo[i] = buf;
+  }
   return;
 }
 
@@ -59,6 +80,10 @@ void sim_fini(sim_t *sim) {
   free(sim->mem);
   csr_fini(sim->csr);
   free(sim->csr);
+  for (int i = 0; i < NUM_REGISTERS; i++) {
+    free(sim->reginfo[i]);
+  }
+  free(sim->reginfo);
   return;
 }
 
