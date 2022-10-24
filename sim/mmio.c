@@ -4,9 +4,11 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/epoll.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <signal.h>
+#include <string.h>
 
 #define UART_ADDR_RHR 0
 #define UART_ADDR_THR 0
@@ -26,36 +28,67 @@
 static int uart_input_routine(void *arg) {
   uart_t *uart = (uart_t *)arg;
   char c;
+  int ret = 0;
   signal(SIGINT, SIG_DFL);
   signal(SIGTERM, SIG_DFL);
   signal(SIGABRT, SIG_DFL);
-  while ((c = fgetc(uart->fi)) != EOF) {
-    mtx_lock(&uart->mutex);
-    uart->buf[uart->buf_wr_index++] = c;
-    mtx_unlock(&uart->mutex);
+  int epfd = epoll_create(2);
+  struct epoll_event ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.events = EPOLLIN;
+  ev.data.fd = uart->fi;
+  epoll_ctl(epfd, EPOLL_CTL_ADD, uart->fi, &ev);
+  ev.data.fd = uart->i_pipe[0];
+  epoll_ctl(epfd, EPOLL_CTL_ADD, uart->i_pipe[0], &ev);
+  struct epoll_event events[2];
+  int loop = 1;
+  while (loop) {
+    int nfd = epoll_wait(epfd, events, 2, -1);
+    for (int i = 0; i < nfd; i++) {
+      if (events[i].data.fd == uart->i_pipe[0]) {
+        loop = 0;
+        break;
+      } else if (events[i].data.fd == uart->fi) {
+        if ((ret = read(uart->fi, &c, 1)) < 0) {
+          perror("uart routine read");
+          loop = 0;
+        } else {
+          mtx_lock(&uart->mutex);
+          uart->buf[uart->buf_wr_index++] = c;
+          mtx_unlock(&uart->mutex);
+        }
+      }
+    }
   }
-  thrd_exit(0);
+  close(epfd);
+  thrd_exit(ret);
 }
 
 void uart_init(uart_t *uart) {
-  uart->fi = NULL;
-  uart->fo = NULL;
+  uart->fi = -1;
+  uart->fo = -1;
   uart->mode = UART_LCR_DEFAULT_MODE;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
   uart->buf_wr_index = 0;
   uart->buf_rd_index = 0;
   uart->intr_enable = 0;
+  if (pipe(uart->i_pipe) == -1) {
+    perror("uart init pipe for child thread");
+  }
+  mtx_init(&uart->mutex, mtx_plain);
 }
 
-void uart_set_io(uart_t *uart, FILE *fi, FILE *fo) {
-  if (fi) {
-    uart->fi = fi;
+void uart_set_io(uart_t *uart, FILE *in, FILE *out) {
+  if ((uart->fo = dup(fileno(out))) == -1) {
+    perror("set output: dup");
+  }
+  if ((uart->fi = dup(fileno(in))) == -1) {
+    perror("set input: dup");
+  } else {
     if (thrd_create(&uart->i_thread, (thrd_start_t)uart_input_routine, (void *)uart) == thrd_error) {
       fprintf(stderr, "uart initialization error: thread create\n");
     }
-    mtx_init(&uart->mutex, mtx_plain);
   }
-  uart->fo = fo;
   return;
 }
 
@@ -64,15 +97,13 @@ char uart_read(uart_t *uart, unsigned addr) {
   case UART_ADDR_RHR: {
     // RX Register (uart input)
     char ret = 0;
-    if (uart->fi) {
-      mtx_lock(&uart->mutex);
-      ret = uart->buf[uart->buf_rd_index++];
-      if (uart->buf_rd_index == uart->buf_wr_index) {
-        uart->buf_rd_index = 0;
-        uart->buf_wr_index = 0;
-      }
-      mtx_unlock(&uart->mutex);
+    mtx_lock(&uart->mutex);
+    ret = uart->buf[uart->buf_rd_index++];
+    if (uart->buf_rd_index == uart->buf_wr_index) {
+      uart->buf_rd_index = 0;
+      uart->buf_wr_index = 0;
     }
+    mtx_unlock(&uart->mutex);
     return ret;
   }
   case UART_ADDR_LSR: // Line Status Register
@@ -109,8 +140,9 @@ void uart_write(uart_t *uart, unsigned addr, char value) {
   case UART_ADDR_THR:
     // TX Register (uart output)
     if (uart->mode == UART_LCR_DEFAULT_MODE) {
-      fputc(value, uart->fo);
-      fflush(stdout);
+      if (write(uart->fo, &value, 1) < 0) {
+        perror("uart output");
+      }
     }
     break;
   case UART_ADDR_LCR: // Line Control Register
@@ -136,11 +168,23 @@ void uart_irq_ack(uart_t *uart) {
 }
 
 void uart_fini(uart_t *uart) {
-  if (uart->buf) free(uart->buf);
-  if (uart->fi) {
-    thrd_join(uart->i_thread, NULL);
-    mtx_destroy(&uart->mutex);
+  char c = 'a';
+  if (write(uart->i_pipe[1], &c, 1) < 0) {
+    perror("uart fini write notification");
   }
+  if (uart->buf) {
+    free(uart->buf);
+  }
+  if (uart->fi >= 0) {
+    close(uart->fi);
+    thrd_join(uart->i_thread, NULL);
+  }
+  if (uart->fo >= 0) {
+    close(uart->fo);
+  }
+  mtx_destroy(&uart->mutex);
+  close(uart->i_pipe[0]);
+  close(uart->i_pipe[1]);
   return;
 }
 
