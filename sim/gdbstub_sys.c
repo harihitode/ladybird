@@ -41,7 +41,6 @@ int dbg_sys_mem_writeb(address addr, char val) {
 
 int dbg_sys_continue() {
   sim_debug_continue(sim);
-  dbg_main(sim);
   return 0;
 }
 
@@ -54,11 +53,46 @@ int dbg_sys_kill() {
   return 0;
 }
 
-int dbg_sys_set_breakpoint(address addr) {
+int dbg_sys_set_bw_point(address addr, int type, int kind) {
+  struct dbg_break_watch *pp = NULL;
+  int find = 0;
+  for (struct dbg_break_watch *p = sim->bw; p != NULL; p = p->next) {
+    pp = p;
+    if (p->addr == addr && p->type == type && p->kind == kind) {
+      find = 1;
+      break;
+    }
+  }
+  if (!find) {
+    struct dbg_break_watch *np = (struct dbg_break_watch *)malloc(sizeof(struct dbg_break_watch));
+    np->addr = addr;
+    np->type = type;
+    np->kind = kind;
+    np->value = 0;
+    np->next = NULL;
+    if (pp == NULL) {
+      sim->bw = np;
+    } else {
+      pp->next = np;
+    }
+  }
   return 0;
 }
 
-int dbg_sys_reset_breakpoint(address addr) {
+int dbg_sys_rst_bw_point(address addr, int type, int kind) {
+  struct dbg_break_watch *pp = NULL;
+  for (struct dbg_break_watch *p = sim->bw; p != NULL; p = p->next) {
+    if (p->addr == addr && p->type == type && p->kind == kind) {
+      if (pp == NULL) {
+        sim->bw = NULL;
+      } else {
+        pp->next = p->next;
+      }
+      free(p);
+      break;
+    }
+    pp = p;
+  }
   return 0;
 }
 

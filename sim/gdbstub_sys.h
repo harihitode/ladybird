@@ -16,17 +16,27 @@ struct elf_t;
 #define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
 #define REG_PC 32
 
+typedef unsigned int address;
+
+struct dbg_break_watch {
+  address addr;
+  int type;
+  int kind;
+  unsigned value;
+  struct dbg_break_watch *next;
+};
+
 typedef struct dbg_state {
-  unsigned signum;
   unsigned *registers;
-  unsigned dbg_mode;
-  char **reginfo;
   struct memory_t *mem;
   struct csr_t *csr;
   struct elf_t *elf;
-  char triple[64];
+  // for debugger stub
+  unsigned dbg_mode; // 1:stab mode
+  unsigned signum; // trap cause number
+  char **reginfo;  // register information
+  char triple[64]; // triple information
+  struct dbg_break_watch *bw; // break and watch point
 } sim_t;
-
-typedef unsigned int address;
 
 #endif

@@ -42,6 +42,7 @@ void sim_init(sim_t *sim) {
     sim->reginfo[i] = buf;
   }
   sprintf(sim->triple, "%s", "riscv32-unknown-unknown-elf");
+  sim->bw = NULL;
   return;
 }
 
