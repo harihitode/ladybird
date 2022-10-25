@@ -64,6 +64,7 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
       }
     }
   }
+  memory_dcache_write_back(sim->mem);
   // set entry program counter
   sim->registers[REG_PC] = sim->elf->entry_address;
   ret = 0;
