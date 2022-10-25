@@ -22,7 +22,6 @@ void sim_init(sim_t *sim) {
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
   memory_set_sim(sim->mem, sim);
-
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
     char *buf = (char *)malloc(128 * sizeof(char));
@@ -42,6 +41,7 @@ void sim_init(sim_t *sim) {
     }
     sim->reginfo[i] = buf;
   }
+  sprintf(sim->triple, "%s", "riscv32-unknown-unknown-elf");
   return;
 }
 

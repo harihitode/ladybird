@@ -50,6 +50,18 @@ int dbg_sys_step() {
   return 0;
 }
 
+int dbg_sys_kill() {
+  return 0;
+}
+
+int dbg_sys_set_breakpoint(address addr) {
+  return 0;
+}
+
+int dbg_sys_reset_breakpoint(address addr) {
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     fprintf(stderr, "%s [ELF FILE] [DISK FILE]\n", argv[0]);
@@ -105,8 +117,6 @@ int main(int argc, char *argv[]) {
   // start simulation
   dbg_main(sim);
  cleanup:
-  close(client);
-  close(sock);
   sim_fini(sim);
   free(sim);
   if (fi != stdin && fi) {
@@ -115,5 +125,7 @@ int main(int argc, char *argv[]) {
   if (fo != stdout && fo) {
     fclose(fo);
   }
+  close(client);
+  close(sock);
   return 0;
 }

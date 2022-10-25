@@ -24,6 +24,7 @@ typedef struct dbg_state {
   struct memory_t *mem;
   struct csr_t *csr;
   struct elf_t *elf;
+  char triple[64];
 } sim_t;
 
 typedef unsigned int address;
