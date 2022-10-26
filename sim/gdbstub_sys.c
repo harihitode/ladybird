@@ -56,6 +56,9 @@ int dbg_sys_kill() {
 int dbg_sys_set_bw_point(address addr, int type, int kind) {
   struct dbg_break_watch *pp = NULL;
   int find = 0;
+  if (type < 0 || type > 5) {
+    return 1;
+  }
   for (struct dbg_break_watch *p = sim->bw; p != NULL; p = p->next) {
     pp = p;
     if (p->addr == addr && p->type == type && p->kind == kind) {
@@ -75,6 +78,35 @@ int dbg_sys_set_bw_point(address addr, int type, int kind) {
     } else {
       pp->next = np;
     }
+    switch (type) {
+    case 0: // SW Breakpoint
+      {
+        np->value = np->value | (unsigned)sim_read_memory(sim, addr);
+        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 1) << 8);
+        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 2) << 16);
+        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 3) << 24);
+        if (np->value & 0x03) {
+          // normal
+          sim_write_memory(sim, addr, (char)(0x0ff & INSTRUCTION_EBREAK));
+          sim_write_memory(sim, addr + 1, (char)(0x0ff & (INSTRUCTION_EBREAK >> 8)));
+          sim_write_memory(sim, addr + 2, (char)(0x0ff & (INSTRUCTION_EBREAK >> 16)));
+          sim_write_memory(sim, addr + 3, (char)(0x0ff & (INSTRUCTION_EBREAK >> 24)));
+        } else {
+          // compressed
+          sim_write_memory(sim, addr, (char)(0x0ff & INSTRUCTION_CEBREAK));
+          sim_write_memory(sim, addr + 1, (char)(0x0ff & (INSTRUCTION_CEBREAK >> 8)));
+        }
+      }
+      break;
+    case 1: // HW Breakpoint
+      break;
+    case 2: // Watchpoint (write)
+      break;
+    case 3: // Watchpoint (read)
+      break;
+    default: // Watchpoint (access)
+      break;
+    }
   }
   return 0;
 }
@@ -87,6 +119,29 @@ int dbg_sys_rst_bw_point(address addr, int type, int kind) {
         sim->bw = NULL;
       } else {
         pp->next = p->next;
+      }
+      switch (type) {
+      case 0: // SW Breakpoint
+        if (p->value & 0x03) {
+          // normal
+          sim_write_memory(sim, addr, (char)(0x0ff & p->value));
+          sim_write_memory(sim, addr + 1, (char)(0x0ff & (p->value >> 8)));
+          sim_write_memory(sim, addr + 2, (char)(0x0ff & (p->value >> 16)));
+          sim_write_memory(sim, addr + 3, (char)(0x0ff & (p->value >> 24)));
+        } else {
+          // compressed
+          sim_write_memory(sim, addr, (char)(0x0ff & p->value));
+          sim_write_memory(sim, addr + 1, (char)(0x0ff & (p->value >> 8)));
+        }
+        break;
+      case 1: // HW Breakpoint
+        break;
+      case 2: // Watchpoint (write)
+        break;
+      case 3: // Watchpoint (read)
+        break;
+      default: // Watchpoint (access)
+        break;
       }
       free(p);
       break;
