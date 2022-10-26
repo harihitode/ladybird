@@ -28,8 +28,8 @@ void sim_init(sim_t *sim) {
     if (i >= 0 && i <= 31) {
       sprintf(buf,
               "name:x%d;bitsize:32;offset:%d;format:hex;set:General Purpose "
-              "Registers;",
-              i, i * 4);
+              "Registers;dwarf:%d;",
+              i, i * 4, i);
       if (i == 2) {
         sprintf(&buf[strlen(buf)], "alt-name:sp;generic:sp;");
       } else if (i == 8) {
@@ -37,7 +37,7 @@ void sim_init(sim_t *sim) {
       }
     } else if (i == 32) {
       sprintf(buf, "name:pc;bitsize:32;offset:128;format:hex;set:General "
-              "Purpose Registers;generic:pc;");
+              "Purpose Registers;drawf:32;generic:pc;");
     }
     sim->reginfo[i] = buf;
   }
@@ -86,6 +86,11 @@ void sim_fini(sim_t *sim) {
     free(sim->reginfo[i]);
   }
   free(sim->reginfo);
+  for (struct dbg_break_watch *p = sim->bw; p != NULL;) {
+    struct dbg_break_watch *p_next = p->next;
+    free(p);
+    p = p_next;
+  }
   return;
 }
 

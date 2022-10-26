@@ -48,4 +48,7 @@ void sim_debug_dump_status(sim_t *);
 #define TRAP_CODE_LOAD_PAGE_FAULT 0x0000000d
 #define TRAP_CODE_STORE_PAGE_FAULT 0x0000000f
 
+#define INSTRUCTION_EBREAK 0x00100073
+#define INSTRUCTION_CEBREAK 0x00009002
+
 #endif
