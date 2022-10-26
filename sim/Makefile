@@ -1,7 +1,7 @@
 SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c
 HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h
 OBJS=$(SRCS:.c=.o)
-POBJS=launch_sim.o gdb_stub_sys.o
+POBJS=launch_sim.o gdbstub_sys.o
 STUBSRCS=gdbstub/gdbstub.c
 STUBHDRS=gdbstub/gdbstub.h
 STUBOBJS=$(STUBSRCS:.c=.o)
@@ -41,4 +41,4 @@ run_lldb:
 	$(RVPATH)/lldb $(KRNL) -o 'process connect connect://localhost:$(PORT)'
 
 clean:
-	$(RM) launch_sim rspsim
+	$(RM) launch_sim rspsim *.o
