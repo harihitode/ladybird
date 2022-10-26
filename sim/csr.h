@@ -3,11 +3,11 @@
 
 #include <stdint.h>
 
-struct sim_t;
+struct dbg_state;
 
 typedef struct csr_t {
-  struct sim_t *sim;
-  void (*trap_handler)(struct sim_t *);
+  struct dbg_state *sim;
+  void (*trap_handler)(struct dbg_state *);
   uint64_t cycle;
   uint64_t time;
   uint64_t timecmp;
@@ -42,7 +42,7 @@ typedef struct csr_t {
 } csr_t;
 
 void csr_init(csr_t *);
-void csr_set_sim(csr_t *, struct sim_t *);
+void csr_set_sim(csr_t *, struct dbg_state *);
 unsigned csr_csrr(csr_t *, unsigned addr);
 void csr_csrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);
@@ -51,6 +51,7 @@ unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
 // trap
 void csr_trap(csr_t *, unsigned trap_code);
 void csr_trapret(csr_t *);
+void csr_restore_trap(csr_t *);
 void csr_set_tval(csr_t *, unsigned trap_value);
 unsigned csr_get_tval(csr_t *);
 // exception

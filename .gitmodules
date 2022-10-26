@@ -1,0 +1,3 @@
+[submodule "sim/gdbstub"]
+	path = sim/gdbstub
+	url = git@github.com:harihitode/gdbstub

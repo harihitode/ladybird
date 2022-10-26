@@ -2,29 +2,20 @@
 #define SIM_H
 
 #include <stdio.h>
+#include "gdbstub_sys.h"
 
-struct memory_t;
-struct csr_t;
-struct elf_t;
-
-typedef struct sim_t {
-  unsigned pc;
-  unsigned *gpr;
-  struct memory_t *mem;
-  struct csr_t *csr;
-  struct elf_t *elf;
-} sim_t;
-
+// sim_t is declared in gdbstub_sys.h
 void sim_init(sim_t *);
 void sim_step(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
-unsigned sim_read_memory(sim_t *, unsigned addr);
-void sim_write_memory(sim_t *, unsigned addr, unsigned value);
+char sim_read_memory(sim_t *, unsigned addr);
+void sim_write_memory(sim_t *, unsigned addr, char value);
 void sim_fini(sim_t *);
 // trap
 // set callback function when exception occurs
 void sim_trap(sim_t *, void (*func)(sim_t *sim));
+void sim_clear_exception(sim_t *);
 unsigned sim_get_trap_code(sim_t *);
 unsigned sim_get_trap_value(sim_t *);
 unsigned sim_get_epc(sim_t *);
@@ -34,6 +25,8 @@ int sim_load_elf(sim_t *, const char *elf_path);
 int sim_virtio_disk(sim_t *, const char *img_path, int mode);
 int sim_uart_io(sim_t *, FILE *in, FILE *out);
 // debug
+void sim_debug_enable(sim_t *); // enter debug mode when execute ebreak
+void sim_debug_continue(sim_t *);
 void sim_debug_dump_status(sim_t *);
 
 // trap code below
@@ -54,5 +47,8 @@ void sim_debug_dump_status(sim_t *);
 #define TRAP_CODE_INSTRUCTION_PAGE_FAULT 0x0000000c
 #define TRAP_CODE_LOAD_PAGE_FAULT 0x0000000d
 #define TRAP_CODE_STORE_PAGE_FAULT 0x0000000f
+
+#define INSTRUCTION_EBREAK 0x00100073
+#define INSTRUCTION_CEBREAK 0x00009002
 
 #endif

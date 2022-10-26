@@ -7,19 +7,20 @@
 #include <sys/stat.h>
 
 typedef struct uart_t {
-  FILE *fi;
-  FILE *fo;
+  int fi;
+  int fo;
   unsigned mode;
   char *buf;
   unsigned buf_wr_index;
   unsigned buf_rd_index;
   thrd_t i_thread;
   mtx_t mutex;
+  int i_pipe[2];
   unsigned intr_enable;
 } uart_t;
 
 void uart_init(uart_t *uart);
-void uart_set_io(uart_t *uart, FILE *fi, FILE *fo);
+void uart_set_io(uart_t *uart, FILE *in, FILE *out);
 char uart_read(uart_t *uart, unsigned addr);
 void uart_write(uart_t *uart, unsigned addr, char value);
 unsigned uart_irq(const uart_t *uart);
