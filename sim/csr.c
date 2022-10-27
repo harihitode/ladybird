@@ -142,6 +142,10 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->stval;
   case CSR_ADDR_S_SCRATCH:
     return csr->sscratch;
+  case CSR_ADDR_M_CAUSE:
+    return csr->mcause;
+  case CSR_ADDR_M_TVAL:
+    return csr->mtval;
   default:
     fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->registers[REG_PC]);
     return 0;
@@ -219,6 +223,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_S_SCRATCH:
     csr->sscratch = value;
+    break;
+  case CSR_ADDR_M_TVAL:
+    csr->mtval = value;
     break;
   default:
     fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->registers[REG_PC]);
@@ -313,23 +320,6 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
 void csr_trapret(csr_t *csr) {
   csr->trapret = 1;
   return;
-}
-
-void csr_set_tval(csr_t *csr, unsigned trap_value) {
-  if (csr->mode == PRIVILEGE_MODE_M) {
-    csr->mtval = trap_value;
-  } else {
-    csr->stval = trap_value;
-  }
-  return;
-}
-
-unsigned csr_get_tval(csr_t *csr) {
-  if (csr->mode == PRIVILEGE_MODE_M) {
-    return csr->mtval;
-  } else {
-    return csr->stval;
-  }
 }
 
 uint64_t csr_get_timecmp(csr_t *csr) {

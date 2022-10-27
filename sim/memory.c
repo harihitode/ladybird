@@ -155,7 +155,11 @@ static char memory_aclint_load(memory_t *mem, unsigned addr) {
       ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIMEH) << 32) |
       ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
   } else {
-    csr_set_tval(mem->csr, addr);
+    if (mem->csr->mode == PRIVILEGE_MODE_M) {
+      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, addr);
+    } else {
+      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, addr);
+    }
     csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
   }
   value = (value64 >> (8 * byte_offset));
@@ -173,7 +177,11 @@ static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
   } else if (addr <= 0x0000BFFF) {
     // mtime read only
   } else {
-    csr_set_tval(mem->csr, addr);
+    if (mem->csr->mode == PRIVILEGE_MODE_M) {
+      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, addr);
+    } else {
+      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, addr);
+    }
     csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
   }
 }
@@ -210,7 +218,11 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     }
     break;
   default:
-    csr_set_tval(mem->csr, paddr);
+    if (mem->csr->mode == PRIVILEGE_MODE_M) {
+      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
+    } else {
+      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+    }
     csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
     break;
   }
@@ -248,7 +260,11 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
     }
     break;
   default:
-    csr_set_tval(mem->csr, paddr);
+    if (mem->csr->mode == PRIVILEGE_MODE_M) {
+      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
+    } else {
+      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+    }
     csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
     break;
   }
@@ -291,7 +307,11 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
           inst |= (((unsigned short *)(&mem->inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
         }
       } else {
-        csr_set_tval(mem->csr, paddr);
+        if (mem->csr->mode == PRIVILEGE_MODE_M) {
+          csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
+        } else {
+          csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+        }
         csr_exception(mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
       }
     }
@@ -516,7 +536,11 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
       paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (addr & 0x00000fff);
     } else {
       if (access_fault) {
-        csr_set_tval(tlb->mem->csr, addr);
+        if (tlb->mem->csr->mode == PRIVILEGE_MODE_M) {
+          csr_csrw(tlb->mem->csr, CSR_ADDR_M_TVAL, addr);
+        } else {
+          csr_csrw(tlb->mem->csr, CSR_ADDR_S_TVAL, addr);
+        }
         switch (access_type) {
         case ACCESS_TYPE_INSTRUCTION:
           csr_exception(tlb->mem->csr, TRAP_CODE_INSTRUCTION_ACCESS_FAULT);
