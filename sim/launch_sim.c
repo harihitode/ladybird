@@ -13,7 +13,19 @@ void shndl(int signum) {
 }
 
 void callback(sim_t *sim) {
-  unsigned trapcode = sim_get_trap_code(sim);
+  unsigned cause_addr;
+  unsigned epc_addr;
+  unsigned tval_addr;
+  if (sim_get_mode(sim) == PRIVILEGE_MODE_M) {
+    cause_addr = CSR_ADDR_M_CAUSE;
+    epc_addr = CSR_ADDR_M_EPC;
+    tval_addr = CSR_ADDR_M_TVAL;
+  } else {
+    cause_addr = CSR_ADDR_S_CAUSE;
+    epc_addr = CSR_ADDR_S_EPC;
+    tval_addr = CSR_ADDR_S_TVAL;
+  }
+  unsigned trapcode = sim_read_csr(sim, cause_addr);
   switch (trapcode) {
   case TRAP_CODE_ENVIRONMENT_CALL_M:
     // fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
@@ -28,20 +40,27 @@ void callback(sim_t *sim) {
     fprintf(stderr, "BREAKPOINT\n");
     quit = 1;
     break;
-  case TRAP_CODE_ILLEGAL_INSTRUCTION:
-    fprintf(stderr, "ILLEGAL INSTRUCTION addr: %08x inst: %08x\n", sim_get_epc(sim), sim_get_instruction(sim, sim_get_epc(sim)));
+  case TRAP_CODE_ILLEGAL_INSTRUCTION: {
+    unsigned epc = sim_read_csr(sim, epc_addr);
+    unsigned inst =
+      (unsigned char)sim_read_memory(sim, epc) |
+      ((unsigned char)sim_read_memory(sim, epc + 1) << 8) |
+      ((unsigned char)sim_read_memory(sim, epc + 2) << 16) |
+      ((unsigned char)sim_read_memory(sim, epc + 3) << 24);
+    fprintf(stderr, "ILLEGAL INSTRUCTION addr: %08x inst: %08x\n", epc, inst);
     quit = 1;
     break;
+  }
   case TRAP_CODE_INSTRUCTION_ACCESS_FAULT:
-    fprintf(stderr, "Instruction Access Fault: %08x\n", sim_get_trap_value(sim));
+    fprintf(stderr, "Instruction Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
     quit = 1;
     break;
   case TRAP_CODE_LOAD_ACCESS_FAULT:
-    fprintf(stderr, "Load Access Fault: %08x\n", sim_get_trap_value(sim));
+    fprintf(stderr, "Load Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
     quit = 1;
     break;
   case TRAP_CODE_STORE_ACCESS_FAULT:
-    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_get_trap_value(sim));
+    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
     quit = 1;
     break;
   case TRAP_CODE_M_TIMER_INTERRUPT:
@@ -99,7 +118,6 @@ int main(int argc, char *argv[]) {
     sim_step(sim);
   }
  cleanup:
-  sim_debug_dump_status(sim);
   sim_fini(sim);
   free(sim);
   if (fi != stdin && fi) {
