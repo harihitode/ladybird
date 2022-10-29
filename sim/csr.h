@@ -1,22 +1,19 @@
 #ifndef CSR_H
 #define CSR_H
 
-#include <stdint.h>
-
 struct dbg_state;
 
 typedef struct csr_t {
   struct dbg_state *sim;
-  void (*trap_handler)(struct dbg_state *);
-  uint64_t cycle;
-  uint64_t time;
-  uint64_t timecmp;
-  uint64_t instret;;
+  unsigned long long cycle;
+  unsigned long long time;
+  unsigned long long timecmp;
+  unsigned long long instret;
   unsigned mode;
   unsigned software_interrupt_m;
   unsigned software_interrupt_s;
-  unsigned status_spp; // previous privilege mode
-  unsigned status_mpp; // previous privilege mode
+  unsigned char status_spp; // previous privilege mode
+  unsigned char status_mpp; // previous privilege mode
   unsigned status_sie; // global interrupt enable
   unsigned status_mie; // global interrupt enable
   unsigned status_spie; // global previous interrupt enable
@@ -39,6 +36,14 @@ typedef struct csr_t {
   unsigned sscratch;
   unsigned stvec; // [S] trap base address
   unsigned stval; // [S] trap value
+  // Sdext
+  void (*dbg_handler)(struct dbg_state *);
+  unsigned char dcsr_ebreakm;
+  unsigned char dcsr_ebreaks;
+  unsigned char dcsr_ebreaku;
+  unsigned char dcsr_cause;
+  unsigned char dcsr_prv; // previous privilege mode
+  unsigned dpc; // debugging PC
 } csr_t;
 
 void csr_init(csr_t *);
@@ -55,8 +60,8 @@ void csr_restore_trap(csr_t *);
 // exception
 void csr_exception(csr_t *, unsigned trap_code);
 // timer
-uint64_t csr_get_timecmp(csr_t *);
-void csr_set_timecmp(csr_t *, uint64_t);
+unsigned long long csr_get_timecmp(csr_t *);
+void csr_set_timecmp(csr_t *, unsigned long long);
 void csr_fini(csr_t *);
 // call once for 1 cycle
 void csr_cycle(csr_t *, int is_instret);

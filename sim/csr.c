@@ -19,9 +19,10 @@
 #define CSR_INT_MSI (0x00000001 << CSR_INT_MSI_FIELD)
 #define CSR_INT_SSI (0x00000001 << CSR_INT_SSI_FIELD)
 
+#define CSR_D_VERSION 0x0f
+
 void csr_init(csr_t *csr) {
   csr->sim = NULL;
-  csr->trap_handler = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
@@ -56,6 +57,12 @@ void csr_init(csr_t *csr) {
   // SW interrupts
   csr->software_interrupt_m = 0;
   csr->software_interrupt_s = 0;
+  // debug
+  csr->dbg_handler = NULL;
+  csr->dcsr_ebreakm = 0;
+  csr->dcsr_ebreaks = 0;
+  csr->dcsr_ebreaku = 0;
+  csr->dpc = 0;
   return;
 }
 
@@ -106,9 +113,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_M_IE:
     return csr->interrupts_enable;
   case CSR_ADDR_U_TIME:
-    return (uint32_t)csr->time;
+    return (unsigned)csr->time;
   case CSR_ADDR_U_TIMEH:
-    return (uint32_t)(csr->time >> 32);
+    return (unsigned)(csr->time >> 32);
   case CSR_ADDR_M_IP:
   case CSR_ADDR_S_IP:
     {
@@ -146,6 +153,19 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->mcause;
   case CSR_ADDR_M_TVAL:
     return csr->mtval;
+  case CSR_ADDR_D_CSR: {
+    unsigned dcsr = 0;
+    dcsr =
+      (CSR_D_VERSION << 28) |
+      (csr->dcsr_ebreakm << 15) |
+      (csr->dcsr_ebreaks << 13) |
+      (csr->dcsr_ebreaku << 12) |
+      (csr->dcsr_cause << 6) |
+      (csr->dcsr_prv & 0x3);
+    return dcsr;
+  }
+  case CSR_ADDR_D_PC:
+    return csr->dpc;
   default:
     fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->registers[REG_PC]);
     return 0;
@@ -227,6 +247,15 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_M_TVAL:
     csr->mtval = value;
     break;
+  case CSR_ADDR_D_CSR:
+    csr->dcsr_ebreakm = (value >> 15) & 0x1;
+    csr->dcsr_ebreaks = (value >> 13) & 0x1;
+    csr->dcsr_ebreaku = (value >> 12) & 0x1;
+    csr->dcsr_prv = value & 0x3;
+    break;
+  case CSR_ADDR_D_PC:
+    csr->dpc = value;
+    break;
   default:
     fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->registers[REG_PC]);
     break;
@@ -273,7 +302,14 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
       to_mode = PRIVILEGE_MODE_S;
     }
   } else {
-    if (
+    if ((trap_code == TRAP_CODE_BREAKPOINT) &&
+        ((csr->mode == PRIVILEGE_MODE_M && csr->dcsr_ebreakm) ||
+         (csr->mode == PRIVILEGE_MODE_S && csr->dcsr_ebreaks) ||
+         (csr->mode == PRIVILEGE_MODE_U && csr->dcsr_ebreaku))
+        ) {
+      // entre debug mode
+      to_mode = PRIVILEGE_MODE_D;
+    } else if (
         // To S mode if current privilege mode is less than M and medeleg is set
         (csr->mode < PRIVILEGE_MODE_M) &&
         (((csr->medeleg >> code)) & 0x00000001)
@@ -284,7 +320,12 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     }
   }
 
-  if (to_mode == PRIVILEGE_MODE_M) {
+  if (to_mode == PRIVILEGE_MODE_D) {
+    csr->dpc = 0;
+    csr->dcsr_prv = csr->mode;
+    csr->dcsr_cause = CSR_DCSR_CAUSE_EBREAK;
+    if (csr->dbg_handler) csr->dbg_handler(csr->sim);
+  } else if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
     // pc
     csr->mepc = csr->sim->registers[REG_PC];
@@ -298,7 +339,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
 #if 0
     fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
 #endif
-  } else {
+  } else if (to_mode == PRIVILEGE_MODE_S) {
     csr->scause = trap_code;
     // pc
     csr->sepc = csr->sim->registers[REG_PC];
@@ -313,7 +354,6 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->registers[REG_PC]);
 #endif
   }
-  if (csr->trap_handler) csr->trap_handler(csr->sim);
   return;
 }
 
@@ -322,11 +362,11 @@ void csr_trapret(csr_t *csr) {
   return;
 }
 
-uint64_t csr_get_timecmp(csr_t *csr) {
+unsigned long long csr_get_timecmp(csr_t *csr) {
   return csr->timecmp;
 }
 
-void csr_set_timecmp(csr_t *csr, uint64_t value) {
+void csr_set_timecmp(csr_t *csr, unsigned long long value) {
   csr->timecmp = value;
   return;
 }
