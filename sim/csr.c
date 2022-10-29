@@ -321,7 +321,7 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   }
 
   if (to_mode == PRIVILEGE_MODE_D) {
-    csr->dpc = 0;
+    csr->dpc = csr->sim->registers[REG_PC];
     csr->dcsr_prv = csr->mode;
     csr->dcsr_cause = CSR_DCSR_CAUSE_EBREAK;
     if (csr->dbg_handler) csr->dbg_handler(csr->sim);
@@ -403,9 +403,9 @@ void csr_restore_trap(csr_t *csr) {
   }
 }
 
-void csr_cycle(csr_t *csr, int n_instret) {
+void csr_cycle(csr_t *csr) {
   csr->cycle++; // assume 100 MHz
-  csr->instret += n_instret;
+  csr->instret++;
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }

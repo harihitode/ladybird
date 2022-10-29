@@ -64,6 +64,6 @@ unsigned long long csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, unsigned long long);
 void csr_fini(csr_t *);
 // call once for 1 cycle
-void csr_cycle(csr_t *, int is_instret);
+void csr_cycle(csr_t *);
 
 #endif
