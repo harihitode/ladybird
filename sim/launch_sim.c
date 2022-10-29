@@ -13,76 +13,7 @@ void shndl(int signum) {
 }
 
 void callback(sim_t *sim) {
-  unsigned cause_addr;
-  unsigned epc_addr;
-  unsigned tval_addr;
-  if (sim_get_mode(sim) == PRIVILEGE_MODE_M) {
-    cause_addr = CSR_ADDR_M_CAUSE;
-    epc_addr = CSR_ADDR_M_EPC;
-    tval_addr = CSR_ADDR_M_TVAL;
-  } else {
-    cause_addr = CSR_ADDR_S_CAUSE;
-    epc_addr = CSR_ADDR_S_EPC;
-    tval_addr = CSR_ADDR_S_TVAL;
-  }
-  unsigned trapcode = sim_read_csr(sim, cause_addr);
-  switch (trapcode) {
-  case TRAP_CODE_ENVIRONMENT_CALL_M:
-    // fprintf(stderr, "ECALL (Machine Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
-    break;
-  case TRAP_CODE_ENVIRONMENT_CALL_S:
-    // fprintf(stderr, "ECALL (Supervisor Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
-    break;
-  case TRAP_CODE_ENVIRONMENT_CALL_U:
-    // fprintf(stderr, "ECALL (User Mode) SYSCALL NO.%d\n", sim_read_register(sim, 17));
-    break;
-  case TRAP_CODE_BREAKPOINT:
-    fprintf(stderr, "BREAKPOINT\n");
-    quit = 1;
-    break;
-  case TRAP_CODE_ILLEGAL_INSTRUCTION: {
-    unsigned epc = sim_read_csr(sim, epc_addr);
-    unsigned inst =
-      (unsigned char)sim_read_memory(sim, epc) |
-      ((unsigned char)sim_read_memory(sim, epc + 1) << 8) |
-      ((unsigned char)sim_read_memory(sim, epc + 2) << 16) |
-      ((unsigned char)sim_read_memory(sim, epc + 3) << 24);
-    fprintf(stderr, "ILLEGAL INSTRUCTION addr: %08x inst: %08x\n", epc, inst);
-    quit = 1;
-    break;
-  }
-  case TRAP_CODE_INSTRUCTION_ACCESS_FAULT:
-    fprintf(stderr, "Instruction Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
-    quit = 1;
-    break;
-  case TRAP_CODE_LOAD_ACCESS_FAULT:
-    fprintf(stderr, "Load Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
-    quit = 1;
-    break;
-  case TRAP_CODE_STORE_ACCESS_FAULT:
-    fprintf(stderr, "Store/AMO Access Fault: %08x\n", sim_read_csr(sim, tval_addr));
-    quit = 1;
-    break;
-  case TRAP_CODE_M_TIMER_INTERRUPT:
-    // fprintf(stderr, "Timer Interrupt [M]\n");
-    break;
-  case TRAP_CODE_S_TIMER_INTERRUPT:
-    // fprintf(stderr, "Timer Interrupt [S]\n");
-    break;
-  case TRAP_CODE_S_SOFTWARE_INTERRUPT:
-    // fprintf(stderr, "SW Interrupt [S]\n");
-    break;
-  case TRAP_CODE_S_EXTERNAL_INTERRUPT:
-    // fprintf(stderr, "EX Interrupt [S]\n");
-    break;
-  case TRAP_CODE_INSTRUCTION_PAGE_FAULT:
-  case TRAP_CODE_LOAD_PAGE_FAULT:
-  case TRAP_CODE_STORE_PAGE_FAULT:
-    break;
-  default:
-    fprintf(stderr, "Unknown Trap: %08x\n", trapcode);
-    break;
-  }
+  quit = 1;
   return;
 }
 
@@ -92,11 +23,11 @@ int main(int argc, char *argv[]) {
     return 0;
   }
   sim_t *sim = (sim_t *)malloc(sizeof(sim_t));
-  FILE *fi = stdin;
-  FILE *fo = stdout;
   // initialization
   sim_init(sim);
-  sim_trap(sim, callback);
+  // set ebreak call callback in any mode
+  sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_ENABLE_ANY_BREAK);
+  sim_debug(sim, callback);
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
     goto cleanup;
@@ -105,13 +36,11 @@ int main(int argc, char *argv[]) {
     // if you open disk file read only mode, set 1 to the last argument below
     sim_virtio_disk(sim, argv[2], 0);
   }
-  if (argc >= 4) {
-    fi = fopen(argv[3], "r");
-  }
   if (argc >= 5) {
-    fo = fopen(argv[4], "w");
+    sim_uart_io(sim, argv[3], argv[4]);
+  } else if (argc >= 4) {
+    sim_uart_io(sim, argv[3], NULL);
   }
-  sim_uart_io(sim, fi, fo);
   signal(SIGINT, shndl);
   // main loop
   while (quit == 0) {
@@ -120,11 +49,5 @@ int main(int argc, char *argv[]) {
  cleanup:
   sim_fini(sim);
   free(sim);
-  if (fi != stdin && fi) {
-    fclose(fi);
-  }
-  if (fo != stdout && fo) {
-    fclose(fo);
-  }
   return 0;
 }

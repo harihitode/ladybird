@@ -1,7 +1,6 @@
 #ifndef SIM_H
 #define SIM_H
 
-#include <stdio.h>
 #include "gdbstub_sys.h"
 
 // sim_t is declared in gdbstub_sys.h
@@ -16,12 +15,14 @@ void sim_write_csr(sim_t *, unsigned addr, unsigned value);
 char sim_read_memory(sim_t *, unsigned addr);
 void sim_write_memory(sim_t *, unsigned addr, char value);
 void sim_fini(sim_t *);
-// trap
-// set callback function when exception occurs
-void sim_trap(sim_t *, void (*func)(sim_t *sim));
+// set callback function on entering debug mode
+void sim_debug(sim_t *, void (*func)(sim_t *sim));
+// loading elf file to ram
 int sim_load_elf(sim_t *, const char *elf_path);
+// set block device I/O
 int sim_virtio_disk(sim_t *, const char *img_path, int mode);
-int sim_uart_io(sim_t *, FILE *in, FILE *out);
+// set character device I/O
+int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 
 // trap code below
 #define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000002
@@ -77,5 +78,11 @@ int sim_uart_io(sim_t *, FILE *in, FILE *out);
 #define CSR_ADDR_S_SCRATCH 0x00000140
 #define CSR_ADDR_M_CAUSE 0x00000342
 #define CSR_ADDR_M_TVAL 0x00000343
+#define CSR_ADDR_D_CSR 0x000007b0
+#define CSR_ADDR_D_PC 0x000007b1
+
+// debug cause
+#define CSR_DCSR_ENABLE_ANY_BREAK 0x0003b003
+#define CSR_DCSR_CAUSE_EBREAK 0x1
 
 #endif
