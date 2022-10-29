@@ -20,7 +20,7 @@ typedef struct uart_t {
 } uart_t;
 
 void uart_init(uart_t *uart);
-void uart_set_io(uart_t *uart, FILE *in, FILE *out);
+void uart_set_io(uart_t *uart, const char *in_path, const char *out_path);
 char uart_read(uart_t *uart, unsigned addr);
 void uart_write(uart_t *uart, unsigned addr, char value);
 unsigned uart_irq(const uart_t *uart);
