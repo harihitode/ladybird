@@ -522,7 +522,6 @@ void sim_step(sim_t *sim) {
   struct result_t result;
   result.rd = 0;
   unsigned opcode;
-  unsigned instret = 1;
   if (sim->csr->exception) {
     goto csr_update;
   }
@@ -701,7 +700,6 @@ void sim_step(sim_t *sim) {
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct7(inst)) {
       case 0x00:
-        instret = 0;
         if (get_rs2(inst) == 0) {
           if (sim->csr->mode == PRIVILEGE_MODE_M) {
             csr_exception(sim->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
@@ -789,7 +787,7 @@ void sim_step(sim_t *sim) {
   }
   sim->registers[REG_PC] = result.pc_next;
  csr_update:
-  csr_cycle(sim->csr, instret);
+  csr_cycle(sim->csr);
   return;
 }
 
