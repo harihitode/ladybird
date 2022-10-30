@@ -7,6 +7,21 @@
 #include <unistd.h>
 #include "sim.h"
 
+#define DBG_SIGHUP 0x01
+#define DBG_SIGINT 0x02
+#define DBG_SIGQUIT 0x03
+#define DBG_SIGILL 0x04
+#define DBG_SIGTRAP 0x05
+#define DBG_SIGABRT 0x06
+#define DBG_SIGPOLL 0x07
+#define DBG_SIGFPE 0x08
+#define DBG_SIGKILL 0x09
+#define DBG_SIGBUS 0x0a
+#define DBG_SIGSEGV 0x0b
+
+#define INSTRUCTION_EBREAK 0x00100073
+#define INSTRUCTION_CEBREAK 0x00009002
+
 // global
 static sim_t *sim;
 int sock, client;
@@ -29,23 +44,21 @@ int dbg_sys_putchar(int ch) {
 
 int dbg_sys_mem_readb(address addr, char *val) {
   *val = (unsigned char)sim_read_memory(sim, addr);
-  sim_clear_exception(sim); // avoid to stall when illegal address accessed
   return 0;
 }
 
 int dbg_sys_mem_writeb(address addr, char val) {
   sim_write_memory(sim, addr, val);
-  sim_clear_exception(sim); // avoid to stall when illegal address accessed
   return 0;
 }
 
 int dbg_sys_continue() {
-  sim_debug_continue(sim);
+  sim_resume(sim);
   return 0;
 }
 
 int dbg_sys_step() {
-  sim_step(sim);
+  sim_single_step(sim);
   return 0;
 }
 
@@ -81,10 +94,11 @@ int dbg_sys_set_bw_point(address addr, int type, int kind) {
     switch (type) {
     case 0: // SW Breakpoint
       {
-        np->value = np->value | (unsigned)sim_read_memory(sim, addr);
-        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 1) << 8);
-        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 2) << 16);
-        np->value = np->value | ((unsigned)sim_read_memory(sim, addr + 3) << 24);
+        np->value = np->value | (unsigned char)sim_read_memory(sim, addr);
+        np->value = np->value | ((unsigned char)sim_read_memory(sim, addr + 1) << 8);
+        np->value = np->value | ((unsigned char)sim_read_memory(sim, addr + 2) << 16);
+        np->value = np->value | ((unsigned char)sim_read_memory(sim, addr + 3) << 24);
+        printf("break point to %08x, %08x\n", addr, np->value);
         if (np->value & 0x03) {
           // normal
           sim_write_memory(sim, addr, (char)(0x0ff & INSTRUCTION_EBREAK));
@@ -122,6 +136,7 @@ int dbg_sys_rst_bw_point(address addr, int type, int kind) {
       }
       switch (type) {
       case 0: // SW Breakpoint
+        printf("break point reset: %08x, %08x\n", addr, p->value);
         if (p->value & 0x03) {
           // normal
           sim_write_memory(sim, addr, (char)(0x0ff & p->value));
@@ -151,21 +166,23 @@ int dbg_sys_rst_bw_point(address addr, int type, int kind) {
   return 0;
 }
 
+char dbg_sys_get_signum() {
+  return DBG_SIGTRAP;
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     fprintf(stderr, "%s [ELF FILE] [DISK FILE]\n", argv[0]);
     return 0;
   }
   sim = (sim_t *)malloc(sizeof(sim_t));
-  FILE *fi = stdin;
-  FILE *fo = stdout;
   char addr[32];
   unsigned short port;
   struct sockaddr_in client_addr;
   unsigned client_len = sizeof(client_addr);
   // initialization
   sim_init(sim);
-  sim_debug_enable(sim);
+  sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_ENABLE_ANY_BREAK);
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
     goto cleanup;
@@ -174,13 +191,11 @@ int main(int argc, char *argv[]) {
     // if you open disk file read only mode, set 1 to the last argument below
     sim_virtio_disk(sim, argv[2], 0);
   }
-  if (argc >= 4) {
-    fi = fopen(argv[3], "r");
-  }
   if (argc >= 5) {
-    fo = fopen(argv[4], "w");
+    sim_uart_io(sim, argv[3], argv[4]);
+  } else if (argc >= 4) {
+    sim_uart_io(sim, argv[3], NULL);
   }
-  sim_uart_io(sim, fi, fo);
   // config TCP
   port = 12345;
   strncpy(addr, "127.0.0.1", 32);
@@ -208,12 +223,6 @@ int main(int argc, char *argv[]) {
  cleanup:
   sim_fini(sim);
   free(sim);
-  if (fi != stdin && fi) {
-    fclose(fi);
-  }
-  if (fo != stdout && fo) {
-    fclose(fo);
-  }
   close(client);
   close(sock);
   return 0;
