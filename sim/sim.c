@@ -21,19 +21,17 @@ void sim_init(sim_t *sim) {
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
     char *buf = (char *)malloc(128 * sizeof(char));
-    if (i >= 0 && i <= 31) {
-      sprintf(buf,
-              "name:x%d;bitsize:32;offset:%d;format:hex;set:General Purpose "
-              "Registers;dwarf:%d;",
-              i, i * 4, i);
-      if (i == 2) {
+    sprintf(buf, "bitsize:%d;offset:%d;format:hex;dwarf:%d;set:General Purpose Registers;",
+            XLEN, i * (XLEN/8), i);
+    if (i < NUM_GPR) {
+      sprintf(&buf[strlen(buf)], "name:x%d;", i);
+      if (i == REG_RA) {
         sprintf(&buf[strlen(buf)], "alt-name:sp;generic:sp;");
-      } else if (i == 8) {
+      } else if (i == REG_FP) {
         sprintf(&buf[strlen(buf)], "alt-name:fp;generic:fp;");
       }
-    } else if (i == 32) {
-      sprintf(buf, "name:pc;bitsize:32;offset:128;format:hex;set:General "
-              "Purpose Registers;drawf:32;generic:pc;");
+    } else if (i == REG_PC) {
+      sprintf(&buf[strlen(buf)], "name:pc;drawf:%d;generic:pc;", i);
     }
     sim->reginfo[i] = buf;
   }
@@ -832,7 +830,7 @@ void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
 
 void sim_debug_dump_status(sim_t *sim) {
   fprintf(stderr, "MODE: ");
-  switch (sim->csr->mode) {
+  switch (sim_get_mode(sim)) {
   case PRIVILEGE_MODE_M:
     fprintf(stderr, "Machine\n");
     break;
@@ -841,6 +839,9 @@ void sim_debug_dump_status(sim_t *sim) {
     break;
   case PRIVILEGE_MODE_U:
     fprintf(stderr, "User\n");
+    break;
+  case PRIVILEGE_MODE_D:
+    fprintf(stderr, "Debug\n");
     break;
   default:
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
