@@ -2,6 +2,7 @@
 #define SIM_H
 
 #include "gdbstub_sys.h"
+typedef struct dbg_state sim_t;
 
 // sim_t is declared in gdbstub_sys.h
 // simulator general interface
@@ -80,6 +81,20 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 #define CSR_ADDR_M_TVAL 0x00000343
 #define CSR_ADDR_D_CSR 0x000007b0
 #define CSR_ADDR_D_PC 0x000007b1
+
+// opcode
+#define OPCODE_LOAD 0x00000003
+#define OPCODE_MISC_MEM 0x0000000F
+#define OPCODE_OP_IMM 0x00000013
+#define OPCODE_AUIPC 0x00000017
+#define OPCODE_STORE 0x00000023
+#define OPCODE_AMO 0x0000002f
+#define OPCODE_OP 0x00000033
+#define OPCODE_LUI 0x00000037
+#define OPCODE_BRANCH 0x00000063
+#define OPCODE_JALR 0x00000067
+#define OPCODE_JAL 0x0000006F
+#define OPCODE_SYSTEM 0x00000073
 
 // debug cause
 #define CSR_DCSR_ENABLE_ANY_BREAK 0x0003b003

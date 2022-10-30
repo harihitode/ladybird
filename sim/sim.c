@@ -95,19 +95,6 @@ void sim_debug(sim_t *sim, void (*callback)(sim_t *)) {
   return;
 }
 
-#define OPCODE_LOAD 0x00000003
-#define OPCODE_MISC_MEM 0x0000000F
-#define OPCODE_OP_IMM 0x00000013
-#define OPCODE_AUIPC 0x00000017
-#define OPCODE_STORE 0x00000023
-#define OPCODE_AMO 0x0000002f
-#define OPCODE_OP 0x00000033
-#define OPCODE_LUI 0x00000037
-#define OPCODE_BRANCH 0x00000063
-#define OPCODE_JALR 0x00000067
-#define OPCODE_JAL 0x0000006F
-#define OPCODE_SYSTEM 0x00000073
-
 static unsigned get_opcode(unsigned inst) { return inst & 0x0000007f; }
 static unsigned get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 static unsigned get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
@@ -214,10 +201,6 @@ static unsigned inst_srai(unsigned rd, unsigned rs1, unsigned shamt) {
   return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | 0x40000000;
 }
 
-#define REG_ZERO 0x00
-#define REG_LINK 0x01
-#define REG_SP 0x02
-
 static unsigned decompress(unsigned inst) {
   unsigned ret = 0; // illegal
   switch (inst & 0x03) {
@@ -274,7 +257,7 @@ static unsigned decompress(unsigned inst) {
         (((inst >> 8) & 0x01) << 10) |
         (((inst >> 9) & 0x03) << 8) |
         (((inst >> 11) & 0x01) << 4);
-      ret = inst_jal(REG_LINK, offs);
+      ret = inst_jal(REG_RA, offs);
       break;
     }
     case 0b010: { // LI
@@ -413,7 +396,7 @@ static unsigned decompress(unsigned inst) {
         if (rs1 == 0 && rs2 == 0) {
           ret = inst_ebreak();
         } else if (rs1 != 0 && rs2 == 0) {
-          ret = inst_jalr(REG_LINK, rs1, 0); // JALR
+          ret = inst_jalr(REG_RA, rs1, 0); // JALR
         } else if (rs1 != 0 && rs2 != 0) {
           ret = inst_add(rd, rs1, rs2); // ADD
         }
