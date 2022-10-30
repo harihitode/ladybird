@@ -42,6 +42,7 @@ typedef struct csr_t {
   unsigned char dcsr_ebreaks;
   unsigned char dcsr_ebreaku;
   unsigned char dcsr_cause;
+  unsigned char dcsr_step;
   unsigned char dcsr_prv; // previous privilege mode
   unsigned dpc; // debugging PC
 } csr_t;

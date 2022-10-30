@@ -62,6 +62,7 @@ void csr_init(csr_t *csr) {
   csr->dcsr_ebreakm = 0;
   csr->dcsr_ebreaks = 0;
   csr->dcsr_ebreaku = 0;
+  csr->dcsr_step = 0;
   csr->dpc = 0;
   return;
 }
@@ -161,6 +162,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       (csr->dcsr_ebreaks << 13) |
       (csr->dcsr_ebreaku << 12) |
       (csr->dcsr_cause << 6) |
+      (csr->dcsr_step << 2) |
       (csr->dcsr_prv & 0x3);
     return dcsr;
   }
@@ -251,6 +253,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->dcsr_ebreakm = (value >> 15) & 0x1;
     csr->dcsr_ebreaks = (value >> 13) & 0x1;
     csr->dcsr_ebreaku = (value >> 12) & 0x1;
+    csr->dcsr_step = (value >> 2) & 0x1;
     csr->dcsr_prv = value & 0x3;
     break;
   case CSR_ADDR_D_PC:
@@ -287,7 +290,9 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   // default: to Machine Mode
   unsigned to_mode = PRIVILEGE_MODE_M;
   // delegation check
-  if (is_interrupt) {
+  if (csr->dcsr_step) {
+    to_mode = PRIVILEGE_MODE_D;
+  } else if (is_interrupt) {
     if (
         // (a) if either the current privilege mode is M and the MIE bit in the mstatus register is set, or the current privilege mode has less privilege than M-mode
         ((csr->mode == PRIVILEGE_MODE_M && csr->status_mie) ||
@@ -323,7 +328,12 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   if (to_mode == PRIVILEGE_MODE_D) {
     csr->dpc = csr->sim->registers[REG_PC];
     csr->dcsr_prv = csr->mode;
-    csr->dcsr_cause = CSR_DCSR_CAUSE_EBREAK;
+    if (csr->dcsr_step) {
+      csr->dcsr_cause = CSR_DCSR_CAUSE_STEP;
+    } else {
+      csr->dcsr_cause = CSR_DCSR_CAUSE_EBREAK;
+    }
+    csr->mode = to_mode;
     if (csr->dbg_handler) csr->dbg_handler(csr->sim);
   } else if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
@@ -417,7 +427,7 @@ void csr_cycle(csr_t *csr) {
 
   if (csr->trapret) {
     csr_restore_trap(csr);
-  } else if (csr->exception) {
+  } else if (csr->exception || csr->dcsr_step) {
     // catch exception
     csr->exception = 0;
     csr_trap(csr, csr->exception_code);
