@@ -42,6 +42,7 @@ void sim_init(sim_t *sim) {
 
 int sim_load_elf(sim_t *sim, const char *elf_path) {
   int ret = 1;
+  unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);
   // init elf loader
   sim->elf = (elf_t *)malloc(sizeof(elf_t));
   elf_init(sim->elf, elf_path);
@@ -62,6 +63,8 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
   memory_dcache_write_back(sim->mem);
   // set entry program counter
   sim->registers[REG_PC] = sim->elf->entry_address;
+  sim_write_csr(sim, CSR_ADDR_D_PC, sim->elf->entry_address);
+  sim_write_csr(sim, CSR_ADDR_D_CSR, (dcsr & 0xfffffffc) | PRIVILEGE_MODE_M);
   ret = 0;
  cleanup:
   elf_fini(sim->elf);
@@ -513,6 +516,9 @@ void sim_step(sim_t *sim) {
     inst = decompress(inst);
   }
   opcode = get_opcode(inst);
+#if 0
+  fprintf(stderr, "%08x: %08x\n", sim->registers[REG_PC], inst);
+#endif
   switch (opcode) {
   case OPCODE_OP_IMM: {
     result.rd = get_rd(inst);
@@ -769,6 +775,25 @@ void sim_step(sim_t *sim) {
   sim->registers[REG_PC] = result.pc_next;
  csr_update:
   csr_cycle(sim->csr);
+  return;
+}
+
+void sim_resume(sim_t *sim) {
+  sim->registers[REG_PC] = sim_read_csr(sim, CSR_ADDR_D_PC);
+  sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
+  while (sim->csr->mode != PRIVILEGE_MODE_D) {
+    sim_step(sim);
+  }
+  return;
+}
+
+void sim_single_step(sim_t *sim) {
+  unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);
+  dcsr |= 0x00000004;
+  sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
+  sim_resume(sim);
+  dcsr &= 0xfffffffb;
+  sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
   return;
 }
 

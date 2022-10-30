@@ -7,8 +7,8 @@ typedef struct dbg_state sim_t;
 // sim_t is declared in gdbstub_sys.h
 // simulator general interface
 void sim_init(sim_t *);
-void sim_step(sim_t *);
-unsigned sim_get_mode(sim_t *);
+void sim_single_step(sim_t *);
+void sim_resume(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
 unsigned sim_read_csr(sim_t *, unsigned addr);
@@ -99,5 +99,6 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 // debug cause
 #define CSR_DCSR_ENABLE_ANY_BREAK 0x0003b003
 #define CSR_DCSR_CAUSE_EBREAK 0x1
+#define CSR_DCSR_CAUSE_STEP 0x4
 
 #endif
