@@ -1,20 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <signal.h>
-#include <string.h>
 #include "sim.h"
 
-sig_atomic_t quit = 0;
-
-void shndl(int signum) {
-  if (signum == SIGINT) {
-    quit = 1;
-  }
+void callback(sim_t *sim) {
+  fprintf(stderr, "==================\n");
+  fprintf(stderr, "Bye simulator (''*\n");
+  fprintf(stderr, "==================\n");
+  return;
 }
 
-void callback(sim_t *sim) {
-  quit = 1;
-  return;
+void hello() {
+  fprintf(stderr, "==================\n");
+  fprintf(stderr, "Hi simulator  (''*\n");
+  fprintf(stderr, "==================\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -25,7 +23,7 @@ int main(int argc, char *argv[]) {
   sim_t *sim = (sim_t *)malloc(sizeof(sim_t));
   // initialization
   sim_init(sim);
-  // set ebreak call callback in any mode
+  // set ebreak call to finish
   sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_ENABLE_ANY_BREAK);
   sim_debug(sim, callback);
   if (sim_load_elf(sim, argv[1]) != 0) {
@@ -41,11 +39,8 @@ int main(int argc, char *argv[]) {
   } else if (argc >= 4) {
     sim_uart_io(sim, argv[3], NULL);
   }
-  signal(SIGINT, shndl);
-  // main loop
-  while (quit == 0) {
-    sim_step(sim);
-  }
+  hello();
+  sim_resume(sim);
  cleanup:
   sim_fini(sim);
   free(sim);
