@@ -21,6 +21,9 @@ struct elf_t;
 #define REG_PC 32
 #define XLEN 32
 
+#define CONFIG_ROM_ADDR 0x00001000
+#define CONFIG_ROM_SIZE 1024
+
 typedef unsigned int address;
 
 struct dbg_break_watch {
@@ -40,6 +43,7 @@ struct dbg_state {
   char **reginfo;  // register information
   char triple[64]; // triple information
   struct dbg_break_watch *bw; // break and watch point
+  char *config_rom;
 };
 
 #endif

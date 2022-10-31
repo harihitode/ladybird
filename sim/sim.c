@@ -16,8 +16,20 @@ void sim_init(sim_t *sim) {
   csr_set_sim(sim->csr, sim);
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  memory_init(sim->mem, 128 * 1024 * 1024, 4 * 1024);
+  unsigned ram_size = 128 * 1024 * 1024;
+  memory_init(sim->mem, ram_size, 4 * 1024);
   memory_set_sim(sim->mem, sim);
+  /// for riscv config string ROM
+  sim->config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
+  *(unsigned *)(sim->config_rom + 0x0c) = 0x00001020;
+  sprintf(&sim->config_rom[32],
+          "platform { vendor %s; arch %s; };\n"
+          "rtc { addr 0x40000000; };\n"
+          "ram { 0 { addr %08x; size %08x; }; };\n"
+          "core { 0 { 0 { isa rv32imac; timecmp 0x40000008; ipi 0x40001000; }; }; };\n",
+          "harihitode", "ladybird", MEMORY_BASE_ADDR_RAM, ram_size);
+  memory_set_rom(sim->mem, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, sim->config_rom);
+  // init register
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
     char *buf = (char *)malloc(128 * sizeof(char));
@@ -88,6 +100,7 @@ void sim_fini(sim_t *sim) {
     free(p);
     p = p_next;
   }
+  free(sim->config_rom);
   return;
 }
 
@@ -841,10 +854,6 @@ int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
   return 0;
 }
 
-unsigned sim_get_mode(sim_t *sim) {
-  return sim->csr->mode;
-}
-
 unsigned sim_read_csr(sim_t *sim, unsigned addr) {
   return csr_csrr(sim->csr, addr);
 }
@@ -855,7 +864,7 @@ void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
 
 void sim_debug_dump_status(sim_t *sim) {
   fprintf(stderr, "MODE: ");
-  switch (sim_get_mode(sim)) {
+  switch (sim->csr->mode) {
   case PRIVILEGE_MODE_M:
     fprintf(stderr, "Machine\n");
     break;
