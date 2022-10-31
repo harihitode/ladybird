@@ -76,11 +76,6 @@ void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   mem->rom_list = NULL;
 }
 
-void memory_set_sim(memory_t *mem, sim_t *sim) {
-  mem->csr = sim->csr;
-  return;
-}
-
 char *memory_get_page(memory_t *mem, unsigned addr) {
   unsigned bid = addr / mem->ram_block_size;
   if (mem->ram_block[bid] == NULL) {

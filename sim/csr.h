@@ -1,15 +1,18 @@
 #ifndef CSR_H
 #define CSR_H
 
-struct dbg_state;
+struct memory_t;
 
 typedef struct csr_t {
-  struct dbg_state *sim;
+  struct memory_t *mem;
+  // shadow registers
+  unsigned mode;
+  unsigned pc;
+  // status
   unsigned long long cycle;
   unsigned long long time;
   unsigned long long timecmp;
   unsigned long long instret;
-  unsigned mode;
   unsigned software_interrupt_m;
   unsigned software_interrupt_s;
   unsigned char status_spp; // previous privilege mode
@@ -37,7 +40,6 @@ typedef struct csr_t {
   unsigned stvec; // [S] trap base address
   unsigned stval; // [S] trap value
   // Sdext
-  void (*dbg_handler)(struct dbg_state *);
   unsigned char dcsr_ebreakm;
   unsigned char dcsr_ebreaks;
   unsigned char dcsr_ebreaku;
@@ -48,7 +50,6 @@ typedef struct csr_t {
 } csr_t;
 
 void csr_init(csr_t *);
-void csr_set_sim(csr_t *, struct dbg_state *);
 unsigned csr_csrr(csr_t *, unsigned addr);
 void csr_csrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);
@@ -65,6 +66,6 @@ unsigned long long csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, unsigned long long);
 void csr_fini(csr_t *);
 // call once for 1 cycle
-void csr_cycle(csr_t *);
+void csr_cycle(csr_t *, unsigned next_pc);
 
 #endif
