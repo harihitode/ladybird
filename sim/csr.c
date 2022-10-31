@@ -154,6 +154,24 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->mcause;
   case CSR_ADDR_M_TVAL:
     return csr->mtval;
+  case CSR_ADDR_M_ISA: {
+    unsigned char xml = 0;
+    if (XLEN == 32) {
+      xml = 1;
+    } else if (XLEN == 64) {
+      xml = 2;
+    } else if (XLEN == 128) {
+      xml = 3;
+    }
+    return
+      ((xml << 30) |
+       (A_EXTENSION << 0) |
+       (C_EXTENSION << 2) |
+       (D_EXTENSION << 3) |
+       (F_EXTENSION << 5) |
+       (M_EXTENSION << 12) |
+       (V_EXTENSION << 21));
+  }
   case CSR_ADDR_D_CSR: {
     unsigned dcsr = 0;
     dcsr =
@@ -246,8 +264,13 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_S_SCRATCH:
     csr->sscratch = value;
     break;
+  case CSR_ADDR_M_CAUSE:
+    csr->mcause = value;
+    break;
   case CSR_ADDR_M_TVAL:
     csr->mtval = value;
+    break;
+  case CSR_ADDR_M_ISA:
     break;
   case CSR_ADDR_D_CSR:
     csr->dcsr_ebreakm = (value >> 15) & 0x1;

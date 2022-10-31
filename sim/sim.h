@@ -4,6 +4,13 @@
 #include "gdbstub_sys.h"
 typedef struct dbg_state sim_t;
 
+#define A_EXTENSION 1
+#define C_EXTENSION 1
+#define D_EXTENSION 0
+#define F_EXTENSION 0
+#define M_EXTENSION 1
+#define V_EXTENSION 0
+
 // sim_t is declared in gdbstub_sys.h
 // simulator general interface
 void sim_init(sim_t *);
@@ -51,6 +58,7 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 #define PRIVILEGE_MODE_D 0x4
 
 // csr addr
+/// xv6 support
 #define CSR_ADDR_M_EPC 0x00000341
 #define CSR_ADDR_M_HARTID 0x00000f14
 #define CSR_ADDR_M_STATUS 0x00000300
@@ -79,6 +87,9 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 #define CSR_ADDR_S_SCRATCH 0x00000140
 #define CSR_ADDR_M_CAUSE 0x00000342
 #define CSR_ADDR_M_TVAL 0x00000343
+/// riscv-benchmark
+#define CSR_ADDR_M_ISA 0x00000301
+/// debugger (lldb)
 #define CSR_ADDR_D_CSR 0x000007b0
 #define CSR_ADDR_D_PC 0x000007b1
 
