@@ -172,6 +172,10 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
        (M_EXTENSION << 12) |
        (V_EXTENSION << 21));
   }
+  case CSR_ADDR_M_CYCLE:
+    return csr->cycle;
+  case CSR_ADDR_M_INSTRET:
+    return csr->instret;
   case CSR_ADDR_D_CSR: {
     unsigned dcsr = 0;
     dcsr =
@@ -271,6 +275,12 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->mtval = value;
     break;
   case CSR_ADDR_M_ISA:
+    break;
+  case CSR_ADDR_M_CYCLE:
+    csr->cycle = value;
+    break;
+  case CSR_ADDR_M_INSTRET:
+    csr->instret = value;
     break;
   case CSR_ADDR_D_CSR:
     csr->dcsr_ebreakm = (value >> 15) & 0x1;

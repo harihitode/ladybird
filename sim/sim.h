@@ -89,6 +89,8 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 #define CSR_ADDR_M_TVAL 0x00000343
 /// riscv-benchmark
 #define CSR_ADDR_M_ISA 0x00000301
+#define CSR_ADDR_M_CYCLE 0x00000b00
+#define CSR_ADDR_M_INSTRET 0x00000b02
 /// debugger (lldb)
 #define CSR_ADDR_D_CSR 0x000007b0
 #define CSR_ADDR_D_PC 0x000007b1
