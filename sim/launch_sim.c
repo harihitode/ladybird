@@ -3,10 +3,14 @@
 #include "sim.h"
 
 void callback(sim_t *sim) {
+  fprintf(stderr, "enter debug mode\n");
+  return;
+}
+
+void bye() {
   fprintf(stderr, "==================\n");
   fprintf(stderr, "Bye simulator (''*\n");
   fprintf(stderr, "==================\n");
-  return;
 }
 
 void hello() {
@@ -41,6 +45,7 @@ int main(int argc, char *argv[]) {
   }
   hello();
   sim_resume(sim);
+  bye();
  cleanup:
   sim_fini(sim);
   free(sim);

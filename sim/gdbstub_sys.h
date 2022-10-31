@@ -6,6 +6,7 @@
 struct memory_t;
 struct csr_t;
 struct elf_t;
+struct core_t;
 
 #define NUM_GPR 32
 #ifdef F_EXTENSION
@@ -14,12 +15,6 @@ struct elf_t;
 #define NUM_FPR 0
 #endif
 #define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
-#define REG_ZERO 0
-#define REG_RA 1
-#define REG_SP 2
-#define REG_FP 8
-#define REG_PC 32
-#define XLEN 32
 
 #define CONFIG_ROM_ADDR 0x00001000
 #define CONFIG_ROM_SIZE 1024
@@ -35,7 +30,7 @@ struct dbg_break_watch {
 };
 
 struct dbg_state {
-  unsigned *registers;
+  struct core_t *core;
   struct memory_t *mem;
   struct csr_t *csr;
   struct elf_t *elf;
@@ -44,6 +39,7 @@ struct dbg_state {
   char triple[64]; // triple information
   struct dbg_break_watch *bw; // break and watch point
   char *config_rom;
+  void (*dbg_handler)(struct dbg_state *);
 };
 
 #endif

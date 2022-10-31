@@ -42,6 +42,16 @@ int dbg_sys_putchar(int ch) {
   return 0;
 }
 
+int dbg_sys_reg_read(address regno, unsigned *val) {
+  *val = sim_read_register(sim, regno);
+  return 0;
+}
+
+int dbg_sys_reg_write(address regno, unsigned val) {
+  sim_write_register(sim, regno, val);
+  return 0;
+}
+
 int dbg_sys_mem_readb(address addr, char *val) {
   *val = (unsigned char)sim_read_memory(sim, addr);
   return 0;
