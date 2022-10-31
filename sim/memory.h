@@ -18,6 +18,13 @@ struct csr_t;
 struct cache_t;
 struct tlb_t;
 
+struct rom_t {
+  unsigned base;
+  unsigned size;
+  char *rom;
+  struct rom_t *next;
+};
+
 typedef struct memory_t {
   unsigned ram_size;
   unsigned ram_block_size;
@@ -42,6 +49,8 @@ typedef struct memory_t {
   struct disk_t *disk;
   // PLIC
   struct plic_t *plic;
+  // ROM
+  struct rom_t *rom_list;
 } memory_t;
 
 typedef struct cache_line_t {
@@ -90,11 +99,14 @@ unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved
 unsigned memory_load_instruction(memory_t *, unsigned addr);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
 void memory_fini(memory_t *);
+// ram and rom
 char *memory_get_page(memory_t *, unsigned);
+// [NOTE] memory does not free rom_ptr on fini
+void memory_set_rom(memory_t *, unsigned base, unsigned size, char *rom_ptr);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr);
 unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
-// mmu
+// mmu function
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
@@ -102,11 +114,13 @@ void memory_icache_invalidate(memory_t *);
 void memory_dcache_write_back(memory_t *);
 unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type);
 
+// cache (instruction or data)
 void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);
 char *cache_get(cache_t *, unsigned addr, char write);
 int cache_write_back(cache_t *, unsigned line);
 void cache_fini(cache_t *);
 
+// translate lookaside buffer
 void tlb_init(tlb_t *, memory_t *, unsigned line_size);
 unsigned tlb_get(tlb_t *, unsigned addr, unsigned access_type);
 void tlb_clear(tlb_t *);

@@ -73,6 +73,7 @@ void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
   cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(mem->tlb, mem, 64); // 64 entry
+  mem->rom_list = NULL;
 }
 
 void memory_set_sim(memory_t *mem, sim_t *sim) {
@@ -87,6 +88,23 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   }
   mem->ram_reserve[bid] = 0; // expire
   return mem->ram_block[bid];
+}
+
+void memory_set_rom(memory_t *mem, unsigned base, unsigned size, char *rom_ptr) {
+  struct rom_t *new_rom;
+  if (!mem->rom_list) {
+    mem->rom_list = (struct rom_t *)calloc(1, sizeof(struct rom_t));
+    new_rom = mem->rom_list;
+  } else {
+    for (new_rom = mem->rom_list; new_rom->next != NULL; new_rom = new_rom->next) {}
+    new_rom->next = (struct rom_t *)calloc(1, sizeof(struct rom_t));
+    new_rom = new_rom->next;
+  }
+  new_rom->base = base;
+  new_rom->size = size;
+  new_rom->rom = rom_ptr;
+  new_rom->next = NULL;
+  return;
 }
 
 static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, cache_t *cache) {
@@ -218,13 +236,29 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     }
     break;
   default:
-    if (mem->csr->mode == PRIVILEGE_MODE_M) {
-      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
-    } else {
-      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+    {
+      struct rom_t *rom = NULL;
+      // search ROM
+      for (struct rom_t *p = mem->rom_list; p != NULL; p++) {
+        if (addr >= p->base && (addr + size) < p->base + p->size) {
+          rom = p;
+          break;
+        }
+      }
+      if (rom) {
+        for (unsigned i = 0; i < size; i++) {
+          value |= ((0x000000ff & rom->rom[addr + i - rom->base]) << (8 * i));
+        }
+      } else {
+        if (mem->csr->mode == PRIVILEGE_MODE_M) {
+          csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
+        } else {
+          csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+        }
+        csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+      }
+      break;
     }
-    csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
-    break;
   }
   return value;
 }
@@ -357,6 +391,15 @@ void memory_fini(memory_t *mem) {
   free(mem->icache);
   tlb_fini(mem->tlb);
   free(mem->tlb);
+  struct rom_t *rom_p = mem->rom_list;
+  while (1) {
+    if (rom_p == NULL) {
+      break;
+    }
+    struct rom_t *rom_np = rom_p->next;
+    free(rom_p);
+    rom_p = rom_np;
+  }
   return;
 }
 
