@@ -5,6 +5,12 @@
 #include "riscv.h"
 typedef struct dbg_state sim_t;
 
+#define MEMORY_BASE_ADDR_UART   0x10000000
+#define MEMORY_BASE_ADDR_DISK   0x10001000
+#define MEMORY_BASE_ADDR_ACLINT 0x02000000
+#define MEMORY_BASE_ADDR_PLIC   0x0c000000
+#define MEMORY_BASE_ADDR_RAM    0x80000000
+
 // sim_t is declared in gdbstub_sys.h
 // simulator general interface
 void sim_init(sim_t *);

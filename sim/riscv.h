@@ -8,6 +8,14 @@
 #define M_EXTENSION 1
 #define V_EXTENSION 0
 
+#define NUM_GPR 32
+#ifdef F_EXTENSION
+#define NUM_FPR 32
+#else
+#define NUM_FPR 0
+#endif
+#define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
+
 #define REG_ZERO 0
 #define REG_RA 1
 #define REG_SP 2
@@ -77,10 +85,14 @@
 /// debugger (lldb)
 #define CSR_ADDR_D_CSR 0x000007b0
 #define CSR_ADDR_D_PC 0x000007b1
+#define CSR_ADDR_D_TSELECT 0x000007a0
+#define CSR_ADDR_D_TDATA1 0x000007a1
+#define CSR_ADDR_D_TDATA2 0x000007a2
+#define CSR_ADDR_D_TDATA3 0x000007a3
 
 // opcode
 #define OPCODE_LOAD 0x00000003
-#define OPCODE_MISC_MEM 0x0000000F
+#define OPCODE_MISC_MEM 0x0000000f
 #define OPCODE_OP_IMM 0x00000013
 #define OPCODE_AUIPC 0x00000017
 #define OPCODE_STORE 0x00000023
@@ -89,7 +101,7 @@
 #define OPCODE_LUI 0x00000037
 #define OPCODE_BRANCH 0x00000063
 #define OPCODE_JALR 0x00000067
-#define OPCODE_JAL 0x0000006F
+#define OPCODE_JAL 0x0000006f
 #define OPCODE_SYSTEM 0x00000073
 
 // debug cause

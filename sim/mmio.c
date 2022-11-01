@@ -82,6 +82,10 @@ static int uart_input_routine(void *arg) {
 }
 
 void uart_init(uart_t *uart) {
+  uart->base.base = 0;
+  uart->base.size = 4096;
+  uart->base.readb = uart_read;
+  uart->base.writeb = uart_write;
   uart->mode = UART_LCR_DEFAULT_MODE;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
   uart->intr_enable = 0;
@@ -138,7 +142,8 @@ void uart_set_io(uart_t *uart, const char *in_path, const char *out_path) {
   return;
 }
 
-char uart_read(uart_t *uart, unsigned addr) {
+char uart_read(struct mmio_t *unit, unsigned addr) {
+  uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_RHR: {
     // RX Register (uart input)
@@ -166,7 +171,8 @@ char uart_read(uart_t *uart, unsigned addr) {
   }
 }
 
-void uart_write(uart_t *uart, unsigned addr, char value) {
+void uart_write(struct mmio_t *unit, unsigned addr, char value) {
+  uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_IER:
     if (value & UART_IER_ENABLE) {
@@ -225,6 +231,10 @@ void uart_fini(uart_t *uart) {
 }
 
 void disk_init(disk_t *disk) {
+  disk->base.base = 0;
+  disk->base.size = 4096;
+  disk->base.readb = disk_read;
+  disk->base.writeb = disk_write;
   disk->data = NULL;
   disk->mem = NULL;
   disk->current_queue = 0;
@@ -275,7 +285,7 @@ const unsigned virtio_mmio_device_feature = 0x0;
 
 #define VIRTIO_MMIO_MAX_QUEUE 8
 
-char disk_read(disk_t *disk, unsigned addr) {
+char disk_read(struct mmio_t *unit, unsigned addr) {
   char ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned offs = addr & 0x00000003;
@@ -357,7 +367,7 @@ typedef struct {
 
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
-  unsigned desc_addr = disk->queue_ppn * disk->page_size - MEMORY_BASE_ADDR_RAM;
+  unsigned desc_addr = disk->queue_ppn * disk->page_size - disk->mem->ram_base;
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
@@ -380,7 +390,7 @@ static void disk_process_queue(disk_t *disk) {
     int is_write = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
-      req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr - MEMORY_BASE_ADDR_RAM) + (current_desc->addr & 0x00000FFF));
+      req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr - disk->mem->ram_base) + (current_desc->addr & 0x00000FFF));
 #if 0
       fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
@@ -429,7 +439,8 @@ static void disk_process_queue(disk_t *disk) {
   disk->queue_notify = 1;
 }
 
-void disk_write(disk_t *disk, unsigned addr, char value) {
+void disk_write(struct mmio_t *unit, unsigned addr, char value) {
+  disk_t *disk = (disk_t *)unit;
   unsigned base = addr & 0xfffffffc;
   unsigned offs = addr & 0x00000003;
   unsigned mask = 0x000000FF << (8 * offs);

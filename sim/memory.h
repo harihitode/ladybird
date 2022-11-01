@@ -2,20 +2,20 @@
 #define MEMORY_H
 
 // memory layout
-#define MEMORY_BASE_ADDR_UART   0x10000000
-#define MEMORY_BASE_ADDR_DISK   0x10001000
-#define MEMORY_BASE_ADDR_ACLINT 0x02000000
-#define MEMORY_BASE_ADDR_PLIC   0x0c000000
-#define MEMORY_BASE_ADDR_RAM    0x80000000
-
 #define MEMORY_STORE_SUCCESS 0
 #define MEMORY_STORE_FAILURE 1
 
-struct uart_t;
-struct disk_t;
+struct mmio_t;
 struct csr_t;
 struct cache_t;
 struct tlb_t;
+
+struct mmio_t {
+  unsigned base;
+  unsigned size;
+  char (*readb)(struct mmio_t* unit, unsigned addr);
+  void (*writeb)(struct mmio_t* unit, unsigned addr, char value);
+};
 
 struct rom_t {
   unsigned base;
@@ -25,29 +25,27 @@ struct rom_t {
 };
 
 typedef struct memory_t {
+  struct csr_t *csr;
+  // RAM
+  unsigned ram_base;
   unsigned ram_size;
   unsigned ram_block_size;
   unsigned ram_blocks;
   char **ram_block;
   char *ram_reserve;
-  // cache for ram
+  // CACHE for RAM
   struct cache_t *dcache;
   struct cache_t *icache;
-  struct tlb_t *tlb;
-  struct csr_t *csr;
-  // cache for instruction
   char *inst_line;
   unsigned inst_line_pc;
   // MMU
+  struct tlb_t *tlb;
   char vmflag;
   // To support a physical address space larger than 4GiB,
   // RV32 stores a PPN in satp, ranther than a physical address.
   unsigned vmrppn; // root physical page number
   // MMIO
-  struct uart_t *uart;
-  struct disk_t *disk;
-  // PLIC
-  struct plic_t *plic;
+  struct mmio_t **mmio_list;
   // ROM
   struct rom_t *rom_list;
 } memory_t;
@@ -92,7 +90,7 @@ typedef struct tlb_t {
   unsigned long hit_count;
 } tlb_t;
 
-void memory_init(memory_t *, unsigned ram_size, unsigned ram_block_size);
+void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
 unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
 unsigned memory_load_instruction(memory_t *, unsigned addr);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
@@ -101,6 +99,7 @@ void memory_fini(memory_t *);
 char *memory_get_page(memory_t *, unsigned);
 // [NOTE] memory does not free rom_ptr on fini
 void memory_set_rom(memory_t *, unsigned base, unsigned size, char *rom_ptr);
+void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base, unsigned size);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr);
 unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);

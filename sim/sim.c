@@ -4,6 +4,7 @@
 #include "memory.h"
 #include "csr.h"
 #include "mmio.h"
+#include "plic.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,7 +13,8 @@ void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
   unsigned ram_size = 128 * 1024 * 1024;
-  memory_init(sim->mem, ram_size, 4 * 1024);
+  unsigned block_size = 4 * 1024;
+  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, ram_size, block_size);
   // init csr
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
@@ -34,6 +36,28 @@ void sim_init(sim_t *sim) {
           "core { 0 { 0 { isa rv32imac; timecmp 0x40000008; ipi 0x40001000; }; }; };\n",
           "harihitode", "ladybird", MEMORY_BASE_ADDR_RAM, ram_size);
   memory_set_rom(sim->mem, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, sim->config_rom);
+  // MMIO's
+  /// uart for console/file
+  sim->uart = (uart_t *)malloc(sizeof(uart_t));
+  uart_init(sim->uart);
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->uart, MEMORY_BASE_ADDR_UART, block_size);
+  /// disk
+  sim->disk = (disk_t *)malloc(sizeof(disk_t));
+  disk_init(sim->disk);
+  sim->disk->mem = sim->mem; // for DMA
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->disk, MEMORY_BASE_ADDR_DISK, block_size);
+  /// platform level interrupt controller
+  sim->plic = (plic_t *)malloc(sizeof(plic_t));
+  plic_init(sim->plic);
+  sim->plic->uart = sim->uart;
+  sim->plic->disk = sim->disk;
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC, 1 << 24);
+  sim->csr->plic = sim->plic;
+  /// core local interrupt module
+  sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
+  aclint_init(sim->aclint);
+  sim->aclint->csr = sim->csr;
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT, 1 << 24);
   // init register
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
@@ -54,7 +78,8 @@ void sim_init(sim_t *sim) {
   }
   sprintf(sim->triple, "%s", "riscv32-unknown-unknown-elf");
   sim->dbg_handler = NULL;
-  sim->bw = NULL;
+  sim->trigger = NULL;
+  sim->state = running;
   return;
 }
 
@@ -102,12 +127,18 @@ void sim_fini(sim_t *sim) {
     free(sim->reginfo[i]);
   }
   free(sim->reginfo);
-  for (struct dbg_break_watch *p = sim->bw; p != NULL;) {
-    struct dbg_break_watch *p_next = p->next;
+  for (struct dbg_trigger *p = sim->trigger; p != NULL;) {
+    struct dbg_trigger *p_next = p->next;
     free(p);
     p = p_next;
   }
   free(sim->config_rom);
+  uart_fini(sim->uart);
+  free(sim->uart);
+  disk_fini(sim->disk);
+  free(sim->disk);
+  plic_fini(sim->plic);
+  free(sim->plic);
   return;
 }
 
@@ -119,8 +150,11 @@ void sim_debug(sim_t *sim, void (*callback)(sim_t *)) {
 void sim_resume(sim_t *sim) {
   sim->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
   sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
+  struct step_result result;
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
-    core_step(sim->core, sim->csr->pc);
+    core_step(sim->core, sim->csr->pc, &result);
+    // check debug trigger
+    csr_cycle(sim->csr, result.pc_next);
   }
   return;
 }
@@ -174,12 +208,12 @@ void sim_write_memory(sim_t *sim, unsigned addr, char value) {
 }
 
 int sim_virtio_disk(sim_t *sim, const char *img_path, int mode) {
-  disk_load(sim->mem->disk, img_path, mode);
+  disk_load(sim->disk, img_path, mode);
   return 0;
 }
 
 int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
-  uart_set_io(sim->mem->uart, in_path, out_path);
+  uart_set_io(sim->uart, in_path, out_path);
   return 0;
 }
 

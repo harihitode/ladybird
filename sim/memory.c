@@ -8,34 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MEMORY_NONE 0
-#define MEMORY_RAM 1
-#define MEMORY_UART 2
-#define MEMORY_DISK 3
-#define MEMORY_ACLINT 4
-#define MEMORY_PLIC 5
-
-static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
-  unsigned base = (addr & 0xff000000);
-  if (base == MEMORY_BASE_ADDR_UART) {
-    if (addr < MEMORY_BASE_ADDR_DISK) {
-      return MEMORY_UART;
-    } else {
-      return MEMORY_DISK;
-    }
-  } else if (base == MEMORY_BASE_ADDR_ACLINT) {
-    return MEMORY_ACLINT;
-  } else if (base == MEMORY_BASE_ADDR_PLIC) {
-    return MEMORY_PLIC;
-  } else {
-    if ((base >= MEMORY_BASE_ADDR_RAM) && (base < MEMORY_BASE_ADDR_RAM + (128 << 20))) {
-      return MEMORY_RAM;
-    } else {
-      return MEMORY_NONE;
-    }
-  }
-}
-
 // SV32 page table
 #define PTE_V (1 << 0)
 #define PTE_R (1 << 1)
@@ -46,34 +18,28 @@ static unsigned memory_get_memory_type(memory_t *mem, unsigned addr) {
 #define ACCESS_TYPE_INSTRUCTION PTE_X
 #define ACCESS_TYPE_LOAD PTE_R
 #define ACCESS_TYPE_STORE PTE_W
+#define MAX_MMIO 8
 
-void memory_init(memory_t *mem, unsigned ram_size, unsigned ram_block_size) {
+void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned ram_block_size) {
+  mem->ram_base = ram_base;
   mem->ram_size = ram_size;
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
   mem->ram_reserve = (char *)calloc(mem->ram_blocks, sizeof(char));
   mem->csr = NULL;
-  mem->uart = (uart_t *)malloc(sizeof(uart_t));
-  mem->inst_line = NULL;
-  mem->inst_line_pc = 0;
-  uart_init(mem->uart);
-  mem->disk = (disk_t *)malloc(sizeof(disk_t));
-  disk_init(mem->disk);
-  mem->disk->mem = mem; // for DMA
-  mem->plic = (plic_t *)malloc(sizeof(plic_t));
-  plic_init(mem->plic);
-  mem->plic->uart = mem->uart;
-  mem->plic->disk = mem->disk;
   mem->vmflag = 0;
   mem->vmrppn = 0;
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
   mem->dcache = (cache_t *)malloc(sizeof(cache_t));
+  mem->inst_line = NULL;
+  mem->inst_line_pc = 0;
   mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
   cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(mem->tlb, mem, 64); // 64 entry
   mem->rom_list = NULL;
+  mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
 }
 
 char *memory_get_page(memory_t *mem, unsigned addr) {
@@ -100,6 +66,20 @@ void memory_set_rom(memory_t *mem, unsigned base, unsigned size, char *rom_ptr) 
   new_rom->rom = rom_ptr;
   new_rom->next = NULL;
   return;
+}
+
+void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base, unsigned size) {
+  unsigned empty = 0;
+  for (empty = 0; empty < MAX_MMIO; empty++) {
+    if (mem->mmio_list[empty] == NULL) break;
+  }
+  if (mem->mmio_list[empty] != NULL) {
+    fprintf(stderr, "exceeds max mmio: %d\n", MAX_MMIO);
+  } else {
+    mem->mmio_list[empty] = unit;
+    unit->base = base;
+    unit->size = size;
+  }
 }
 
 static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved, cache_t *cache) {
@@ -157,48 +137,6 @@ unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned acces
   }
 }
 
-static char memory_aclint_load(memory_t *mem, unsigned addr) {
-  char value;
-  uint64_t byte_offset = addr % 8;
-  uint64_t value64 = 0;
-  if (addr < 0x0000BFF8) {
-    value64 = csr_get_timecmp(mem->csr);
-  } else if (addr <= 0x0000BFFF) {
-    value64 =
-      ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIMEH) << 32) |
-      ((uint64_t)csr_csrr(mem->csr, CSR_ADDR_U_TIME));
-  } else {
-    if (mem->csr->mode == PRIVILEGE_MODE_M) {
-      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, addr);
-    } else {
-      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, addr);
-    }
-    csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
-  }
-  value = (value64 >> (8 * byte_offset));
-  return value;
-}
-
-static void memory_aclint_store(memory_t *mem, unsigned addr, char value) {
-  if (addr < 0x0000BFF8) {
-    // hart 0 mtimecmp
-    uint64_t byte_offset = addr % 8;
-    uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
-    uint64_t timecmp = csr_get_timecmp(mem->csr);
-    timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
-    csr_set_timecmp(mem->csr, timecmp);
-  } else if (addr <= 0x0000BFFF) {
-    // mtime read only
-  } else {
-    if (mem->csr->mode == PRIVILEGE_MODE_M) {
-      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, addr);
-    } else {
-      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, addr);
-    }
-    csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
-  }
-}
-
 unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reserved) {
   unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_LOAD);
   if (mem->csr->exception) {
@@ -206,96 +144,86 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned size, unsigned reser
     return 0;
   }
   unsigned value = 0;
-  switch (memory_get_memory_type(mem, paddr)) {
-  case MEMORY_UART:
-    for (unsigned i = 0; i < size; i++) {
-      value |= ((0x000000ff & uart_read(mem->uart, paddr + i - MEMORY_BASE_ADDR_UART)) << (8 * i));
+  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
+  unsigned found = 0;
+  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
+    // RAM
+    value = memory_ram_load(mem, paddr - mem->ram_base, size, reserved, mem->dcache);
+    found = 1;
+  } else {
+    // search MMIO
+    for (unsigned u = 0; u < MAX_MMIO; u++) {
+      struct mmio_t *unit = mem->mmio_list[u];
+      if (unit == NULL) continue;
+      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
+        for (unsigned i = 0; i < size; i++) {
+          value |= ((0x000000ff & unit->readb(unit, paddr + i - unit->base)) << (8 * i));
+        }
+        found = 1;
+        break;
+      }
     }
-    break;
-  case MEMORY_DISK:
-    for (unsigned i = 0; i < size; i++) {
-      value |= ((0x000000ff & disk_read(mem->disk, paddr + i - MEMORY_BASE_ADDR_DISK)) << (8 * i));
-    }
-    break;
-  case MEMORY_RAM:
-    value = memory_ram_load(mem, paddr - MEMORY_BASE_ADDR_RAM, size, reserved, mem->dcache);
-    break;
-  case MEMORY_ACLINT:
-    for (unsigned i = 0; i < size; i++) {
-      value |= ((0x000000ff & memory_aclint_load(mem, paddr + i - MEMORY_BASE_ADDR_ACLINT)) << (8 * i));
-    }
-    break;
-  case MEMORY_PLIC:
-    for (unsigned i = 0; i < size; i++) {
-      value |= ((0x000000ff & plic_read(mem->plic, paddr + i - MEMORY_BASE_ADDR_PLIC)) << (8 * i));
-    }
-    break;
-  default:
-    {
+    // search ROM
+    if (found == 0) {
       struct rom_t *rom = NULL;
       // search ROM
       for (struct rom_t *p = mem->rom_list; p != NULL; p++) {
-        if (addr >= p->base && (addr + size) < p->base + p->size) {
+        if (paddr >= p->base && (paddr + size) < p->base + p->size) {
+          printf("ROM LOAD: %08x\n", paddr);
           rom = p;
           break;
         }
       }
       if (rom) {
         for (unsigned i = 0; i < size; i++) {
-          value |= ((0x000000ff & rom->rom[addr + i - rom->base]) << (8 * i));
+          value |= ((0x000000ff & rom->rom[paddr + i - rom->base]) << (8 * i));
         }
-      } else {
-        if (mem->csr->mode == PRIVILEGE_MODE_M) {
-          csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
-        } else {
-          csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
-        }
-        csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+        found = 1;
       }
-      break;
     }
+  }
+  if (found == 0) {
+    if (mem->csr->mode == PRIVILEGE_MODE_M) {
+      csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
+    } else {
+      csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
+    }
+    csr_exception(mem->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
   }
   return value;
 }
 
 unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned conditional) {
-  unsigned ret = MEMORY_STORE_SUCCESS;
+  unsigned ret = MEMORY_STORE_FAILURE;
   unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_STORE);
   if (mem->csr->exception) {
     return MEMORY_STORE_FAILURE;
   }
-  switch (memory_get_memory_type(mem, paddr)) {
-  case MEMORY_UART:
-    for (unsigned i = 0; i < size; i++) {
-      uart_write(mem->uart, paddr + i - MEMORY_BASE_ADDR_UART, (char)(value >> (i * 8)));
+  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
+  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
+    // RAM
+    ret = memory_ram_store(mem, paddr - mem->ram_base, value, size, conditional, mem->dcache);
+  } else {
+    // search MMIO
+    for (unsigned u = 0; u < MAX_MMIO; u++) {
+      struct mmio_t *unit = mem->mmio_list[u];
+      if (unit == NULL) continue;
+      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
+        for (unsigned i = 0; i < size; i++) {
+          unit->writeb(unit, paddr + i - unit->base, (char)(value >> (i * 8)));
+        }
+        ret = MEMORY_STORE_SUCCESS;
+        break;
+      }
     }
-    break;
-  case MEMORY_DISK:
-    for (unsigned i = 0; i < size; i++) {
-      disk_write(mem->disk, paddr + i - MEMORY_BASE_ADDR_DISK, (char)(value >> (i * 8)));
-    }
-    break;
-  case MEMORY_RAM:
-    ret = memory_ram_store(mem, paddr - MEMORY_BASE_ADDR_RAM, value, size, conditional, mem->dcache);
-    break;
-  case MEMORY_ACLINT:
-    for (unsigned i = 0; i < size; i++) {
-      memory_aclint_store(mem, paddr + i - MEMORY_BASE_ADDR_ACLINT, (char)(value >> (i * 8)));
-    }
-    break;
-  case MEMORY_PLIC:
-    for (unsigned i = 0; i < size; i++) {
-      plic_write(mem->plic, paddr + i - MEMORY_BASE_ADDR_PLIC, (char)(value >> (i * 8)));
-    }
-    break;
-  default:
+  }
+  if (ret == MEMORY_STORE_FAILURE) {
     if (mem->csr->mode == PRIVILEGE_MODE_M) {
       csr_csrw(mem->csr, CSR_ADDR_M_TVAL, paddr);
     } else {
       csr_csrw(mem->csr, CSR_ADDR_S_TVAL, paddr);
     }
     csr_exception(mem->csr, TRAP_CODE_STORE_ACCESS_FAULT);
-    break;
   }
   return ret;
 }
@@ -316,7 +244,7 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
       if ((addr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
         unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
         mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, (paddr + 2 - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
+        mem->inst_line = cache_get(mem->icache, (paddr + 2 - mem->ram_base) & ~(mem->icache->line_mask), 0);
       }
       inst |= (((unsigned short *)(&mem->inst_line[(addr + 2) & mem->icache->line_mask]))[0] << 16);
     }
@@ -324,14 +252,14 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr) {
     unsigned paddr = memory_address_translation(mem, addr, ACCESS_TYPE_INSTRUCTION);
     // pmp check
     if (!mem->csr->exception) {
-      if (memory_get_memory_type(mem, paddr) == MEMORY_RAM) {
+      if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
         mem->inst_line_pc = (addr & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, (paddr - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
+        mem->inst_line = cache_get(mem->icache, (paddr - mem->ram_base) & ~(mem->icache->line_mask), 0);
         inst = ((unsigned short *)(&mem->inst_line[paddr & mem->icache->line_mask]))[0];
         if ((inst & 0x03) == 3) {
           if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
             mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-            mem->inst_line = cache_get(mem->icache, (paddr + 2 - MEMORY_BASE_ADDR_RAM) & ~(mem->icache->line_mask), 0);
+            mem->inst_line = cache_get(mem->icache, (paddr + 2 - mem->ram_base) & ~(mem->icache->line_mask), 0);
           }
           inst |= (((unsigned short *)(&mem->inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
         }
@@ -374,12 +302,6 @@ void memory_fini(memory_t *mem) {
   }
   free(mem->ram_block);
   free(mem->ram_reserve);
-  uart_fini(mem->uart);
-  free(mem->uart);
-  disk_fini(mem->disk);
-  free(mem->disk);
-  plic_fini(mem->plic);
-  free(mem->plic);
   cache_fini(mem->dcache);
   free(mem->dcache);
   cache_fini(mem->icache);
@@ -395,6 +317,7 @@ void memory_fini(memory_t *mem) {
     free(rom_p);
     rom_p = rom_np;
   }
+  free(mem->mmio_list);
   return;
 }
 
@@ -551,14 +474,14 @@ unsigned tlb_get(tlb_t *tlb, unsigned addr, unsigned access_type) {
     for (int i = 1; i >= 0; i--) {
       unsigned pte_offs = ((addr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
       unsigned pte_addr = pte_base + pte_offs;
-      if (memory_get_memory_type(tlb->mem, pte_addr) != MEMORY_RAM) {
+      if (pte_addr < tlb->mem->ram_base || (pte_addr > tlb->mem->ram_base + tlb->mem->ram_size)) {
 #if 0
         fprintf(stderr, "access fault pte%d: %08x, addr: %08x\n", i, pte1_addr, addr);
 #endif
         access_fault = 1;
         break;
       }
-      pte = memory_ram_load(tlb->mem, pte_addr - MEMORY_BASE_ADDR_RAM, 4, 0, tlb->mem->dcache);
+      pte = memory_ram_load(tlb->mem, pte_addr - tlb->mem->ram_base, 4, 0, tlb->mem->dcache);
       protect = tlb_check_privilege(tlb, pte, i, access_type);
       if (!protect) {
         break;
