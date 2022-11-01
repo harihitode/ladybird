@@ -341,13 +341,7 @@ static unsigned decompress(unsigned inst) {
   return ret;
 }
 
-struct result_t {
-  unsigned rd;
-  unsigned rd_data;
-  unsigned pc_next;
-};
-
-static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct result_t *result) {
+static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct step_result *result) {
   switch (funct) {
   case 0x0: // ADD, SUB, ADDI
     if (alt) {
@@ -384,7 +378,7 @@ static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned a
   }
 }
 
-void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct result_t *result) {
+void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct step_result *result) {
   switch (funct) {
   case 0x0:
     result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
@@ -413,61 +407,66 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct result_
   }
 }
 
-void core_step(core_t *core, unsigned pc) {
+void core_step(core_t *core, unsigned pc, struct step_result *result) {
+  // init result
+  result->pc_next = pc;
+  result->mem_access = MA_NONE;
+  result->mem_address = 0;
+  result->rd = 0;
+  // instruction fetch & decode
   unsigned inst = memory_load_instruction(core->mem, pc);
-  unsigned pc_next = pc;
-  struct result_t result;
-  result.rd = 0;
+  unsigned pc_next;
   unsigned opcode;
   if (core->csr->exception) {
-    goto csr_update;
+    return;
   }
   if ((inst & 0x03) == 0x03) {
-    result.pc_next = pc + 4;
+    pc_next = pc + 4;
   } else {
-    result.pc_next = pc + 2;
+    pc_next = pc + 2;
     inst = decompress(inst);
   }
   opcode = get_opcode(inst);
 #if 0
   fprintf(stderr, "%08x: %08x\n", sim->registers[REG_PC], inst);
 #endif
+  // exec
   switch (opcode) {
   case OPCODE_OP_IMM: {
-    result.rd = get_rd(inst);
+    result->rd = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = get_immediate(inst);
-    process_alu(get_funct3(inst), src1, src2, 0, &result);
+    process_alu(get_funct3(inst), src1, src2, 0, result);
     break;
   }
   case OPCODE_OP: {
-    result.rd = get_rd(inst);
+    result->rd = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];
     if (get_funct7(inst) == 0x01) {
-      process_muldiv(get_funct3(inst), src1, src2, &result);
+      process_muldiv(get_funct3(inst), src1, src2, result);
     } else {
-      process_alu(get_funct3(inst), src1, src2, (inst & 0x40000000), &result);
+      process_alu(get_funct3(inst), src1, src2, (inst & 0x40000000), result);
     }
     break;
   }
   case OPCODE_AUIPC:
-    result.rd = get_rd(inst);
-    result.rd_data = pc + (inst & 0xfffff000);
+    result->rd = get_rd(inst);
+    result->rd_data = pc + (inst & 0xfffff000);
     break;
   case OPCODE_LUI:
-    result.rd = get_rd(inst);
-    result.rd_data = (inst & 0xfffff000);
+    result->rd = get_rd(inst);
+    result->rd_data = (inst & 0xfffff000);
     break;
   case OPCODE_JALR:
-    result.rd = get_rd(inst);
-    result.rd_data = result.pc_next;
-    result.pc_next = core->gpr[get_rs1(inst)] + get_jalr_offset(inst);
+    result->rd = get_rd(inst);
+    result->rd_data = pc_next;
+    pc_next = core->gpr[get_rs1(inst)] + get_jalr_offset(inst);
     break;
   case OPCODE_JAL:
-    result.rd = get_rd(inst);
-    result.rd_data = result.pc_next;
-    result.pc_next = pc + get_jal_offset(inst);
+    result->rd = get_rd(inst);
+    result->rd_data = pc_next;
+    pc_next = pc + get_jal_offset(inst);
     break;
   case OPCODE_STORE: {
     unsigned addr = core->gpr[get_rs1(inst)] + get_store_offset(inst);
@@ -489,23 +488,23 @@ void core_step(core_t *core, unsigned pc) {
     break;
   }
   case OPCODE_LOAD: {
-    result.rd = get_rd(inst);
+    result->rd = get_rd(inst);
     unsigned addr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
     switch (get_funct3(inst)) {
     case 0x0: // singed ext byte
-      result.rd_data = (int)((char)memory_load(core->mem, addr, 1, 0));
+      result->rd_data = (int)((char)memory_load(core->mem, addr, 1, 0));
       break;
     case 0x1: // signed ext half
-      result.rd_data = (int)((short)memory_load(core->mem, addr, 2, 0));
+      result->rd_data = (int)((short)memory_load(core->mem, addr, 2, 0));
       break;
     case 0x2:
-      result.rd_data = memory_load(core->mem, addr, 4, 0);
+      result->rd_data = memory_load(core->mem, addr, 4, 0);
       break;
     case 0x4:
-      result.rd_data = (unsigned char)memory_load(core->mem, addr, 1, 0);
+      result->rd_data = (unsigned char)memory_load(core->mem, addr, 1, 0);
       break;
     case 0x5:
-      result.rd_data = (unsigned short)memory_load(core->mem, addr, 2, 0);
+      result->rd_data = (unsigned short)memory_load(core->mem, addr, 2, 0);
       break;
     default:
       csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
@@ -514,51 +513,51 @@ void core_step(core_t *core, unsigned pc) {
     break;
   }
   case OPCODE_AMO: {
-    result.rd = get_rd(inst);
+    result->rd = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];
     switch (get_funct5(inst)) {
     case 0x002: // Load Reserved
-      result.rd_data = memory_load_reserved(core->mem, src1);
+      result->rd_data = memory_load_reserved(core->mem, src1);
       break;
     case 0x003: // Store Conditional
-      result.rd_data = memory_store_conditional(core->mem, src1, src2);
+      result->rd_data = memory_store_conditional(core->mem, src1, src2);
       break;
     case 0x000: // AMOADD
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result.rd_data + src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, result->rd_data + src2, 4, 0);
       break;
     case 0x001: // AMOSWAP
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
       memory_store(core->mem, src1, src2, 4, 0);
       break;
     case 0x004: // AMOXOR
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result.rd_data ^ src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, result->rd_data ^ src2, 4, 0);
       break;
     case 0x008: // AMOOR
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result.rd_data | src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, result->rd_data | src2, 4, 0);
       break;
     case 0x00c: // AMOAND
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result.rd_data & src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, result->rd_data & src2, 4, 0);
       break;
     case 0x010: // AMOMIN
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, ((int)result.rd_data < (int)src2) ? result.rd_data : src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, 0);
       break;
     case 0x014: // AMOMAX
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, ((int)result.rd_data < (int)src2) ? src2 : result.rd_data, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, ((int)result->rd_data < (int)src2) ? src2 : result->rd_data, 4, 0);
       break;
     case 0x018: // AMOMINU
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, (result.rd_data < src2) ? result.rd_data : src2, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, (result->rd_data < src2) ? result->rd_data : src2, 4, 0);
       break;
     case 0x01c: // AMOMAXU
-      result.rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, (result.rd_data < src2) ? src2 : result.rd_data, 4, 0);
+      result->rd_data = memory_load(core->mem, src1, 4, 0);
+      memory_store(core->mem, src1, (result->rd_data < src2) ? src2 : result->rd_data, 4, 0);
       break;
     default:
       csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
@@ -572,30 +571,30 @@ void core_step(core_t *core, unsigned pc) {
     break;
   case OPCODE_SYSTEM:
     if (get_funct3(inst) & 0x03) {
-      result.rd = get_rd(inst);
+      result->rd = get_rd(inst);
     }
     // CSR OPERATIONS
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
-      result.rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
       break;
     case 0x2: // READ_SET
-      result.rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
       break;
     case 0x3: // READ_CLEAR
-      result.rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
       break;
     case 0x4: // Hypervisor Extension
       csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
       break;
     case 0x5: // READ_WRITE (imm)
-      result.rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     case 0x6: // READ_SET (imm)
-      result.rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     case 0x7: // READ_CLEAR (imm)
-      result.rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_rs1(inst));
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct7(inst)) {
@@ -669,7 +668,7 @@ void core_step(core_t *core, unsigned pc) {
       break;
     }
     if (pred == 1) {
-      result.pc_next = pc + get_branch_offset(inst);
+      pc_next = pc + get_branch_offset(inst);
     }
     break;
   }
@@ -679,15 +678,14 @@ void core_step(core_t *core, unsigned pc) {
     break;
   }
   if (core->csr->exception || core->csr->trapret) {
-    goto csr_update;
+    return;
   }
   // commit
-  if (result.rd != 0) {
-    core->gpr[result.rd] = result.rd_data;
+  if (result->rd != 0) {
+    core->gpr[result->rd] = result->rd_data;
   }
-  pc_next = result.pc_next;
- csr_update:
-  csr_cycle(core->csr, pc_next);
+  result->pc_next = pc_next;
+  return;
 }
 
 void core_fini(core_t *core) {
