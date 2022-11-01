@@ -22,6 +22,8 @@
 #define CSR_D_VERSION 0x0f
 
 void csr_init(csr_t *csr) {
+  csr->mem = NULL;
+  csr->plic = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
@@ -117,7 +119,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       unsigned swint = 0;
       unsigned extint = 0;
       unsigned timerint = 0;
-      extint = (plic_get_interrupt(csr->mem->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
+      extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
       timerint = 0;
       swint = csr->software_interrupt_s;
       value =
@@ -125,7 +127,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
         (extint << CSR_INT_SEI_FIELD) |
         (timerint << CSR_INT_STI_FIELD);
       if (addr == CSR_ADDR_M_IP) {
-        extint = (plic_get_interrupt(csr->mem->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
+        extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
         timerint = (csr->time >= csr->timecmp) ? 1 : 0;
         swint = csr->software_interrupt_m;
         value |=
@@ -443,13 +445,11 @@ void csr_cycle(csr_t *csr, unsigned next_pc) {
   csr->cycle++; // assume 100 MHz
   csr->instret++;
   csr->pc = next_pc;
-
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }
 
   if ((csr->cycle % 10) == 0) {
-    // with timer
     csr->interrupt = 1;
   }
 

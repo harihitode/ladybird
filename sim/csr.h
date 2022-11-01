@@ -2,9 +2,11 @@
 #define CSR_H
 
 struct memory_t;
+struct plic_t;
 
 typedef struct csr_t {
   struct memory_t *mem;
+  struct plic_t *plic;
   // shadow registers
   unsigned mode;
   unsigned pc;
