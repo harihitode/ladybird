@@ -341,7 +341,7 @@ static unsigned decompress(unsigned inst) {
   return ret;
 }
 
-static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct step_result *result) {
+static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct dbg_step_result *result) {
   switch (funct) {
   case 0x0: // ADD, SUB, ADDI
     if (alt) {
@@ -378,7 +378,7 @@ static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned a
   }
 }
 
-void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct step_result *result) {
+void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct dbg_step_result *result) {
   switch (funct) {
   case 0x0:
     result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
@@ -407,17 +407,23 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct step_re
   }
 }
 
-void core_step(core_t *core, unsigned pc, struct step_result *result) {
+void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsigned prv) {
   // init result
-  result->pc_next = pc;
+  result->rd_regno = 0;
+  result->rd_data = 0;
+  result->exception_code = 0;
   result->mem_access = MA_NONE;
-  result->mem_address = 0;
-  result->rd = 0;
+  result->mem_physical_addr = 0;
+  result->mem_virtual_addr = 0;
+  result->inst = 0;
+  result->prv = prv;
+  result->pc_next = pc;
   // instruction fetch & decode
-  unsigned inst = memory_load_instruction(core->mem, pc);
+  unsigned inst;
+  result->exception_code = memory_load_instruction(core->mem, pc, &inst, prv);
   unsigned pc_next;
   unsigned opcode;
-  if (core->csr->exception) {
+  if (result->exception_code != 0) {
     return;
   }
   if ((inst & 0x03) == 0x03) {
@@ -426,21 +432,19 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
     pc_next = pc + 2;
     inst = decompress(inst);
   }
+  result->inst = inst;
   opcode = get_opcode(inst);
-#if 0
-  fprintf(stderr, "%08x: %08x\n", sim->registers[REG_PC], inst);
-#endif
   // exec
   switch (opcode) {
   case OPCODE_OP_IMM: {
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = get_immediate(inst);
     process_alu(get_funct3(inst), src1, src2, 0, result);
     break;
   }
   case OPCODE_OP: {
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];
     if (get_funct7(inst) == 0x01) {
@@ -451,20 +455,20 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
     break;
   }
   case OPCODE_AUIPC:
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     result->rd_data = pc + (inst & 0xfffff000);
     break;
   case OPCODE_LUI:
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     result->rd_data = (inst & 0xfffff000);
     break;
   case OPCODE_JALR:
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     result->rd_data = pc_next;
     pc_next = core->gpr[get_rs1(inst)] + get_jalr_offset(inst);
     break;
   case OPCODE_JAL:
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     result->rd_data = pc_next;
     pc_next = pc + get_jal_offset(inst);
     break;
@@ -473,94 +477,100 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
     unsigned data = core->gpr[get_rs2(inst)];
     switch (get_funct3(inst)) {
     case 0x0:
-      memory_store(core->mem, addr, data, 1, 0);
+      result->exception_code = memory_store(core->mem, addr, data, 1, prv);
       break;
     case 0x1:
-      memory_store(core->mem, addr, data, 2, 0);
+      result->exception_code = memory_store(core->mem, addr, data, 2, prv);
       break;
     case 0x2:
-      memory_store(core->mem, addr, data, 4, 0);
+      result->exception_code = memory_store(core->mem, addr, data, 4, prv);
       break;
     default:
-      csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
     break;
   }
   case OPCODE_LOAD: {
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     unsigned addr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
     switch (get_funct3(inst)) {
     case 0x0: // singed ext byte
-      result->rd_data = (int)((char)memory_load(core->mem, addr, 1, 0));
+      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 1, prv);
+      result->rd_data = (int)((char)result->rd_data);
       break;
     case 0x1: // signed ext half
-      result->rd_data = (int)((short)memory_load(core->mem, addr, 2, 0));
+      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 2, prv);
+      result->rd_data = (int)((short)result->rd_data);
       break;
     case 0x2:
-      result->rd_data = memory_load(core->mem, addr, 4, 0);
+      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 4, prv);
       break;
     case 0x4:
-      result->rd_data = (unsigned char)memory_load(core->mem, addr, 1, 0);
+      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 1, prv);
       break;
     case 0x5:
-      result->rd_data = (unsigned short)memory_load(core->mem, addr, 2, 0);
+      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 2, prv);
       break;
     default:
-      csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
     break;
   }
   case OPCODE_AMO: {
-    result->rd = get_rd(inst);
+    result->rd_regno = get_rd(inst);
     unsigned src1 = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];
     switch (get_funct5(inst)) {
     case 0x002: // Load Reserved
-      result->rd_data = memory_load_reserved(core->mem, src1);
+      result->exception_code = memory_load_reserved(core->mem, src1, &result->rd_data, prv);
       break;
     case 0x003: // Store Conditional
-      result->rd_data = memory_store_conditional(core->mem, src1, src2);
+      result->exception_code = memory_store_conditional(core->mem, src1, src2, &result->rd_data, prv);
       break;
     case 0x000: // AMOADD
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result->rd_data + src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1, result->rd_data + src2, 4, prv);
       break;
     case 0x001: // AMOSWAP
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1, src2, 4, prv);
       break;
     case 0x004: // AMOXOR
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result->rd_data ^ src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1, result->rd_data ^ src2, 4, prv);
       break;
     case 0x008: // AMOOR
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result->rd_data | src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1, result->rd_data | src2, 4, prv);
       break;
     case 0x00c: // AMOAND
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, result->rd_data & src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1, result->rd_data & src2, 4, prv);
       break;
     case 0x010: // AMOMIN
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1,
+                                            ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x014: // AMOMAX
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, ((int)result->rd_data < (int)src2) ? src2 : result->rd_data, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1,
+                                            ((int)result->rd_data > (int)src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x018: // AMOMINU
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, (result->rd_data < src2) ? result->rd_data : src2, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1,
+                                            (result->rd_data < src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x01c: // AMOMAXU
-      result->rd_data = memory_load(core->mem, src1, 4, 0);
-      memory_store(core->mem, src1, (result->rd_data < src2) ? src2 : result->rd_data, 4, 0);
+      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, src1,
+                                            (result->rd_data > src2) ? result->rd_data : src2, 4, prv);
       break;
     default:
-      csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
     break;
@@ -571,7 +581,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
     break;
   case OPCODE_SYSTEM:
     if (get_funct3(inst) & 0x03) {
-      result->rd = get_rd(inst);
+      result->rd_regno = get_rd(inst);
     }
     // CSR OPERATIONS
     switch (get_funct3(inst)) {
@@ -585,7 +595,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
       result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
       break;
     case 0x4: // Hypervisor Extension
-      csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
       result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_rs1(inst));
@@ -601,16 +611,16 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
       case 0x00:
         if (get_rs2(inst) == 0) {
           if (core->csr->mode == PRIVILEGE_MODE_M) {
-            csr_exception(core->csr, TRAP_CODE_ENVIRONMENT_CALL_M);
+            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_M;
           } else if (core->csr->mode == PRIVILEGE_MODE_S) {
-            csr_exception(core->csr, TRAP_CODE_ENVIRONMENT_CALL_S);
+            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_S;
           } else {
-            csr_exception(core->csr, TRAP_CODE_ENVIRONMENT_CALL_U);
+            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_U;
           }
         } else if (get_rs2(inst) == 1) {
-          csr_exception(core->csr, TRAP_CODE_BREAKPOINT);
+          result->exception_code = TRAP_CODE_BREAKPOINT;
         } else {
-          csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }
         break;
       case 0x18:
@@ -618,7 +628,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
           // MRET
           csr_trapret(core->csr);
         } else {
-          csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }
         break;
       case 0x08:
@@ -626,7 +636,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
           // SRET
           csr_trapret(core->csr);
         } else {
-          csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }
         break;
       case 0x09:
@@ -634,7 +644,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
         memory_tlb_clear(core->mem);
         break;
       default:
-        csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         break;
       }
     }
@@ -664,7 +674,7 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
       pred = (src1 >= src2) ? 1 : 0;
       break;
     default:
-      csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
     if (pred == 1) {
@@ -674,20 +684,18 @@ void core_step(core_t *core, unsigned pc, struct step_result *result) {
   }
   default:
     // invalid opcode
-    csr_exception(core->csr, TRAP_CODE_ILLEGAL_INSTRUCTION);
+    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
     break;
   }
-  if (core->csr->exception || core->csr->trapret) {
+  if (result->exception_code != 0) {
     return;
-  }
-  // commit
-  if (result->rd != 0) {
-    core->gpr[result->rd] = result->rd_data;
+  } else if (result->rd_regno != 0) {
+    core->gpr[result->rd_regno] = result->rd_data;
   }
   result->pc_next = pc_next;
   return;
 }
 
 void core_fini(core_t *core) {
-
+  return;
 }

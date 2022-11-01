@@ -22,8 +22,6 @@ void sim_init(sim_t *sim) {
   sim->core = (core_t *)malloc(sizeof(core_t));
   core_init(sim->core);
   // set weak references
-  sim->mem->csr = sim->csr;
-  sim->csr->mem = sim->mem;
   sim->core->mem = sim->mem;
   sim->core->csr = sim->csr;
   /// for riscv config string ROM
@@ -52,12 +50,14 @@ void sim_init(sim_t *sim) {
   sim->plic->uart = sim->uart;
   sim->plic->disk = sim->disk;
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC, 1 << 24);
-  sim->csr->plic = sim->plic;
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
   aclint_init(sim->aclint);
   sim->aclint->csr = sim->csr;
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT, 1 << 24);
+  // set weak reference to csr
+  sim->csr->mem = sim->mem;
+  sim->csr->plic = sim->plic;
   // init register
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
@@ -150,12 +150,12 @@ void sim_debug(sim_t *sim, void (*callback)(sim_t *)) {
 void sim_resume(sim_t *sim) {
   sim->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
   sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
-  struct step_result result;
+  struct dbg_step_result result;
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
-    core_step(sim->core, sim->csr->pc, &result);
-    // check debug trigger
-    csr_cycle(sim->csr, result.pc_next);
+    core_step(sim->core, sim->csr->pc, &result, sim->csr->mode);
+    csr_cycle(sim->csr, &result);
   }
+  if (sim->dbg_handler) sim->dbg_handler(sim);
   return;
 }
 
@@ -191,19 +191,16 @@ void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
 }
 
 char sim_read_memory(sim_t *sim, unsigned addr) {
-  unsigned ret = memory_load(sim->mem, addr, 1, 0);
-  // avoid to stall when illegal address accessed
-  sim->csr->exception = 0;
-  return ret;
+  unsigned value;
+  memory_load(sim->mem, addr, &value, 1, PRIVILEGE_MODE_M);
+  return (char)value;
 }
 
 void sim_write_memory(sim_t *sim, unsigned addr, char value) {
-  memory_store(sim->mem, addr, value, 1, 0);
-  // write
+  memory_store(sim->mem, addr, value, 1, PRIVILEGE_MODE_M);
+  // flush
   memory_dcache_write_back(sim->mem);
   memory_icache_invalidate(sim->mem);
-  // avoid to stall when illegal address accessed
-  sim->csr->exception = 0;
   return;
 }
 
@@ -244,7 +241,6 @@ void sim_debug_dump_status(sim_t *sim) {
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
     break;
   }
-  fprintf(stderr, "PC: %08x, (RAM: %08x, %08x)\n", sim->csr->pc, memory_address_translation(sim->mem, sim->csr->pc, 0), memory_load_instruction(sim->mem, sim->csr->pc));
   fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
   fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
   fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));

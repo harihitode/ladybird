@@ -1,6 +1,7 @@
 #ifndef CSR_H
 #define CSR_H
 
+struct dbg_step_result;
 struct memory_t;
 struct plic_t;
 
@@ -26,7 +27,6 @@ typedef struct csr_t {
   unsigned hartid;
   unsigned trapret;
   unsigned interrupt;
-  unsigned exception;
   unsigned exception_code;
   unsigned interrupts_enable;
   unsigned mideleg;
@@ -61,13 +61,11 @@ unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
 void csr_trap(csr_t *, unsigned trap_code);
 void csr_trapret(csr_t *);
 void csr_restore_trap(csr_t *);
-// exception
-void csr_exception(csr_t *, unsigned trap_code);
 // timer
 unsigned long long csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, unsigned long long);
 void csr_fini(csr_t *);
 // call once for 1 cycle
-void csr_cycle(csr_t *, unsigned next_pc);
+void csr_cycle(csr_t *, struct dbg_step_result *);
 
 #endif

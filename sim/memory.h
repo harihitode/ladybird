@@ -6,7 +6,6 @@
 #define MEMORY_STORE_FAILURE 1
 
 struct mmio_t;
-struct csr_t;
 struct cache_t;
 struct tlb_t;
 
@@ -25,7 +24,6 @@ struct rom_t {
 };
 
 typedef struct memory_t {
-  struct csr_t *csr;
   // RAM
   unsigned ram_base;
   unsigned ram_size;
@@ -91,9 +89,9 @@ typedef struct tlb_t {
 } tlb_t;
 
 void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
-unsigned memory_load(memory_t *, unsigned addr, unsigned size, unsigned reserved);
-unsigned memory_load_instruction(memory_t *, unsigned addr);
-unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned conditional);
+unsigned memory_load(memory_t *, unsigned addr, unsigned *value, unsigned size, unsigned prv);
+unsigned memory_load_instruction(memory_t *, unsigned addr, unsigned *value, unsigned prv);
+unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned prv);
 void memory_fini(memory_t *);
 // ram and rom
 char *memory_get_page(memory_t *, unsigned);
@@ -101,15 +99,15 @@ char *memory_get_page(memory_t *, unsigned);
 void memory_set_rom(memory_t *, unsigned base, unsigned size, char *rom_ptr);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base, unsigned size);
 // atomic
-unsigned memory_load_reserved(memory_t *, unsigned addr);
-unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value);
+unsigned memory_load_reserved(memory_t *, unsigned addr, unsigned *value, unsigned prv);
+unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value, unsigned *success, unsigned prv);
 // mmu function
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
 void memory_icache_invalidate(memory_t *);
 void memory_dcache_write_back(memory_t *);
-unsigned memory_address_translation(memory_t *mem, unsigned addr, unsigned access_type);
+unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
 
 // cache (instruction or data)
 void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);
@@ -119,7 +117,7 @@ void cache_fini(cache_t *);
 
 // translate lookaside buffer
 void tlb_init(tlb_t *, memory_t *, unsigned line_size);
-unsigned tlb_get(tlb_t *, unsigned addr, unsigned access_type);
+unsigned tlb_get(tlb_t *, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
 void tlb_clear(tlb_t *);
 void tlb_fini(tlb_t *);
 

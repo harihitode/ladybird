@@ -1,4 +1,5 @@
 #include "riscv.h"
+#include "sim.h"
 #include "memory.h"
 #include "csr.h"
 #include "plic.h"
@@ -40,8 +41,6 @@ void csr_init(csr_t *csr) {
   // trap & interrupts
   csr->trapret = 0;
   csr->interrupt = 0;
-  csr->exception = 0;
-  csr->exception_code = 0;
   csr->interrupts_enable = 0;
   csr->mideleg = 0;
   csr->medeleg = 0;
@@ -408,12 +407,6 @@ void csr_set_timecmp(csr_t *csr, unsigned long long value) {
   return;
 }
 
-void csr_exception(csr_t *csr, unsigned code) {
-  csr->exception = 1;
-  csr->exception_code = code;
-  return;
-}
-
 void csr_restore_trap(csr_t *csr) {
   csr->trapret = 0;
   unsigned from_mode = csr->mode;
@@ -440,11 +433,11 @@ void csr_restore_trap(csr_t *csr) {
   }
 }
 
-void csr_cycle(csr_t *csr, unsigned next_pc) {
+void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
   // update counters
   csr->cycle++; // assume 100 MHz
   csr->instret++;
-  csr->pc = next_pc;
+  csr->pc = result->pc_next;
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }
@@ -455,10 +448,9 @@ void csr_cycle(csr_t *csr, unsigned next_pc) {
 
   if (csr->trapret) {
     csr_restore_trap(csr);
-  } else if (csr->exception || csr->dcsr_step) {
+  } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception
-    csr->exception = 0;
-    csr_trap(csr, csr->exception_code);
+    csr_trap(csr, result->exception_code);
   } else if (csr->interrupt) {
     // catch interrupt
     unsigned interrupts_enable;

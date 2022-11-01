@@ -133,12 +133,7 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
       ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIMEH) << 32) |
       ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIME));
   } else {
-    if (aclint->csr->mode == PRIVILEGE_MODE_M) {
-      csr_csrw(aclint->csr, CSR_ADDR_M_TVAL, addr);
-    } else {
-      csr_csrw(aclint->csr, CSR_ADDR_S_TVAL, addr);
-    }
-    csr_exception(aclint->csr, TRAP_CODE_LOAD_ACCESS_FAULT);
+    fprintf(stderr, "aclint read unimplemented region: %08x\n", addr);
   }
   value = (value64 >> (8 * byte_offset));
   return value;
@@ -156,12 +151,7 @@ void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
   } else if (addr <= 0x0000BFFF) {
     // mtime read only
   } else {
-    if (aclint->csr->mode == PRIVILEGE_MODE_M) {
-      csr_csrw(aclint->csr, CSR_ADDR_M_TVAL, addr);
-    } else {
-      csr_csrw(aclint->csr, CSR_ADDR_S_TVAL, addr);
-    }
-    csr_exception(aclint->csr, TRAP_CODE_STORE_ACCESS_FAULT);
+    fprintf(stderr, "aclint write unimplemented region: %08x\n", addr);
   }
 }
 

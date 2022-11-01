@@ -1,3 +1,4 @@
+#include "riscv.h"
 #include "mmio.h"
 #include "memory.h"
 #include <stdint.h>
@@ -408,8 +409,11 @@ static void disk_process_queue(disk_t *disk) {
           }
         } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
           // memory -> disk
+          unsigned data;
           for (unsigned j = 0; j < current_desc->len; j++) {
-            sector[j] = memory_load(disk->mem, dma_base + j, 1, 0);
+            // TODO
+            memory_load(disk->mem, dma_base + j, &data, 1, PRIVILEGE_MODE_S);
+            sector[j] = (char)data;
           }
         } else {
           fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
