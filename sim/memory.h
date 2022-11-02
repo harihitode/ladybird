@@ -106,6 +106,7 @@ void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
 void memory_icache_invalidate(memory_t *);
+void memory_dcache_invalidate(memory_t *, unsigned paddr);
 void memory_dcache_write_back(memory_t *);
 unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
 

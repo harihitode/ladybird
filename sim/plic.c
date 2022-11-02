@@ -24,6 +24,7 @@ void plic_init (plic_t *plic) {
 }
 
 char plic_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
   plic_t *plic = (plic_t *)unit;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned woff = addr & 0x00000003;
@@ -43,6 +44,7 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
 }
 
 void plic_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
   plic_t *plic = (plic_t *)unit;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned woff = addr & 0x00000003;
@@ -122,6 +124,7 @@ void aclint_init(aclint_t *aclint) {
 }
 
 char aclint_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
   aclint_t *aclint = (aclint_t *)unit;
   char value;
   uint64_t byte_offset = addr % 8;
@@ -140,6 +143,7 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
 }
 
 void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
   aclint_t *aclint = (aclint_t *)unit;
   if (addr < 0x0000BFF8) {
     // hart 0 mtimecmp

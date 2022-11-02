@@ -144,6 +144,7 @@ void uart_set_io(uart_t *uart, const char *in_path, const char *out_path) {
 }
 
 char uart_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_RHR: {
@@ -173,6 +174,7 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
 }
 
 void uart_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_IER:
@@ -243,6 +245,7 @@ void disk_init(disk_t *disk) {
   disk->queue_notify = 0;
   disk->queue_ppn = 0;
   disk->page_size = 0;
+  disk->page_size_mask = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
@@ -287,6 +290,7 @@ const unsigned virtio_mmio_device_feature = 0x0;
 #define VIRTIO_MMIO_MAX_QUEUE 8
 
 char disk_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
   char ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned offs = addr & 0x00000003;
@@ -366,14 +370,15 @@ typedef struct {
 #define VIRTQ_STAGE_RW_SECTOR 1
 #define VIRTQ_STAGE_COMPLETE 2
 
+#define VIRTQ_DEBUG 0
+
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
-  unsigned desc_addr = disk->queue_ppn * disk->page_size - disk->mem->ram_base;
-  printf("desc_addr: %08x\n", disk->queue_ppn * disk->page_size);
+  unsigned desc_addr = disk->queue_ppn * disk->page_size;
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
-#if 0
+#if VIRTQ_DEBUG
   fprintf(stderr, "avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
     fprintf(stderr, " %d", avail->ring[i]);
@@ -384,7 +389,7 @@ static void disk_process_queue(disk_t *disk) {
   virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-#if 0
+#if VIRTQ_DEBUG
     fprintf(stderr, "Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
             i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
             );
@@ -392,49 +397,53 @@ static void disk_process_queue(disk_t *disk) {
     int is_write = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
-      req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr - disk->mem->ram_base) + (current_desc->addr & 0x00000FFF));
-#if 0
+      req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
+#if VIRTQ_DEBUG
       fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
-    }
-    if (i == VIRTQ_STAGE_RW_SECTOR) {
+    } else if (i == VIRTQ_STAGE_RW_SECTOR) {
       if (disk->data == NULL) {
         fprintf(stderr, "mmio disk (RW queue): no disk\n");
       } else {
         char *sector = disk->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
-        printf("dma_base: %08x\n", dma_base);
         if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
           // disk -> memory
           for (unsigned j = 0; j < current_desc->len; j++) {
-            memory_store(disk->mem, dma_base + j, sector[j], 1, PRIVILEGE_MODE_S);
+            char *page = memory_get_page(disk->mem, dma_base + j);
+            page[(dma_base + j) & disk->page_size_mask] = sector[j];
+            // invalidate cache
+            memory_dcache_invalidate(disk->mem, dma_base + j);
           }
         } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
           // memory -> disk
-          unsigned data;
           for (unsigned j = 0; j < current_desc->len; j++) {
             // TODO
-            memory_load(disk->mem, dma_base + j, &data, 1, PRIVILEGE_MODE_S);
-            sector[j] = (char)data;
+            char *page = memory_get_page(disk->mem, dma_base + j);
+            sector[j] = page[(dma_base + j) & disk->page_size_mask];
           }
         } else {
           fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
         }
       }
-    }
-    if (i == VIRTQ_STAGE_COMPLETE && is_write) {
+    } else if (i == VIRTQ_STAGE_COMPLETE && is_write) {
       // done
-      memory_store(disk->mem, current_desc->addr, VIRTQ_DONE, 1, PRIVILEGE_MODE_S);
+      unsigned t;
+      memory_load(disk->mem, current_desc->addr, &t, 1, PRIVILEGE_MODE_S);
+      char *page = memory_get_page(disk->mem, current_desc->addr);
+      page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
+      memory_dcache_invalidate(disk->mem, current_desc->addr);
       // complete
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
       used->idx++; // increment when completed
+      memory_load(disk->mem, current_desc->addr, &t, 1, PRIVILEGE_MODE_S);
     }
     // next queue
     if ((current_desc->flags & VIRTQ_DESC_F_NEXT) != VIRTQ_DESC_F_NEXT) {
       break;
     }
-#if 0
+#if VIRTQ_DEBUG
     fprintf(stderr, "next: -> %d\n", current_desc->next);
 #endif
     current_desc = desc + current_desc->next;
@@ -442,10 +451,12 @@ static void disk_process_queue(disk_t *disk) {
       fprintf(stderr, "[MMIO ERROR] EXCEEDS MAX_QUEUE\n");
     }
   }
+  // raise interrupt
   disk->queue_notify = 1;
 }
 
 void disk_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
   disk_t *disk = (disk_t *)unit;
   unsigned base = addr & 0xfffffffc;
   unsigned offs = addr & 0x00000003;
@@ -465,6 +476,8 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
   case VIRTIO_MMIO_GUEST_PAGE_SIZE:
     disk->page_size =
       (disk->page_size & (~mask)) | ((unsigned char)value << (8 * offs));
+    // [TODO?] for non 2 power
+    disk->page_size_mask = disk->page_size - 1;
     break;
   case VIRTIO_MMIO_DRIVER_FEATURES:
     // [TODO] feature negotiation

@@ -38,6 +38,7 @@ typedef struct disk_t {
   unsigned queue_notify;
   unsigned queue_ppn;
   unsigned page_size;
+  unsigned page_size_mask;
   unsigned current_queue;
 } disk_t;
 

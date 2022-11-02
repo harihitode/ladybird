@@ -42,7 +42,7 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
 }
 
 char *memory_get_page(memory_t *mem, unsigned addr) {
-  unsigned bid = addr / mem->ram_block_size;
+  unsigned bid = (addr - mem->ram_base) / mem->ram_block_size;
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
@@ -140,7 +140,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
   unsigned found = 0;
   if (paddr >= mem->ram_base && paddr < ram_max_addr) {
     // RAM
-    *value = memory_ram_load(mem, paddr - mem->ram_base, size, mem->dcache);
+    *value = memory_ram_load(mem, paddr, size, mem->dcache);
     found = 1;
   } else {
     // search MMIO
@@ -149,7 +149,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
       if (unit == NULL) continue;
       if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
         for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & unit->readb(unit, paddr + i - unit->base)) << (8 * i));
+          *value |= ((0x000000ff & unit->readb(unit, paddr + i)) << (8 * i));
         }
         found = 1;
         break;
@@ -188,7 +188,7 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
   if (paddr >= mem->ram_base && paddr < ram_max_addr) {
     // RAM
-    memory_ram_store(mem, paddr - mem->ram_base, value, size, mem->dcache);
+    memory_ram_store(mem, paddr, value, size, mem->dcache);
   } else {
     // search MMIO
     for (unsigned u = 0; u < MAX_MMIO; u++) {
@@ -196,13 +196,25 @@ unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned siz
       if (unit == NULL) continue;
       if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
         for (unsigned i = 0; i < size; i++) {
-          unit->writeb(unit, paddr + i - unit->base, (char)(value >> (i * 8)));
+          unit->writeb(unit, paddr + i, (char)(value >> (i * 8)));
         }
         break;
       }
     }
   }
   return exception;
+}
+
+static void memory_ram_set_reserve(memory_t *mem, unsigned addr) {
+  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 1;
+}
+
+static void memory_ram_rst_reserve(memory_t *mem, unsigned addr) {
+  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 0;
+}
+
+static char memory_ram_get_reserve(memory_t *mem, unsigned addr) {
+  return mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size];
 }
 
 unsigned memory_load_reserved(memory_t *mem, unsigned addr, unsigned *value, unsigned prv) {
@@ -214,8 +226,8 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr, unsigned *value, uns
   }
   if (paddr >= mem->ram_base && paddr < ram_max_addr) {
     // RAM
-    *value = memory_ram_load(mem, paddr - mem->ram_base, 4, mem->dcache);
-    mem->ram_reserve[(paddr - mem->ram_base) / mem->ram_block_size] = 1;
+    *value = memory_ram_load(mem, paddr, 4, mem->dcache);
+    memory_ram_set_reserve(mem, paddr);
     return 0;
   } else {
     return TRAP_CODE_LOAD_ACCESS_FAULT;
@@ -233,7 +245,7 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr, unsigned *inst, u
       if ((addr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
         exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
         mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, (paddr + 2 - mem->ram_base) & ~(mem->icache->line_mask), 0);
+        mem->inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
       }
       *inst |= (((unsigned short *)(&mem->inst_line[(addr + 2) & mem->icache->line_mask]))[0] << 16);
     }
@@ -243,12 +255,12 @@ unsigned memory_load_instruction(memory_t *mem, unsigned addr, unsigned *inst, u
     if (exception == 0) {
       if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
         mem->inst_line_pc = (addr & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, (paddr - mem->ram_base) & ~(mem->icache->line_mask), 0);
+        mem->inst_line = cache_get(mem->icache, paddr & ~(mem->icache->line_mask), 0);
         *inst = ((unsigned short *)(&mem->inst_line[paddr & mem->icache->line_mask]))[0];
         if ((*inst & 0x03) == 3) {
           if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
             mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-            mem->inst_line = cache_get(mem->icache, (paddr + 2 - mem->ram_base) & ~(mem->icache->line_mask), 0);
+            mem->inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
           }
           *inst |= (((unsigned short *)(&mem->inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
         }
@@ -268,9 +280,9 @@ unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value, 
     return exception;
   }
   if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    if (mem->ram_reserve[(paddr - mem->ram_base) / mem->ram_block_size]) {
-      memory_ram_store(mem, paddr - mem->ram_base, value, 4, mem->dcache);
-      mem->ram_reserve[(paddr - mem->ram_base) / mem->ram_block_size] = 0;
+    if (memory_ram_get_reserve(mem, paddr)) {
+      memory_ram_store(mem, paddr, value, 4, mem->dcache);
+      memory_ram_rst_reserve(mem, paddr);
       *success = MEMORY_STORE_SUCCESS;
     } else {
       *success = MEMORY_STORE_FAILURE;
@@ -327,6 +339,15 @@ void memory_icache_invalidate(memory_t *mem) {
     mem->icache->line[i].valid = 0;
   }
   mem->inst_line = NULL;
+}
+
+void memory_dcache_invalidate(memory_t *mem, unsigned paddr) {
+  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
+    if (mem->dcache->line[i].valid && mem->dcache->line[i].tag == (paddr & mem->dcache->tag_mask)) {
+      mem->dcache->line[i].valid = 0;
+    }
+  }
+  return;
 }
 
 void memory_dcache_write_back(memory_t *mem) {
@@ -387,7 +408,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
 int cache_write_back(cache_t *cache, unsigned index) {
   if (cache->line[index].valid && cache->line[index].dirty) {
     unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
-    unsigned victim_block_id = victim_addr / cache->mem->ram_block_size;
+    unsigned victim_block_id = (victim_addr - cache->mem->ram_base) / cache->mem->ram_block_size;
     unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
     // write back
     memcpy(&cache->mem->ram_block[victim_block_id][victim_block_base], cache->line[index].data, cache->line_len);
@@ -483,7 +504,8 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
         access_fault = 1;
         break;
       }
-      pte = memory_ram_load(tlb->mem, pte_addr - tlb->mem->ram_base, 4, tlb->mem->dcache);
+      // [TODO?] not to use dcache
+      pte = memory_ram_load(tlb->mem, pte_addr, 4, tlb->mem->dcache);
       protect = tlb_check_privilege(tlb, pte, i, access_type, prv);
       if (!protect) {
         break;
