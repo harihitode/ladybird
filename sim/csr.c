@@ -310,6 +310,13 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
   return csr_read_value;
 }
 
+static void csr_enter_debug_mode(csr_t *csr, unsigned cause) {
+  csr->mode = PRIVILEGE_MODE_D;
+  csr->dpc = csr->pc;
+  csr->dcsr_prv = csr->mode;
+  csr->dcsr_cause = cause;
+}
+
 static void csr_trap(csr_t *csr, unsigned trap_code) {
   unsigned is_interrupt = ((trap_code >> 31) & 0x00000001);
   unsigned code = (trap_code & 0x7fffffff);
@@ -352,14 +359,11 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
   }
 
   if (to_mode == PRIVILEGE_MODE_D) {
-    csr->dpc = csr->pc;
-    csr->dcsr_prv = csr->mode;
     if (csr->dcsr_step) {
-      csr->dcsr_cause = CSR_DCSR_CAUSE_STEP;
+      csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_STEP);
     } else {
-      csr->dcsr_cause = CSR_DCSR_CAUSE_EBREAK;
+      csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_EBREAK);
     }
-    csr->mode = to_mode;
   } else if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
     // pc
@@ -439,7 +443,10 @@ void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
     csr->interrupt = 1;
   }
 
-  if (result->trapret) {
+  if (result->trigger) {
+    // [TODO] trigger timing control
+    csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_TRIGGER);
+  } else if (result->trapret) {
     csr_restore_trap(csr);
   } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception
