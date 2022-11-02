@@ -369,6 +369,7 @@ typedef struct {
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
   unsigned desc_addr = disk->queue_ppn * disk->page_size - disk->mem->ram_base;
+  printf("desc_addr: %08x\n", disk->queue_ppn * disk->page_size);
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
@@ -402,10 +403,11 @@ static void disk_process_queue(disk_t *disk) {
       } else {
         char *sector = disk->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
+        printf("dma_base: %08x\n", dma_base);
         if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
           // disk -> memory
           for (unsigned j = 0; j < current_desc->len; j++) {
-            memory_store(disk->mem, dma_base + j, sector[j], 1, 0);
+            memory_store(disk->mem, dma_base + j, sector[j], 1, PRIVILEGE_MODE_S);
           }
         } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
           // memory -> disk
@@ -422,7 +424,7 @@ static void disk_process_queue(disk_t *disk) {
     }
     if (i == VIRTQ_STAGE_COMPLETE && is_write) {
       // done
-      memory_store(disk->mem, current_desc->addr, VIRTQ_DONE, 1, 0);
+      memory_store(disk->mem, current_desc->addr, VIRTQ_DONE, 1, PRIVILEGE_MODE_S);
       // complete
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
