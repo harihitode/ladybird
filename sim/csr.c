@@ -39,7 +39,6 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
-  csr->trapret = 0;
   csr->interrupt = 0;
   csr->interrupts_enable = 0;
   csr->mideleg = 0;
@@ -311,7 +310,7 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
   return csr_read_value;
 }
 
-void csr_trap(csr_t *csr, unsigned trap_code) {
+static void csr_trap(csr_t *csr, unsigned trap_code) {
   unsigned is_interrupt = ((trap_code >> 31) & 0x00000001);
   unsigned code = (trap_code & 0x7fffffff);
   // default: to Machine Mode
@@ -393,11 +392,6 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
   return;
 }
 
-void csr_trapret(csr_t *csr) {
-  csr->trapret = 1;
-  return;
-}
-
 unsigned long long csr_get_timecmp(csr_t *csr) {
   return csr->timecmp;
 }
@@ -407,8 +401,7 @@ void csr_set_timecmp(csr_t *csr, unsigned long long value) {
   return;
 }
 
-void csr_restore_trap(csr_t *csr) {
-  csr->trapret = 0;
+static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
@@ -446,7 +439,7 @@ void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
     csr->interrupt = 1;
   }
 
-  if (csr->trapret) {
+  if (result->trapret) {
     csr_restore_trap(csr);
   } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception

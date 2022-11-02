@@ -413,8 +413,9 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
   result->rd_data = 0;
   result->exception_code = 0;
   result->mem_access = MA_NONE;
-  result->mem_physical_addr = 0;
   result->mem_virtual_addr = 0;
+  result->trapret = 0;
+  result->trigger = 0;
   result->inst = 0;
   result->prv = prv;
   result->pc_next = pc;
@@ -626,7 +627,7 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
       case 0x18:
         if (get_rs2(inst) == 2) {
           // MRET
-          csr_trapret(core->csr);
+          result->trapret = 1;
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }
@@ -634,7 +635,7 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
       case 0x08:
         if (get_rs2(inst) == 2) {
           // SRET
-          csr_trapret(core->csr);
+          result->trapret = 1;
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }

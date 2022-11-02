@@ -27,7 +27,6 @@ typedef struct csr_t {
   unsigned hartid;
   unsigned trapret;
   unsigned interrupt;
-  unsigned exception_code;
   unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;
@@ -52,20 +51,17 @@ typedef struct csr_t {
 } csr_t;
 
 void csr_init(csr_t *);
+void csr_fini(csr_t *);
+// call once at every cycle
+void csr_cycle(csr_t *, struct dbg_step_result *);
+// basic interface
 unsigned csr_csrr(csr_t *, unsigned addr);
 void csr_csrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value);
 unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
-// trap
-void csr_trap(csr_t *, unsigned trap_code);
-void csr_trapret(csr_t *);
-void csr_restore_trap(csr_t *);
-// timer
+// 64 bit timer interface
 unsigned long long csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, unsigned long long);
-void csr_fini(csr_t *);
-// call once for 1 cycle
-void csr_cycle(csr_t *, struct dbg_step_result *);
 
 #endif

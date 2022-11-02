@@ -107,6 +107,7 @@
 // debug cause
 #define CSR_DCSR_ENABLE_ANY_BREAK 0x0003b003
 #define CSR_DCSR_CAUSE_EBREAK 0x1
+#define CSR_DCSR_CAUSE_TRIGGER 0x2
 #define CSR_DCSR_CAUSE_STEP 0x4
 
 #endif
