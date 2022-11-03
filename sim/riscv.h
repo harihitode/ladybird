@@ -7,6 +7,8 @@
 #define F_EXTENSION 0
 #define M_EXTENSION 1
 #define V_EXTENSION 0
+#define XLEN 32
+#define EXTENSION_STR "rv32imac"
 
 #define NUM_GPR 32
 #ifdef F_EXTENSION
@@ -21,7 +23,11 @@
 #define REG_SP 2
 #define REG_FP 8
 #define REG_PC 32
-#define XLEN 32
+
+// stab
+#define VENDOR_NAME "harihitode"
+#define ARCH_NAME "ladybird"
+#define TARGET_TRIPLE "riscv32-unknown-unknown-elf"
 
 // trap code below
 #define TRAP_CODE_ILLEGAL_INSTRUCTION 0x00000002
