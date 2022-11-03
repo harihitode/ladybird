@@ -12,6 +12,7 @@ typedef struct csr_t {
   unsigned mode;
   unsigned pc;
   // status
+  unsigned hartid;
   unsigned long long cycle;
   unsigned long long time;
   unsigned long long timecmp;
@@ -24,9 +25,6 @@ typedef struct csr_t {
   unsigned status_mie; // global interrupt enable
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
-  unsigned hartid;
-  unsigned trapret;
-  unsigned interrupt;
   unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;

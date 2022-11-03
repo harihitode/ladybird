@@ -39,7 +39,6 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
-  csr->interrupt = 0;
   csr->interrupts_enable = 0;
   csr->mideleg = 0;
   csr->medeleg = 0;
@@ -439,10 +438,6 @@ void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
     csr->time++; // precision 0.1 us
   }
 
-  if ((csr->cycle % 10) == 0) {
-    csr->interrupt = 1;
-  }
-
   if (result->trigger) {
     // [TODO] trigger timing control
     csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_TRIGGER);
@@ -451,7 +446,7 @@ void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
   } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception
     csr_trap(csr, result->exception_code);
-  } else if (csr->interrupt) {
+  } else if ((csr->cycle % 10) == 0) {
     // catch interrupt
     unsigned interrupts_enable;
     if (csr->mode == PRIVILEGE_MODE_M) {
@@ -482,7 +477,6 @@ void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
     } else {
       // unknown
     }
-    csr->interrupt = 0;
 #if 0
     fprintf(stderr, "mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
     fprintf(stderr, "%016lx, %016lx\n", csr->time, csr->timecmp);
