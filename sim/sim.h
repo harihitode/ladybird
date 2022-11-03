@@ -5,11 +5,21 @@
 #include "riscv.h"
 typedef struct dbg_state sim_t;
 
+// memory map
 #define MEMORY_BASE_ADDR_UART   0x10000000
 #define MEMORY_BASE_ADDR_DISK   0x10001000
 #define MEMORY_BASE_ADDR_ACLINT 0x02000000
 #define MEMORY_BASE_ADDR_PLIC   0x0c000000
 #define MEMORY_BASE_ADDR_RAM    0x80000000
+// 128GiB, 4KiB page RAM
+#define RAM_SIZE (128 * 1024 * 1024)
+#define RAM_PAGE_SIZE (4 * 1024)
+
+// advanced core local interrupt map
+#define ACLINT_MTIMER_MTIMECMP_BASE (MEMORY_BASE_ADDR_ACLINT)
+#define ACLINT_MTIMER_MTIME_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00007ff8)
+#define ACLINT_MSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00008000)
+#define ACLINT_SSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x0000c000)
 
 // sim_t is declared in gdbstub_sys.h
 // simulator general interface

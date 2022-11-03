@@ -12,9 +12,7 @@
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  unsigned ram_size = 128 * 1024 * 1024;
-  unsigned block_size = 4 * 1024;
-  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, ram_size, block_size);
+  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, RAM_SIZE, RAM_PAGE_SIZE);
   // init csr
   sim->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(sim->csr);
@@ -29,32 +27,35 @@ void sim_init(sim_t *sim) {
   *(unsigned *)(sim->config_rom + 0x0c) = 0x00001020;
   sprintf(&sim->config_rom[32],
           "platform { vendor %s; arch %s; };\n"
-          "rtc { addr 0x40000000; };\n"
+          "rtc { addr %08x; };\n"
           "ram { 0 { addr %08x; size %08x; }; };\n"
-          "core { 0 { 0 { isa rv32imac; timecmp 0x40000008; ipi 0x40001000; }; }; };\n",
-          "harihitode", "ladybird", MEMORY_BASE_ADDR_RAM, ram_size);
-  memory_set_rom(sim->mem, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, sim->config_rom);
+          "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
+          VENDOR_NAME, ARCH_NAME, ACLINT_MTIMER_MTIME_BASE,
+          MEMORY_BASE_ADDR_RAM, RAM_SIZE,
+          EXTENSION_STR,
+          ACLINT_MTIMER_MTIMECMP_BASE, ACLINT_SSWI_BASE); // [TODO?] MSWI_BASE?
+  memory_set_rom(sim->mem, sim->config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE);
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
   uart_init(sim->uart);
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->uart, MEMORY_BASE_ADDR_UART, block_size);
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->uart, MEMORY_BASE_ADDR_UART);
   /// disk
   sim->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(sim->disk);
   sim->disk->mem = sim->mem; // for DMA
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->disk, MEMORY_BASE_ADDR_DISK, block_size);
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->disk, MEMORY_BASE_ADDR_DISK);
   /// platform level interrupt controller
   sim->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(sim->plic);
   sim->plic->uart = sim->uart;
   sim->plic->disk = sim->disk;
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC, 1 << 24);
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC);
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
   aclint_init(sim->aclint);
   sim->aclint->csr = sim->csr;
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT, 1 << 24);
+  memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT);
   // set weak reference to csr
   sim->csr->mem = sim->mem;
   sim->csr->plic = sim->plic;
@@ -76,7 +77,7 @@ void sim_init(sim_t *sim) {
     }
     sim->reginfo[i] = buf;
   }
-  sprintf(sim->triple, "%s", "riscv32-unknown-unknown-elf");
+  sprintf(sim->triple, "%s", TARGET_TRIPLE);
   sim->dbg_handler = NULL;
   sim->trigger = NULL;
   sim->state = running;

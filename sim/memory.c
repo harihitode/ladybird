@@ -50,7 +50,7 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   return mem->ram_block[bid];
 }
 
-void memory_set_rom(memory_t *mem, unsigned base, unsigned size, char *rom_ptr) {
+void memory_set_rom(memory_t *mem, char *rom_ptr, unsigned base, unsigned size) {
   struct rom_t *new_rom;
   if (!mem->rom_list) {
     mem->rom_list = (struct rom_t *)calloc(1, sizeof(struct rom_t));
@@ -67,7 +67,7 @@ void memory_set_rom(memory_t *mem, unsigned base, unsigned size, char *rom_ptr) 
   return;
 }
 
-void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base, unsigned size) {
+void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base) {
   unsigned empty = 0;
   for (empty = 0; empty < MAX_MMIO; empty++) {
     if (mem->mmio_list[empty] == NULL) break;
@@ -77,7 +77,6 @@ void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base, unsigned
   } else {
     mem->mmio_list[empty] = unit;
     unit->base = base;
-    unit->size = size;
   }
 }
 

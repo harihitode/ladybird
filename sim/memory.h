@@ -96,8 +96,8 @@ void memory_fini(memory_t *);
 // ram and rom
 char *memory_get_page(memory_t *, unsigned);
 // [NOTE] memory does not free rom_ptr on fini
-void memory_set_rom(memory_t *, unsigned base, unsigned size, char *rom_ptr);
-void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base, unsigned size);
+void memory_set_rom(memory_t *, char *rom_ptr, unsigned base, unsigned size);
+void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr, unsigned *value, unsigned prv);
 unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value, unsigned *success, unsigned prv);
