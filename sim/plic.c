@@ -8,7 +8,7 @@
 
 void plic_init (plic_t *plic) {
   plic->base.base = 0;
-  plic->base.size = 4096;
+  plic->base.size = (1 << 24);
   plic->base.readb = plic_read;
   plic->base.writeb = plic_write;
   plic->priorities = (unsigned *)malloc((PLIC_MAX_IRQ + 1) * sizeof(unsigned));
@@ -117,7 +117,7 @@ void plic_fini(plic_t *plic) {
 
 void aclint_init(aclint_t *aclint) {
   aclint->base.base = 0;
-  aclint->base.size = 4096;
+  aclint->base.size = (1 << 16);
   aclint->base.readb = aclint_read;
   aclint->base.writeb = aclint_write;
   aclint->csr = NULL;
