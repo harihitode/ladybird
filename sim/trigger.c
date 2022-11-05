@@ -1,6 +1,6 @@
 #include "trigger.h"
 #include "riscv.h"
-#include "gdbstub_sys.h"
+#include "core.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -116,7 +116,7 @@ unsigned trig_info(const trigger_t *trig, unsigned index) {
   }
 }
 
-static unsigned trig_match6_fire(struct trigger_elem *elem, const struct dbg_step_result *result) {
+static unsigned trig_match6_fire(struct trigger_elem *elem, const struct core_step_result *result) {
   if ((elem->access & result->m_access) && (elem->data2 == result->m_vaddr)) {
     return 1;
   } else {
@@ -124,7 +124,7 @@ static unsigned trig_match6_fire(struct trigger_elem *elem, const struct dbg_ste
   }
 }
 
-static unsigned trig_icount_fire(struct trigger_elem *elem, const struct dbg_step_result *result) {
+static unsigned trig_icount_fire(struct trigger_elem *elem, const struct core_step_result *result) {
   if (elem->count > 1) {
     elem->count--;
     return 0;
@@ -137,7 +137,7 @@ static unsigned trig_icount_fire(struct trigger_elem *elem, const struct dbg_ste
   }
 }
 
-void trig_cycle(trigger_t *trig, struct dbg_step_result *result) {
+void trig_cycle(trigger_t *trig, struct core_step_result *result) {
   for (unsigned i = 0; i < trig->size; i++) {
     switch (trig->elem[i]->type) {
     case CSR_TDATA1_TYPE_MATCH6:

@@ -2,6 +2,11 @@
 #include "memory.h"
 #include "csr.h"
 
+#define CORE_MA_NONE 0
+#define CORE_MA_LOAD (CSR_MATCH6_LOAD)
+#define CORE_MA_STORE (CSR_MATCH6_STORE)
+#define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
+
 void core_init(core_t *core) {
   // clear gpr
   for (unsigned i = 0; i < NUM_GPR; i++) {
@@ -341,7 +346,7 @@ static unsigned decompress(unsigned inst) {
   return ret;
 }
 
-static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct dbg_step_result *result) {
+static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
   switch (funct) {
   case 0x0: // ADD, SUB, ADDI
     if (alt) {
@@ -378,7 +383,7 @@ static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned a
   }
 }
 
-void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct dbg_step_result *result) {
+void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_step_result *result) {
   switch (funct) {
   case 0x0:
     result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
@@ -407,12 +412,12 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct dbg_ste
   }
 }
 
-void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsigned prv) {
+void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
   result->rd_regno = 0;
   result->rd_data = 0;
   result->exception_code = 0;
-  result->m_access = MA_NONE;
+  result->m_access = CORE_MA_NONE;
   result->m_vaddr = 0;
   result->m_data = 0;
   result->trapret = 0;
@@ -475,7 +480,7 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     pc_next = pc + get_jal_offset(inst);
     break;
   case OPCODE_STORE: {
-    result->m_access = MA_STORE;
+    result->m_access = CORE_MA_STORE;
     result->m_vaddr = core->gpr[get_rs1(inst)] + get_store_offset(inst);
     result->m_data = core->gpr[get_rs2(inst)];
     switch (get_funct3(inst)) {
@@ -495,7 +500,7 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     break;
   }
   case OPCODE_LOAD: {
-    result->m_access = MA_LOAD;
+    result->m_access = CORE_MA_LOAD;
     result->rd_regno = get_rd(inst);
     result->m_vaddr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
     switch (get_funct3(inst)) {
@@ -523,7 +528,7 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     break;
   }
   case OPCODE_AMO: {
-    result->m_access = MA_ACCESS;
+    result->m_access = CORE_MA_ACCESS;
     result->rd_regno = get_rd(inst);
     result->m_vaddr = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];

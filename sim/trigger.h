@@ -1,7 +1,7 @@
 #ifndef TRIGGER_H
 #define TRIGGER_H
 
-struct dbg_step_result;
+struct core_step_result;
 
 struct trigger_elem {
   unsigned char type;
@@ -32,7 +32,7 @@ void trig_resize(trigger_t *trig, unsigned size);
 unsigned trig_get_tdata(const trigger_t *trig, unsigned index, unsigned no);
 void trig_set_tdata(trigger_t *trig, unsigned index, unsigned no, unsigned data);
 unsigned trig_info(const trigger_t *trig, unsigned index);
-void trig_cycle(trigger_t *trig, struct dbg_step_result *result);
+void trig_cycle(trigger_t *trig, struct core_step_result *result);
 void trig_fini(trigger_t *trig);
 
 #endif

@@ -153,7 +153,7 @@ void sim_debug(sim_t *sim, void (*callback)(sim_t *)) {
 void sim_resume(sim_t *sim) {
   sim->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
   sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
-  struct dbg_step_result result;
+  struct core_step_result result;
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
     unsigned pc = sim->csr->pc;
     core_step(sim->core, pc, &result, sim->csr->mode);
@@ -215,6 +215,38 @@ void sim_cache_flush(sim_t *sim) {
   memory_icache_invalidate(sim->mem);
   return;
 }
+
+int sim_set_exec_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+}
+
+int sim_set_write_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_set_read_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_set_access_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_rst_exec_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_rst_write_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_rst_read_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
+
+int sim_rst_access_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+  return -1;
+};
 
 int sim_virtio_disk(sim_t *sim, const char *img_path, int mode) {
   disk_load(sim->disk, img_path, mode);

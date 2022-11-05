@@ -1,7 +1,7 @@
 #ifndef CSR_H
 #define CSR_H
 
-struct dbg_step_result;
+struct core_step_result;
 struct memory_t;
 struct plic_t;
 struct trigger_t;
@@ -56,7 +56,7 @@ typedef struct csr_t {
 void csr_init(csr_t *);
 void csr_fini(csr_t *);
 // call once at every cycle
-void csr_cycle(csr_t *, struct dbg_step_result *);
+void csr_cycle(csr_t *, struct core_step_result *);
 // basic interface
 unsigned csr_csrr(csr_t *, unsigned addr);
 void csr_csrw(csr_t *, unsigned addr, unsigned value);

@@ -3,6 +3,7 @@
 #include "memory.h"
 #include "csr.h"
 #include "plic.h"
+#include "core.h"
 #include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -442,7 +443,7 @@ static void csr_restore_trap(csr_t *csr) {
   }
 }
 
-void csr_cycle(csr_t *csr, struct dbg_step_result *result) {
+void csr_cycle(csr_t *csr, struct core_step_result *result) {
   // update counters
   csr->cycle++; // assume 100 MHz
   csr->instret++;
