@@ -5,6 +5,7 @@
 #include "csr.h"
 #include "mmio.h"
 #include "plic.h"
+#include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,9 +57,14 @@ void sim_init(sim_t *sim) {
   aclint_init(sim->aclint);
   sim->aclint->csr = sim->csr;
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT);
+  /// trigger module
+  sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
+  trig_init(sim->trigger);
+  trig_resize(sim->trigger, 16);
   // set weak reference to csr
   sim->csr->mem = sim->mem;
   sim->csr->plic = sim->plic;
+  sim->csr->trig = sim->trigger;
   // init register
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
@@ -79,7 +85,6 @@ void sim_init(sim_t *sim) {
   }
   sprintf(sim->triple, "%s", TARGET_TRIPLE);
   sim->dbg_handler = NULL;
-  sim->trigger = NULL;
   sim->state = running;
   return;
 }
@@ -124,22 +129,19 @@ void sim_fini(sim_t *sim) {
   free(sim->mem);
   csr_fini(sim->csr);
   free(sim->csr);
-  for (int i = 0; i < NUM_REGISTERS; i++) {
-    free(sim->reginfo[i]);
-  }
-  free(sim->reginfo);
-  for (struct dbg_trigger *p = sim->trigger; p != NULL;) {
-    struct dbg_trigger *p_next = p->next;
-    free(p);
-    p = p_next;
-  }
-  free(sim->config_rom);
+  trig_fini(sim->trigger);
+  free(sim->trigger);
   uart_fini(sim->uart);
   free(sim->uart);
   disk_fini(sim->disk);
   free(sim->disk);
   plic_fini(sim->plic);
   free(sim->plic);
+  for (int i = 0; i < NUM_REGISTERS; i++) {
+    free(sim->reginfo[i]);
+  }
+  free(sim->reginfo);
+  free(sim->config_rom);
   return;
 }
 
@@ -153,7 +155,9 @@ void sim_resume(sim_t *sim) {
   sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
   struct dbg_step_result result;
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
-    core_step(sim->core, sim->csr->pc, &result, sim->csr->mode);
+    unsigned pc = sim->csr->pc;
+    core_step(sim->core, pc, &result, sim->csr->mode);
+    trig_cycle(sim->trigger, &result);
     csr_cycle(sim->csr, &result);
   }
   if (sim->dbg_handler) sim->dbg_handler(sim);
@@ -192,14 +196,21 @@ void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
 }
 
 char sim_read_memory(sim_t *sim, unsigned addr) {
+  unsigned prv = sim->csr->dcsr_mprven ? sim->csr->dcsr_prv : PRIVILEGE_MODE_M;
   unsigned value;
-  memory_load(sim->mem, addr, &value, 1, PRIVILEGE_MODE_M);
+  memory_load(sim->mem, addr, &value, 1, prv);
   return (char)value;
 }
 
 void sim_write_memory(sim_t *sim, unsigned addr, char value) {
-  memory_store(sim->mem, addr, value, 1, PRIVILEGE_MODE_M);
+  unsigned prv = sim->csr->dcsr_mprven ? sim->csr->dcsr_prv : PRIVILEGE_MODE_M;
+  memory_store(sim->mem, addr, value, 1, prv);
   // flush
+  sim_cache_flush(sim);
+  return;
+}
+
+void sim_cache_flush(sim_t *sim) {
   memory_dcache_write_back(sim->mem);
   memory_icache_invalidate(sim->mem);
   return;
@@ -251,4 +262,31 @@ void sim_debug_dump_status(sim_t *sim) {
   fprintf(stderr, "ICACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->icache->hit_count / sim->mem->icache->access_count, sim->mem->icache->hit_count, sim->mem->icache->access_count);
   fprintf(stderr, "DCACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->dcache->hit_count / sim->mem->dcache->access_count, sim->mem->dcache->hit_count, sim->mem->dcache->access_count);
   fprintf(stderr, "TLB: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->tlb->hit_count / sim->mem->tlb->access_count, sim->mem->tlb->hit_count, sim->mem->tlb->access_count);
+}
+
+unsigned sim_match6(unsigned select, unsigned timing, unsigned access) {
+  return ((CSR_TDATA1_TYPE_MATCH6 << CSR_TDATA1_TYPE_FIELD) |
+          (1 << CSR_TDATA1_DMODE_FIELD) |
+          (1 << 24) |
+          (1 << 23) |
+          ((select & 0x1) << 21) |
+          ((timing & 0x1) << 20) |
+          (CSR_TDATA1_ACTION_ENTER_DM << 12) |
+          (1 << 6) |
+          (1 << 4) |
+          (1 << 3) |
+          (access & 0x7)
+          );
+}
+
+unsigned sim_icount(unsigned count) {
+  return ((CSR_TDATA1_TYPE_ICOUNT << CSR_TDATA1_TYPE_FIELD) |
+          (1 << CSR_TDATA1_DMODE_FIELD) |
+          (1 << 26) |
+          (1 << 25) |
+          ((count & 0x03fff) << 10) |
+          (1 << 9) |
+          (1 << 7) |
+          (1 << 6) |
+          (CSR_TDATA1_ACTION_ENTER_DM));
 }

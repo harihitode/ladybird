@@ -4,10 +4,12 @@
 struct dbg_step_result;
 struct memory_t;
 struct plic_t;
+struct trigger_t;
 
 typedef struct csr_t {
   struct memory_t *mem;
   struct plic_t *plic;
+  struct trigger_t *trig;
   // shadow registers
   unsigned mode;
   unsigned pc;
@@ -44,8 +46,11 @@ typedef struct csr_t {
   unsigned char dcsr_ebreaku;
   unsigned char dcsr_cause;
   unsigned char dcsr_step;
+  unsigned char dcsr_mprven;
   unsigned char dcsr_prv; // previous privilege mode
   unsigned dpc; // debugging PC
+  // Sdtrig
+  unsigned tselect;
 } csr_t;
 
 void csr_init(csr_t *);

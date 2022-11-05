@@ -41,5 +41,10 @@ int sim_load_elf(sim_t *, const char *elf_path);
 int sim_virtio_disk(sim_t *, const char *img_path, int mode);
 // set character device I/O
 int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
+// cache_flush
+void sim_cache_flush(sim_t *);
+// debugger helper to tdata
+unsigned sim_match6(unsigned select, unsigned access, unsigned timing);
+unsigned sim_icount(unsigned count);
 
 #endif

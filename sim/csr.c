@@ -3,28 +3,14 @@
 #include "memory.h"
 #include "csr.h"
 #include "plic.h"
+#include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-#define CSR_INT_MEI_FIELD 11
-#define CSR_INT_SEI_FIELD 9
-#define CSR_INT_MTI_FIELD 7
-#define CSR_INT_STI_FIELD 5
-#define CSR_INT_MSI_FIELD 3
-#define CSR_INT_SSI_FIELD 1
-
-#define CSR_INT_MEI (0x00000001 << CSR_INT_MEI_FIELD)
-#define CSR_INT_SEI (0x00000001 << CSR_INT_SEI_FIELD)
-#define CSR_INT_MTI (0x00000001 << CSR_INT_MTI_FIELD)
-#define CSR_INT_STI (0x00000001 << CSR_INT_STI_FIELD)
-#define CSR_INT_MSI (0x00000001 << CSR_INT_MSI_FIELD)
-#define CSR_INT_SSI (0x00000001 << CSR_INT_SSI_FIELD)
-
-#define CSR_D_VERSION 0x0f
 
 void csr_init(csr_t *csr) {
   csr->mem = NULL;
   csr->plic = NULL;
+  csr->trig = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
@@ -60,7 +46,10 @@ void csr_init(csr_t *csr) {
   csr->dcsr_ebreaks = 0;
   csr->dcsr_ebreaku = 0;
   csr->dcsr_step = 0;
+  csr->dcsr_mprven = 0;
+  csr->dcsr_prv = PRIVILEGE_MODE_M;
   csr->dpc = 0;
+  csr->tselect = 0;
   return;
 }
 
@@ -176,12 +165,23 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       (csr->dcsr_ebreaks << 13) |
       (csr->dcsr_ebreaku << 12) |
       (csr->dcsr_cause << 6) |
+      (csr->dcsr_mprven << 4) |
       (csr->dcsr_step << 2) |
       (csr->dcsr_prv & 0x3);
     return dcsr;
   }
   case CSR_ADDR_D_PC:
     return csr->dpc;
+  case CSR_ADDR_T_SELECT:
+    return csr->tselect;
+  case CSR_ADDR_T_DATA1:
+    return trig_get_tdata(csr->trig, csr->tselect, 0);
+  case CSR_ADDR_T_DATA2:
+    return trig_get_tdata(csr->trig, csr->tselect, 1);
+  case CSR_ADDR_T_DATA3:
+    return trig_get_tdata(csr->trig, csr->tselect, 2);
+  case CSR_ADDR_T_INFO:
+    return trig_info(csr->trig, csr->tselect);
   default:
     fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->pc);
     return 0;
@@ -278,11 +278,24 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->dcsr_ebreakm = (value >> 15) & 0x1;
     csr->dcsr_ebreaks = (value >> 13) & 0x1;
     csr->dcsr_ebreaku = (value >> 12) & 0x1;
+    csr->dcsr_mprven = (value >> 4) & 0x1;
     csr->dcsr_step = (value >> 2) & 0x1;
     csr->dcsr_prv = value & 0x3;
     break;
   case CSR_ADDR_D_PC:
     csr->dpc = value;
+    break;
+  case CSR_ADDR_T_SELECT:
+    csr->tselect = value;
+    break;
+  case CSR_ADDR_T_DATA1:
+    trig_set_tdata(csr->trig, csr->tselect, 0, value);
+    break;
+  case CSR_ADDR_T_DATA2:
+    trig_set_tdata(csr->trig, csr->tselect, 1, value);
+    break;
+  case CSR_ADDR_T_DATA3:
+    trig_set_tdata(csr->trig, csr->tselect, 2, value);
     break;
   default:
     fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->pc);
@@ -310,10 +323,10 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
 }
 
 static void csr_enter_debug_mode(csr_t *csr, unsigned cause) {
-  csr->mode = PRIVILEGE_MODE_D;
   csr->dpc = csr->pc;
   csr->dcsr_prv = csr->mode;
   csr->dcsr_cause = cause;
+  csr->mode = PRIVILEGE_MODE_D;
 }
 
 static void csr_trap(csr_t *csr, unsigned trap_code) {

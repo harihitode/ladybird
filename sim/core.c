@@ -412,8 +412,9 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
   result->rd_regno = 0;
   result->rd_data = 0;
   result->exception_code = 0;
-  result->mem_access = MA_NONE;
-  result->mem_virtual_addr = 0;
+  result->m_access = MA_NONE;
+  result->m_vaddr = 0;
+  result->m_data = 0;
   result->trapret = 0;
   result->trigger = 0;
   result->inst = 0;
@@ -474,17 +475,18 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     pc_next = pc + get_jal_offset(inst);
     break;
   case OPCODE_STORE: {
-    unsigned addr = core->gpr[get_rs1(inst)] + get_store_offset(inst);
-    unsigned data = core->gpr[get_rs2(inst)];
+    result->m_access = MA_STORE;
+    result->m_vaddr = core->gpr[get_rs1(inst)] + get_store_offset(inst);
+    result->m_data = core->gpr[get_rs2(inst)];
     switch (get_funct3(inst)) {
     case 0x0:
-      result->exception_code = memory_store(core->mem, addr, data, 1, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 1, prv);
       break;
     case 0x1:
-      result->exception_code = memory_store(core->mem, addr, data, 2, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 2, prv);
       break;
     case 0x2:
-      result->exception_code = memory_store(core->mem, addr, data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 4, prv);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -493,25 +495,26 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     break;
   }
   case OPCODE_LOAD: {
+    result->m_access = MA_LOAD;
     result->rd_regno = get_rd(inst);
-    unsigned addr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
+    result->m_vaddr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
     switch (get_funct3(inst)) {
     case 0x0: // singed ext byte
-      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 1, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
       result->rd_data = (int)((char)result->rd_data);
       break;
     case 0x1: // signed ext half
-      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 2, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
       result->rd_data = (int)((short)result->rd_data);
       break;
     case 0x2:
-      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
       break;
     case 0x4:
-      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 1, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
       break;
     case 0x5:
-      result->exception_code = memory_load(core->mem, addr, &result->rd_data, 2, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -520,54 +523,55 @@ void core_step(core_t *core, unsigned pc, struct dbg_step_result *result, unsign
     break;
   }
   case OPCODE_AMO: {
+    result->m_access = MA_ACCESS;
     result->rd_regno = get_rd(inst);
-    unsigned src1 = core->gpr[get_rs1(inst)];
+    result->m_vaddr = core->gpr[get_rs1(inst)];
     unsigned src2 = core->gpr[get_rs2(inst)];
     switch (get_funct5(inst)) {
     case 0x002: // Load Reserved
-      result->exception_code = memory_load_reserved(core->mem, src1, &result->rd_data, prv);
+      result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
       break;
     case 0x003: // Store Conditional
-      result->exception_code = memory_store_conditional(core->mem, src1, src2, &result->rd_data, prv);
+      result->exception_code = memory_store_conditional(core->mem, result->m_vaddr, src2, &result->rd_data, prv);
       break;
     case 0x000: // AMOADD
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1, result->rd_data + src2, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data + src2, 4, prv);
       break;
     case 0x001: // AMOSWAP
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1, src2, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, src2, 4, prv);
       break;
     case 0x004: // AMOXOR
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1, result->rd_data ^ src2, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data ^ src2, 4, prv);
       break;
     case 0x008: // AMOOR
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1, result->rd_data | src2, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data | src2, 4, prv);
       break;
     case 0x00c: // AMOAND
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1, result->rd_data & src2, 4, prv);
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data & src2, 4, prv);
       break;
     case 0x010: // AMOMIN
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1,
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr,
                                             ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x014: // AMOMAX
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1,
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr,
                                             ((int)result->rd_data > (int)src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x018: // AMOMINU
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1,
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr,
                                             (result->rd_data < src2) ? result->rd_data : src2, 4, prv);
       break;
     case 0x01c: // AMOMAXU
-      result->exception_code = memory_load(core->mem, src1, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, src1,
+      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      result->exception_code = memory_store(core->mem, result->m_vaddr,
                                             (result->rd_data > src2) ? result->rd_data : src2, 4, prv);
       break;
     default:
