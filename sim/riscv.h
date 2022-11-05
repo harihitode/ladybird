@@ -11,7 +11,7 @@
 #define EXTENSION_STR "rv32imac"
 
 #define NUM_GPR 32
-#ifdef F_EXTENSION
+#if F_EXTENSION
 #define NUM_FPR 32
 #else
 #define NUM_FPR 0
