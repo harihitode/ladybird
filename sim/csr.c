@@ -1,27 +1,17 @@
+#include "riscv.h"
 #include "sim.h"
 #include "memory.h"
 #include "csr.h"
 #include "plic.h"
+#include "core.h"
+#include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-#define CSR_INT_MEI_FIELD 11
-#define CSR_INT_SEI_FIELD 9
-#define CSR_INT_MTI_FIELD 7
-#define CSR_INT_STI_FIELD 5
-#define CSR_INT_MSI_FIELD 3
-#define CSR_INT_SSI_FIELD 1
-
-#define CSR_INT_MEI (0x00000001 << CSR_INT_MEI_FIELD)
-#define CSR_INT_SEI (0x00000001 << CSR_INT_SEI_FIELD)
-#define CSR_INT_MTI (0x00000001 << CSR_INT_MTI_FIELD)
-#define CSR_INT_STI (0x00000001 << CSR_INT_STI_FIELD)
-#define CSR_INT_MSI (0x00000001 << CSR_INT_MSI_FIELD)
-#define CSR_INT_SSI (0x00000001 << CSR_INT_SSI_FIELD)
-
 void csr_init(csr_t *csr) {
-  csr->sim = NULL;
-  csr->trap_handler = NULL;
+  csr->mem = NULL;
+  csr->plic = NULL;
+  csr->trig = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
@@ -36,10 +26,6 @@ void csr_init(csr_t *csr) {
   csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
-  csr->trapret = 0;
-  csr->interrupt = 0;
-  csr->exception = 0;
-  csr->exception_code = 0;
   csr->interrupts_enable = 0;
   csr->mideleg = 0;
   csr->medeleg = 0;
@@ -56,11 +42,15 @@ void csr_init(csr_t *csr) {
   // SW interrupts
   csr->software_interrupt_m = 0;
   csr->software_interrupt_s = 0;
-  return;
-}
-
-void csr_set_sim(csr_t *csr, sim_t *sim) {
-  csr->sim = sim;
+  // debug
+  csr->dcsr_ebreakm = 0;
+  csr->dcsr_ebreaks = 0;
+  csr->dcsr_ebreaku = 0;
+  csr->dcsr_step = 0;
+  csr->dcsr_mprven = 0;
+  csr->dcsr_prv = PRIVILEGE_MODE_M;
+  csr->dpc = 0;
+  csr->tselect = 0;
   return;
 }
 
@@ -93,8 +83,8 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return 0; // not supported
   case CSR_ADDR_S_ATP:
     return
-      (csr->sim->mem->vmflag << 31) |
-      ((csr->sim->mem->vmrppn >> 12) & 0x000fffff);
+      (csr->mem->vmflag << 31) |
+      ((csr->mem->vmrppn >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
     return csr->interrupts_enable & 0x00000222;
   case CSR_ADDR_S_TVEC:
@@ -106,9 +96,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_M_IE:
     return csr->interrupts_enable;
   case CSR_ADDR_U_TIME:
-    return (uint32_t)csr->time;
+    return (unsigned)csr->time;
   case CSR_ADDR_U_TIMEH:
-    return (uint32_t)(csr->time >> 32);
+    return (unsigned)(csr->time >> 32);
   case CSR_ADDR_M_IP:
   case CSR_ADDR_S_IP:
     {
@@ -116,7 +106,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
       unsigned swint = 0;
       unsigned extint = 0;
       unsigned timerint = 0;
-      extint = (plic_get_interrupt(csr->sim->mem->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
+      extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
       timerint = 0;
       swint = csr->software_interrupt_s;
       value =
@@ -124,7 +114,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
         (extint << CSR_INT_SEI_FIELD) |
         (timerint << CSR_INT_STI_FIELD);
       if (addr == CSR_ADDR_M_IP) {
-        extint = (plic_get_interrupt(csr->sim->mem->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
+        extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
         timerint = (csr->time >= csr->timecmp) ? 1 : 0;
         swint = csr->software_interrupt_m;
         value |=
@@ -142,8 +132,59 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->stval;
   case CSR_ADDR_S_SCRATCH:
     return csr->sscratch;
+  case CSR_ADDR_M_CAUSE:
+    return csr->mcause;
+  case CSR_ADDR_M_TVAL:
+    return csr->mtval;
+  case CSR_ADDR_M_ISA: {
+    unsigned char xml = 0;
+    if (XLEN == 32) {
+      xml = 1;
+    } else if (XLEN == 64) {
+      xml = 2;
+    } else if (XLEN == 128) {
+      xml = 3;
+    }
+    return
+      ((xml << 30) |
+       (A_EXTENSION << 0) |
+       (C_EXTENSION << 2) |
+       (D_EXTENSION << 3) |
+       (F_EXTENSION << 5) |
+       (M_EXTENSION << 12) |
+       (V_EXTENSION << 21));
+  }
+  case CSR_ADDR_M_CYCLE:
+    return csr->cycle;
+  case CSR_ADDR_M_INSTRET:
+    return csr->instret;
+  case CSR_ADDR_D_CSR: {
+    unsigned dcsr = 0;
+    dcsr =
+      (CSR_D_VERSION << 28) |
+      (csr->dcsr_ebreakm << 15) |
+      (csr->dcsr_ebreaks << 13) |
+      (csr->dcsr_ebreaku << 12) |
+      (csr->dcsr_cause << 6) |
+      (csr->dcsr_mprven << 4) |
+      (csr->dcsr_step << 2) |
+      (csr->dcsr_prv & 0x3);
+    return dcsr;
+  }
+  case CSR_ADDR_D_PC:
+    return csr->dpc;
+  case CSR_ADDR_T_SELECT:
+    return csr->tselect;
+  case CSR_ADDR_T_DATA1:
+    return trig_get_tdata(csr->trig, csr->tselect, 0);
+  case CSR_ADDR_T_DATA2:
+    return trig_get_tdata(csr->trig, csr->tselect, 1);
+  case CSR_ADDR_T_DATA3:
+    return trig_get_tdata(csr->trig, csr->tselect, 2);
+  case CSR_ADDR_T_INFO:
+    return trig_info(csr->trig, csr->tselect);
   default:
-    fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->sim->registers[REG_PC]);
+    fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->pc);
     return 0;
   }
 }
@@ -182,9 +223,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break; // not supported
   case CSR_ADDR_S_ATP:
     if (value & 0x80000000) {
-      memory_atp_on(csr->sim->mem, value & 0x000fffff);
+      memory_atp_on(csr->mem, value & 0x000fffff);
     } else {
-      memory_atp_off(csr->sim->mem);
+      memory_atp_off(csr->mem);
     }
     break;
   case CSR_ADDR_S_IE:
@@ -220,8 +261,45 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_S_SCRATCH:
     csr->sscratch = value;
     break;
+  case CSR_ADDR_M_CAUSE:
+    csr->mcause = value;
+    break;
+  case CSR_ADDR_M_TVAL:
+    csr->mtval = value;
+    break;
+  case CSR_ADDR_M_ISA:
+    break;
+  case CSR_ADDR_M_CYCLE:
+    csr->cycle = value;
+    break;
+  case CSR_ADDR_M_INSTRET:
+    csr->instret = value;
+    break;
+  case CSR_ADDR_D_CSR:
+    csr->dcsr_ebreakm = (value >> 15) & 0x1;
+    csr->dcsr_ebreaks = (value >> 13) & 0x1;
+    csr->dcsr_ebreaku = (value >> 12) & 0x1;
+    csr->dcsr_mprven = (value >> 4) & 0x1;
+    csr->dcsr_step = (value >> 2) & 0x1;
+    csr->dcsr_prv = value & 0x3;
+    break;
+  case CSR_ADDR_D_PC:
+    csr->dpc = value;
+    break;
+  case CSR_ADDR_T_SELECT:
+    csr->tselect = value;
+    break;
+  case CSR_ADDR_T_DATA1:
+    trig_set_tdata(csr->trig, csr->tselect, 0, value);
+    break;
+  case CSR_ADDR_T_DATA2:
+    trig_set_tdata(csr->trig, csr->tselect, 1, value);
+    break;
+  case CSR_ADDR_T_DATA3:
+    trig_set_tdata(csr->trig, csr->tselect, 2, value);
+    break;
   default:
-    fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->sim->registers[REG_PC]);
+    fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->pc);
     break;
   }
   return;
@@ -245,13 +323,22 @@ unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
   return csr_read_value;
 }
 
-void csr_trap(csr_t *csr, unsigned trap_code) {
+static void csr_enter_debug_mode(csr_t *csr, unsigned cause) {
+  csr->dpc = csr->pc;
+  csr->dcsr_prv = csr->mode;
+  csr->dcsr_cause = cause;
+  csr->mode = PRIVILEGE_MODE_D;
+}
+
+static void csr_trap(csr_t *csr, unsigned trap_code) {
   unsigned is_interrupt = ((trap_code >> 31) & 0x00000001);
   unsigned code = (trap_code & 0x7fffffff);
   // default: to Machine Mode
   unsigned to_mode = PRIVILEGE_MODE_M;
   // delegation check
-  if (is_interrupt) {
+  if (csr->dcsr_step) {
+    to_mode = PRIVILEGE_MODE_D;
+  } else if (is_interrupt) {
     if (
         // (a) if either the current privilege mode is M and the MIE bit in the mstatus register is set, or the current privilege mode has less privilege than M-mode
         ((csr->mode == PRIVILEGE_MODE_M && csr->status_mie) ||
@@ -266,7 +353,14 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
       to_mode = PRIVILEGE_MODE_S;
     }
   } else {
-    if (
+    if ((trap_code == TRAP_CODE_BREAKPOINT) &&
+        ((csr->mode == PRIVILEGE_MODE_M && csr->dcsr_ebreakm) ||
+         (csr->mode == PRIVILEGE_MODE_S && csr->dcsr_ebreaks) ||
+         (csr->mode == PRIVILEGE_MODE_U && csr->dcsr_ebreaku))
+        ) {
+      // entre debug mode
+      to_mode = PRIVILEGE_MODE_D;
+    } else if (
         // To S mode if current privilege mode is less than M and medeleg is set
         (csr->mode < PRIVILEGE_MODE_M) &&
         (((csr->medeleg >> code)) & 0x00000001)
@@ -277,11 +371,17 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     }
   }
 
-  if (to_mode == PRIVILEGE_MODE_M) {
+  if (to_mode == PRIVILEGE_MODE_D) {
+    if (csr->dcsr_step) {
+      csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_STEP);
+    } else {
+      csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_EBREAK);
+    }
+  } else if (to_mode == PRIVILEGE_MODE_M) {
     csr->mcause = trap_code;
     // pc
-    csr->mepc = csr->sim->registers[REG_PC];
-    csr->sim->registers[REG_PC] = csr->mtvec;
+    csr->mepc = csr->pc;
+    csr->pc = csr->mtvec;
     // enable
     csr->status_mpie = csr->status_mie;
     csr->status_mie = 0;
@@ -291,11 +391,11 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
 #if 0
     fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
 #endif
-  } else {
+  } else if (to_mode == PRIVILEGE_MODE_S) {
     csr->scause = trap_code;
     // pc
-    csr->sepc = csr->sim->registers[REG_PC];
-    csr->sim->registers[REG_PC] = csr->stvec;
+    csr->sepc = csr->pc;
+    csr->pc = csr->stvec;
     // enable
     csr->status_spie = csr->status_sie;
     csr->status_sie = 0;
@@ -303,56 +403,26 @@ void csr_trap(csr_t *csr, unsigned trap_code) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->sim->registers[REG_PC]);
+    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->pc);
 #endif
   }
-  if (csr->trap_handler) csr->trap_handler(csr->sim);
   return;
 }
 
-void csr_trapret(csr_t *csr) {
-  csr->trapret = 1;
-  return;
-}
-
-void csr_set_tval(csr_t *csr, unsigned trap_value) {
-  if (csr->mode == PRIVILEGE_MODE_M) {
-    csr->mtval = trap_value;
-  } else {
-    csr->stval = trap_value;
-  }
-  return;
-}
-
-unsigned csr_get_tval(csr_t *csr) {
-  if (csr->mode == PRIVILEGE_MODE_M) {
-    return csr->mtval;
-  } else {
-    return csr->stval;
-  }
-}
-
-uint64_t csr_get_timecmp(csr_t *csr) {
+unsigned long long csr_get_timecmp(csr_t *csr) {
   return csr->timecmp;
 }
 
-void csr_set_timecmp(csr_t *csr, uint64_t value) {
+void csr_set_timecmp(csr_t *csr, unsigned long long value) {
   csr->timecmp = value;
   return;
 }
 
-void csr_exception(csr_t *csr, unsigned code) {
-  csr->exception = 1;
-  csr->exception_code = code;
-  return;
-}
-
-void csr_restore_trap(csr_t *csr) {
-  csr->trapret = 0;
+static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
-    csr->sim->registers[REG_PC] = csr->mepc;
+    csr->pc = csr->mepc;
     csr->mepc = 0;
     // enable
     csr->status_mie = csr->status_mpie;
@@ -362,7 +432,7 @@ void csr_restore_trap(csr_t *csr) {
     csr->status_mpp = 0;
   } else {
     // pc
-    csr->sim->registers[REG_PC] = csr->sepc;
+    csr->pc = csr->sepc;
     csr->sepc = 0;
     // enable
     csr->status_sie = csr->status_spie;
@@ -373,25 +443,24 @@ void csr_restore_trap(csr_t *csr) {
   }
 }
 
-void csr_cycle(csr_t *csr, int n_instret) {
+void csr_cycle(csr_t *csr, struct core_step_result *result) {
+  // update counters
   csr->cycle++; // assume 100 MHz
-  csr->instret += n_instret;
+  csr->instret++;
+  csr->pc = result->pc_next;
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }
 
-  if ((csr->cycle % 10) == 0) {
-    // with timer
-    csr->interrupt = 1;
-  }
-
-  if (csr->trapret) {
+  if (result->trigger) {
+    // [TODO] trigger timing control
+    csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_TRIGGER);
+  } else if (result->trapret) {
     csr_restore_trap(csr);
-  } else if (csr->exception) {
+  } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception
-    csr->exception = 0;
-    csr_trap(csr, csr->exception_code);
-  } else if (csr->interrupt) {
+    csr_trap(csr, result->exception_code);
+  } else if ((csr->cycle % 10) == 0) {
     // catch interrupt
     unsigned interrupts_enable;
     if (csr->mode == PRIVILEGE_MODE_M) {
@@ -422,7 +491,6 @@ void csr_cycle(csr_t *csr, int n_instret) {
     } else {
       // unknown
     }
-    csr->interrupt = 0;
 #if 0
     fprintf(stderr, "mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
     fprintf(stderr, "%016lx, %016lx\n", csr->time, csr->timecmp);

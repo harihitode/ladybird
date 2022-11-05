@@ -1,10 +1,16 @@
+#include "riscv.h"
 #include "plic.h"
-#include "sim.h"
+#include "csr.h"
 #include "mmio.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 void plic_init (plic_t *plic) {
+  plic->base.base = 0;
+  plic->base.size = (1 << 24);
+  plic->base.readb = plic_read;
+  plic->base.writeb = plic_write;
   plic->priorities = (unsigned *)malloc((PLIC_MAX_IRQ + 1) * sizeof(unsigned));
   plic->uart = NULL;
   plic->disk = NULL;
@@ -17,7 +23,9 @@ void plic_init (plic_t *plic) {
   return;
 }
 
-char plic_read(plic_t *plic, unsigned addr) {
+char plic_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
+  plic_t *plic = (plic_t *)unit;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned woff = addr & 0x00000003;
   unsigned value = 0;
@@ -35,7 +43,9 @@ char plic_read(plic_t *plic, unsigned addr) {
   return value;
 }
 
-void plic_write(plic_t *plic, unsigned addr, char value) {
+void plic_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
+  plic_t *plic = (plic_t *)unit;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned woff = addr & 0x00000003;
   unsigned mask = 0x000000FF << (8 * woff);
@@ -102,5 +112,53 @@ unsigned plic_get_interrupt(plic_t *plic, unsigned context) {
 
 void plic_fini(plic_t *plic) {
   free(plic->priorities);
+  return;
+}
+
+void aclint_init(aclint_t *aclint) {
+  aclint->base.base = 0;
+  aclint->base.size = (1 << 16);
+  aclint->base.readb = aclint_read;
+  aclint->base.writeb = aclint_write;
+  aclint->csr = NULL;
+}
+
+char aclint_read(struct mmio_t *unit, unsigned addr) {
+  addr -= unit->base;
+  aclint_t *aclint = (aclint_t *)unit;
+  char value;
+  uint64_t byte_offset = addr % 8;
+  uint64_t value64 = 0;
+  if (addr < 0x0000BFF8) {
+    value64 = csr_get_timecmp(aclint->csr);
+  } else if (addr <= 0x0000BFFF) {
+    value64 =
+      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIMEH) << 32) |
+      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIME));
+  } else {
+    fprintf(stderr, "aclint read unimplemented region: %08x\n", addr);
+  }
+  value = (value64 >> (8 * byte_offset));
+  return value;
+}
+
+void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
+  addr -= unit->base;
+  aclint_t *aclint = (aclint_t *)unit;
+  if (addr < 0x0000BFF8) {
+    // hart 0 mtimecmp
+    uint64_t byte_offset = addr % 8;
+    uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
+    uint64_t timecmp = csr_get_timecmp(aclint->csr);
+    timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
+    csr_set_timecmp(aclint->csr, timecmp);
+  } else if (addr <= 0x0000BFFF) {
+    // mtime read only
+  } else {
+    fprintf(stderr, "aclint write unimplemented region: %08x\n", addr);
+  }
+}
+
+void aclint_fini(aclint_t *aclint) {
   return;
 }
