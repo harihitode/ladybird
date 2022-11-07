@@ -25,6 +25,20 @@
 
 enum sim_state { running, quit };
 
+struct core_step_result {
+  unsigned char prv;
+  unsigned inst;
+  unsigned rd_regno;
+  unsigned rd_data;
+  unsigned pc_next;
+  unsigned exception_code;
+  unsigned char m_access;
+  unsigned m_vaddr;
+  unsigned m_data;
+  unsigned char trapret;
+  unsigned char trigger;
+};
+
 typedef struct sim_t {
   enum sim_state state;
   struct core_t *core;
@@ -41,6 +55,7 @@ typedef struct sim_t {
   char triple[64]; // triple information
   char *config_rom;
   void (*dbg_handler)(struct sim_t *);
+  void (*stp_handler)(struct core_step_result *);
 } sim_t;
 
 // simulator general interface
@@ -63,8 +78,6 @@ int sim_rst_write_trigger(sim_t *, unsigned addr, int type, int kind);
 int sim_rst_read_trigger(sim_t *, unsigned addr, int type, int kind);
 int sim_rst_access_trigger(sim_t *, unsigned addr, int type, int kind);
 void sim_fini(sim_t *);
-// set callback function on entering debug mode
-void sim_debug(sim_t *, void (*func)(sim_t *sim));
 // loading elf file to ram
 int sim_load_elf(sim_t *, const char *elf_path);
 // set block device I/O
@@ -74,5 +87,10 @@ int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 // debugger helper to tdata
 unsigned sim_match6(unsigned select, unsigned access, unsigned timing);
 unsigned sim_icount(unsigned count);
+
+// set callback function on entering debug mode
+void sim_set_debug_callback(sim_t *, void (*func)(sim_t *sim));
+// set callback function on every step
+void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result));
 
 #endif
