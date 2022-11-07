@@ -27,9 +27,13 @@ enum sim_state { running, quit };
 
 struct core_step_result {
   unsigned char prv;
+  unsigned long long cycle;
+  unsigned pc;
   unsigned inst;
   unsigned rd_regno;
   unsigned rd_data;
+  unsigned rs1_regno;
+  unsigned rs2_regno;
   unsigned pc_next;
   unsigned exception_code;
   unsigned char m_access;

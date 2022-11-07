@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <libgen.h>
 #include "sim.h"
 
 #define SYS_write 64
@@ -8,6 +9,14 @@
 
 #define TOHOST_ADDR 0x80001000
 #define FROMHOST_ADDR 0x80001040
+
+sim_t *sim;
+FILE *logfile = NULL;
+long long regwrite[32];
+long long regalu[32];
+int touch[32];
+long long regwrite_total = 0;
+long long regread_total = 0;
 
 void bye() {
   fprintf(stderr, "===================\n");
@@ -28,7 +37,41 @@ void trigger_set(sim_t *sim) {
   sim_write_csr(sim, CSR_ADDR_T_DATA2, TOHOST_ADDR);
 }
 
-void callback(sim_t *sim) {
+void step_handler(struct core_step_result *result) {
+  unsigned opcode = result->inst & 0x7f;
+  if (result->rs1_regno != 0) {
+    regread_total++;
+  }
+  if (result->rs2_regno != 0) {
+    regread_total++;
+  }
+  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
+    if (result->rs1_regno != 0 && regwrite[result->rs1_regno] != -1 && regalu[result->rs1_regno]) {
+      fprintf(logfile, "%s %d R %lld\n", get_mnemonic(result->inst), result->rs1_regno, result->cycle - regwrite[result->rs1_regno]);
+      touch[result->rs1_regno]++;
+    }
+    if (result->rs2_regno != 0 && regwrite[result->rs2_regno] != -1 && regalu[result->rs2_regno]) {
+      fprintf(logfile, "%s %d R %lld\n", get_mnemonic(result->inst), result->rs2_regno, result->cycle - regwrite[result->rs2_regno]);
+      touch[result->rs2_regno]++;
+    }
+    if (result->rd_regno != 0 && regwrite[result->rd_regno] != -1 && regalu[result->rd_regno]) {
+      fprintf(logfile, "%s %d W %lld %d\n", get_mnemonic(result->inst), result->rd_regno, result->cycle - regwrite[result->rd_regno], touch[result->rd_regno]);
+    }
+  }
+  if (result->rd_regno != 0) {
+    if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
+      regalu[result->rd_regno] = 1;
+    } else {
+      regalu[result->rd_regno] = 0;
+    }
+    touch[result->rd_regno] = 0;
+    regwrite[result->rd_regno] = result->cycle;
+    regwrite_total++;
+  }
+  return;
+}
+
+void debug_handler(sim_t *sim) {
   unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);
   unsigned cause = (dcsr >> 6) & 0x7;
   if (cause == CSR_DCSR_CAUSE_TRIGGER) {
@@ -73,13 +116,15 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "%s [ELF FILE] [DISK FILE]\n", argv[0]);
     return 0;
   }
-  sim_t *sim = (sim_t *)malloc(sizeof(sim_t));
+  sim = (sim_t *)malloc(sizeof(sim_t));
+  char log_file_name[128];
   // initialization
   sim_init(sim);
   // set ebreak calling debug callback
   sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
   trigger_set(sim);
-  sim_debug(sim, callback);
+  sim_set_debug_callback(sim, debug_handler);
+  sim_set_step_callback(sim, step_handler);
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
@@ -94,13 +139,23 @@ int main(int argc, char *argv[]) {
   } else if (argc >= 4) {
     sim_uart_io(sim, argv[3], NULL);
   }
-  hello();
+  regwrite_total = 0;
+  for (int i = 0; i < 32; i++) {
+    regwrite[i] = -1;
+    regalu[i] = 0;
+  }
+  sprintf(log_file_name, "%s.log", basename(argv[1]));
+  logfile = fopen(log_file_name, "w");
+  fprintf(logfile, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
+  // hello();
   while (sim->state == running) {
     sim_resume(sim);
   }
-  bye();
+  // bye();
+  fprintf(logfile, "# total_regwrite %lld total_regread %lld\n", regwrite_total, regread_total);
  cleanup:
   sim_fini(sim);
   free(sim);
+  fclose(logfile);
   return 0;
 }
