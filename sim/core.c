@@ -21,6 +21,7 @@ static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
 static unsigned get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
 static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
+static unsigned get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
 static unsigned get_branch_offset(unsigned inst) {
   return ((((int)inst >> 19) & 0xfffff000) |
           (((inst >> 25) << 5) & 0x000007e0) |
@@ -43,6 +44,7 @@ static unsigned get_load_offset(unsigned inst) {
 static unsigned get_csr_addr(unsigned inst) {
   return ((inst >> 20) & 0x00000fff);
 }
+static unsigned get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 static unsigned get_immediate(unsigned inst) {
   return ((int)inst >> 20);
 }
@@ -414,6 +416,8 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_st
 
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
+  result->pc = pc;
+  result->cycle = core->csr->cycle;
   result->rd_regno = 0;
   result->rd_data = 0;
   result->exception_code = 0;
@@ -425,6 +429,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->inst = 0;
   result->prv = prv;
   result->pc_next = pc;
+  result->rs1_regno = 0;
+  result->rs2_regno = 0;
   // instruction fetch & decode
   unsigned inst;
   result->exception_code = memory_load_instruction(core->mem, pc, &inst, prv);
@@ -445,15 +451,18 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   switch (opcode) {
   case OPCODE_OP_IMM: {
     result->rd_regno = get_rd(inst);
-    unsigned src1 = core->gpr[get_rs1(inst)];
+    result->rs1_regno = get_rs1(inst);
+    unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = get_immediate(inst);
     process_alu(get_funct3(inst), src1, src2, 0, result);
     break;
   }
   case OPCODE_OP: {
     result->rd_regno = get_rd(inst);
-    unsigned src1 = core->gpr[get_rs1(inst)];
-    unsigned src2 = core->gpr[get_rs2(inst)];
+    result->rs1_regno = get_rs1(inst);
+    result->rs2_regno = get_rs2(inst);
+    unsigned src1 = core->gpr[result->rs1_regno];
+    unsigned src2 = core->gpr[result->rs2_regno];
     if (get_funct7(inst) == 0x01) {
       process_muldiv(get_funct3(inst), src1, src2, result);
     } else {
@@ -472,7 +481,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_JALR:
     result->rd_regno = get_rd(inst);
     result->rd_data = pc_next;
-    pc_next = core->gpr[get_rs1(inst)] + get_jalr_offset(inst);
+    result->rs1_regno = get_rs1(inst);
+    pc_next = core->gpr[result->rs1_regno] + get_jalr_offset(inst);
     break;
   case OPCODE_JAL:
     result->rd_regno = get_rd(inst);
@@ -481,8 +491,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     break;
   case OPCODE_STORE: {
     result->m_access = CORE_MA_STORE;
-    result->m_vaddr = core->gpr[get_rs1(inst)] + get_store_offset(inst);
-    result->m_data = core->gpr[get_rs2(inst)];
+    result->rs1_regno = get_rs1(inst);
+    result->rs2_regno = get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + get_store_offset(inst);
+    result->m_data = core->gpr[result->rs2_regno];
     switch (get_funct3(inst)) {
     case 0x0:
       result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 1, prv);
@@ -502,7 +514,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_LOAD: {
     result->m_access = CORE_MA_LOAD;
     result->rd_regno = get_rd(inst);
-    result->m_vaddr = core->gpr[get_rs1(inst)] + get_load_offset(inst);
+    result->rs1_regno = get_rs1(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + get_load_offset(inst);
     switch (get_funct3(inst)) {
     case 0x0: // singed ext byte
       result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
@@ -530,8 +543,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_AMO: {
     result->m_access = CORE_MA_ACCESS;
     result->rd_regno = get_rd(inst);
-    result->m_vaddr = core->gpr[get_rs1(inst)];
-    unsigned src2 = core->gpr[get_rs2(inst)];
+    result->rs1_regno = get_rs1(inst);
+    result->rs2_regno = get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno];
+    unsigned src2 = core->gpr[result->rs2_regno];
     switch (get_funct5(inst)) {
     case 0x002: // Load Reserved
       result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
@@ -596,73 +611,67 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     // CSR OPERATIONS
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rs1_regno = get_rs1(inst);
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
       break;
     case 0x2: // READ_SET
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rs1_regno = get_rs1(inst);
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
       break;
     case 0x3: // READ_CLEAR
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[get_rs1(inst)]);
+      result->rs1_regno = get_rs1(inst);
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
       break;
     case 0x4: // Hypervisor Extension
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst));
       break;
     case 0x6: // READ_SET (imm)
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst));
       break;
     case 0x7: // READ_CLEAR (imm)
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_rs1(inst));
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst));
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
-      switch (get_funct7(inst)) {
-      case 0x00:
-        if (get_rs2(inst) == 0) {
-          if (core->csr->mode == PRIVILEGE_MODE_M) {
-            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_M;
-          } else if (core->csr->mode == PRIVILEGE_MODE_S) {
-            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_S;
-          } else {
-            result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_U;
-          }
-        } else if (get_rs2(inst) == 1) {
-          result->exception_code = TRAP_CODE_BREAKPOINT;
+      switch (get_funct12(inst)) {
+      case 0x000: // ECALL
+        if (core->csr->mode == PRIVILEGE_MODE_M) {
+          result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_M;
+        } else if (core->csr->mode == PRIVILEGE_MODE_S) {
+          result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_S;
         } else {
-          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+          result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_U;
         }
         break;
-      case 0x18:
-        if (get_rs2(inst) == 2) {
-          // MRET
-          result->trapret = 1;
-        } else {
-          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-        }
+      case 0x001: // EBREAK
+        result->exception_code = TRAP_CODE_BREAKPOINT;
         break;
-      case 0x08:
-        if (get_rs2(inst) == 2) {
-          // SRET
-          result->trapret = 1;
-        } else {
-          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-        }
+      case 0x010: // URET
+      case 0x102: // SRET
+      case 0x302: // MRET
+        result->trapret = 1;
         break;
-      case 0x09:
-        // SFENCE.VMA
-        memory_tlb_clear(core->mem);
+      case 0x105: // WFI
         break;
       default:
-        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        if (get_funct7(inst) == 0x09) {
+          // SFENCE.VMA
+          memory_tlb_clear(core->mem);
+        } else {
+          result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        }
         break;
       }
     }
     break;
   case OPCODE_BRANCH: {
     // read
-    unsigned src1 = core->gpr[get_rs1(inst)];
-    unsigned src2 = core->gpr[get_rs2(inst)];
+    result->rs1_regno = get_rs1(inst);
+    result->rs2_regno = get_rs2(inst);
+    unsigned src1 = core->gpr[result->rs1_regno];
+    unsigned src2 = core->gpr[result->rs2_regno];
     unsigned pred = 0;
     switch (get_funct3(inst)) {
     case 0x0:
