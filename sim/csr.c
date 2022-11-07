@@ -95,10 +95,21 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return csr->mtvec;
   case CSR_ADDR_M_IE:
     return csr->interrupts_enable;
+  case CSR_ADDR_M_CYCLE:
+  case CSR_ADDR_U_CYCLE:
+    return (unsigned)csr->cycle;
+  case CSR_ADDR_M_TIME:
   case CSR_ADDR_U_TIME:
     return (unsigned)csr->time;
+  case CSR_ADDR_M_INSTRET:
+  case CSR_ADDR_U_INSTRET:
+    return (unsigned)csr->instret;
+  case CSR_ADDR_U_CYCLEH:
+    return (unsigned)(csr->cycle >> 32);
   case CSR_ADDR_U_TIMEH:
     return (unsigned)(csr->time >> 32);
+  case CSR_ADDR_U_INSTRETH:
+    return (unsigned)(csr->instret >> 32);
   case CSR_ADDR_M_IP:
   case CSR_ADDR_S_IP:
     {
@@ -154,10 +165,6 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
        (M_EXTENSION << 12) |
        (V_EXTENSION << 21));
   }
-  case CSR_ADDR_M_CYCLE:
-    return csr->cycle;
-  case CSR_ADDR_M_INSTRET:
-    return csr->instret;
   case CSR_ADDR_D_CSR: {
     unsigned dcsr = 0;
     dcsr =
@@ -205,9 +212,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     csr->status_spp = (value >> 8) & 0x00000001;
     break;
   case CSR_ADDR_M_HARTID:
-  case CSR_ADDR_U_TIME:
-  case CSR_ADDR_U_TIMEH:
-    break; // read only
+    break;
   case CSR_ADDR_M_EDELEG:
     // exception delegation
     csr->medeleg = value;
@@ -270,10 +275,16 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_M_ISA:
     break;
   case CSR_ADDR_M_CYCLE:
-    csr->cycle = value;
+  case CSR_ADDR_U_CYCLE:
+    csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
+    break;
+  case CSR_ADDR_M_TIME:
+  case CSR_ADDR_U_TIME:
+    csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_INSTRET:
-    csr->instret = value;
+  case CSR_ADDR_U_INSTRET:
+    csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_D_CSR:
     csr->dcsr_ebreakm = (value >> 15) & 0x1;
