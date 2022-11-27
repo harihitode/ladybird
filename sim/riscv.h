@@ -102,6 +102,7 @@
 /// riscv-benchmark
 #define CSR_ADDR_M_ISA 0x00000301
 #define CSR_ADDR_M_CYCLE 0x00000b00
+#define CSR_ADDR_M_TIME 0x00000b01
 #define CSR_ADDR_M_INSTRET 0x00000b02
 /// debugger (lldb)
 #define CSR_ADDR_D_CSR 0x000007b0
@@ -148,5 +149,7 @@
 #define CSR_MATCH6_EXECUTE 0x4
 #define CSR_MATCH6_STORE 0x2
 #define CSR_MATCH6_LOAD 0x1
+
+const char *get_mnemonic(unsigned inst);
 
 #endif

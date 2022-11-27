@@ -85,6 +85,7 @@ void sim_init(sim_t *sim) {
   }
   sprintf(sim->triple, "%s", TARGET_TRIPLE);
   sim->dbg_handler = NULL;
+  sim->stp_handler = NULL;
   sim->state = running;
   return;
 }
@@ -145,8 +146,13 @@ void sim_fini(sim_t *sim) {
   return;
 }
 
-void sim_debug(sim_t *sim, void (*callback)(sim_t *)) {
+void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *)) {
   sim->dbg_handler = callback;
+  return;
+}
+
+void sim_set_step_callback(sim_t *sim, void (*callback)(struct core_step_result *)) {
+  sim->stp_handler = callback;
   return;
 }
 
@@ -157,6 +163,7 @@ void sim_resume(sim_t *sim) {
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
     unsigned pc = sim->csr->pc;
     core_step(sim->core, pc, &result, sim->csr->mode);
+    if (sim->stp_handler) sim->stp_handler(&result);
     trig_cycle(sim->trigger, &result);
     csr_cycle(sim->csr, &result);
   }

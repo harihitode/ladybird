@@ -3,20 +3,6 @@
 
 #include "sim.h"
 
-struct core_step_result {
-  unsigned char prv;
-  unsigned inst;
-  unsigned rd_regno;
-  unsigned rd_data;
-  unsigned pc_next;
-  unsigned exception_code;
-  unsigned char m_access;
-  unsigned m_vaddr;
-  unsigned m_data;
-  unsigned char trapret;
-  unsigned char trigger;
-};
-
 struct csr_t;
 struct memory_t;
 
