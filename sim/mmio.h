@@ -2,7 +2,14 @@
 #define MMIO_H
 
 #include <stdio.h>
+#ifdef __MACH__
+#include <pthread.h>
+typedef pthread_t thrd_t;
+typedef pthread_mutex_t mtx_t;
+#else
 #include <threads.h>
+#endif
+
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include "memory.h"

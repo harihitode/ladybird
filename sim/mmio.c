@@ -5,10 +5,11 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/epoll.h>
+#include <sys/select.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #define UART_ADDR_RHR 0
 #define UART_ADDR_THR 0
@@ -24,6 +25,65 @@
 #define UART_LSR_TX_IDLE (1 << 5)
 
 #define UART_BUF_SIZE 512
+
+#ifdef __MACH__
+enum {
+  thrd_error = 0,
+  thrd_success = 1
+};
+enum {
+  mtx_plain = 0,
+  mtx_recursive = 1,
+  mtx_timed = 2
+};
+typedef void *(*thrd_start_t)(void *);
+inline int thrd_create(thrd_t *thr, thrd_start_t start_routine, void *arg) {
+  if (pthread_create(thr, NULL, start_routine, arg) == 0) {
+    return thrd_success;
+  } else {
+    return thrd_error;
+  }
+}
+_Noreturn void thrd_exit(int res) { pthread_exit((void *)(intptr_t)res); }
+inline int thrd_join(thrd_t thr, int *res) {
+  void *pres;
+  if (pthread_join(thr, &pres) != 0) {
+    return thrd_error;
+  }
+  if (res != NULL) {
+    *res = (int)(intptr_t)pres;
+  }
+  return thrd_success;
+}
+inline int mtx_init(mtx_t *mtx, int type) {
+  if ((type == mtx_plain) && (pthread_mutex_init(mtx, NULL) == 0)) {
+    return thrd_success;
+  } else {
+    return thrd_error;
+  }
+}
+inline int mtx_lock(mtx_t *mtx) {
+  if (pthread_mutex_lock(mtx) == 0) {
+    return thrd_success;
+  } else {
+    return thrd_error;
+  }
+}
+inline int mtx_unlock(mtx_t *mtx) {
+  if (pthread_mutex_unlock(mtx) == 0) {
+    return thrd_success;
+  } else {
+    return thrd_error;
+  }
+}
+inline int mtx_destroy(mtx_t *mtx) {
+  if (pthread_mutex_destroy(mtx) == 0) {
+    return thrd_success;
+  } else {
+    return thrd_error;
+  }
+}
+#endif
 
 static int uart_input_routine(void *arg) {
   uart_t *uart = (uart_t *)arg;
@@ -46,38 +106,33 @@ static int uart_input_routine(void *arg) {
       }
     }
   } else {
-    int epfd = epoll_create(2);
-    struct epoll_event ev;
-    memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLIN;
-    ev.data.fd = uart->fi;
-    epoll_ctl(epfd, EPOLL_CTL_ADD, uart->fi, &ev);
-    ev.data.fd = uart->i_pipe[0];
-    epoll_ctl(epfd, EPOLL_CTL_ADD, uart->i_pipe[0], &ev);
-    struct epoll_event events[2];
+    // prepare for select
+    int select_maxfd = (uart->fi > uart->i_pipe[0]) ? uart->fi : uart->i_pipe[0];
     while (loop) {
-      int nfd = epoll_wait(epfd, events, 2, -1);
-      for (int i = 0; i < nfd; i++) {
-        if (events[i].data.fd == uart->i_pipe[0]) {
+      fd_set select_fds;
+      FD_ZERO(&select_fds);
+      FD_SET(uart->fi, &select_fds);
+      FD_SET(uart->i_pipe[0], &select_fds);
+      select(select_maxfd + 1, &select_fds, NULL, NULL, NULL);
+
+      if (FD_ISSET(uart->i_pipe[0], &select_fds)) {
+        loop = 0;
+      }
+      if (FD_ISSET(uart->fi, &select_fds)) {
+        if ((ret = read(uart->fi, &c, 1)) < 0) {
+          perror("uart routine read");
           loop = 0;
-          break;
-        } else if (events[i].data.fd == uart->fi) {
-          if ((ret = read(uart->fi, &c, 1)) < 0) {
-            perror("uart routine read");
+        } else {
+          if (ret == 0) {
             loop = 0;
           } else {
-            if (ret == 0) {
-              loop = 0;
-            } else {
-              mtx_lock(&uart->mutex);
-              uart->buf[uart->buf_wr_index++] = c;
-              mtx_unlock(&uart->mutex);
-            }
+            mtx_lock(&uart->mutex);
+            uart->buf[uart->buf_wr_index++] = c;
+            mtx_unlock(&uart->mutex);
           }
         }
       }
     }
-    close(epfd);
   }
   thrd_exit(ret);
 }
