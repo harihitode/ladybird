@@ -60,7 +60,6 @@ void sim_init(sim_t *sim) {
   /// trigger module
   sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
   trig_init(sim->trigger);
-  trig_resize(sim->trigger, 16);
   // set weak reference to csr
   sim->csr->mem = sim->mem;
   sim->csr->plic = sim->plic;
