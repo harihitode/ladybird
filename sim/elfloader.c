@@ -35,7 +35,7 @@ typedef struct {
 
 typedef struct {
   Elf32_Word p_type;
-  Elf32_Off	p_offset;
+  Elf32_Off p_offset;
   Elf32_Addr p_vaddr;
   Elf32_Addr p_paddr;
   Elf32_Word p_filesz;
