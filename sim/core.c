@@ -418,19 +418,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   // init result
   result->pc = pc;
   result->cycle = core->csr->cycle;
-  result->rd_regno = 0;
-  result->rd_data = 0;
-  result->exception_code = 0;
-  result->m_access = CORE_MA_NONE;
-  result->m_vaddr = 0;
-  result->m_data = 0;
-  result->trapret = 0;
-  result->trigger = 0;
-  result->inst = 0;
   result->prv = prv;
   result->pc_next = pc;
-  result->rs1_regno = 0;
-  result->rs2_regno = 0;
   // instruction fetch & decode
   unsigned inst;
   result->exception_code = memory_load_instruction(core->mem, pc, &inst, prv);
