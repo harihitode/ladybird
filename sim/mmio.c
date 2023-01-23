@@ -483,8 +483,6 @@ static void disk_process_queue(disk_t *disk) {
       }
     } else if (i == VIRTQ_STAGE_COMPLETE && is_write) {
       // done
-      unsigned t;
-      memory_load(disk->mem, current_desc->addr, &t, 1, PRIVILEGE_MODE_S);
       char *page = memory_get_page(disk->mem, current_desc->addr);
       page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
       memory_dcache_invalidate(disk->mem, current_desc->addr);
@@ -492,7 +490,6 @@ static void disk_process_queue(disk_t *disk) {
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
       used->idx++; // increment when completed
-      memory_load(disk->mem, current_desc->addr, &t, 1, PRIVILEGE_MODE_S);
     }
     // next queue
     if ((current_desc->flags & VIRTQ_DESC_F_NEXT) != VIRTQ_DESC_F_NEXT) {
