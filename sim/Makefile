@@ -12,7 +12,7 @@ XV6KRNL=~/ladybird-xv6/kernel/kernel
 XV6DISK=~/ladybird-xv6/fs.img
 KRNL?=$(XV6KRNL)
 DISK?=$(XV6DISK)
-PORT=12345
+PORT?=12345
 PROFILE=0
 COMMANDS?=
 
