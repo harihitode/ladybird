@@ -299,6 +299,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
     break;
   case CSR_ADDR_T_SELECT:
     csr->tselect = value;
+    if (value + 1 > csr->trig->size) {
+      trig_resize(csr->trig, value + 1);
+    }
     break;
   case CSR_ADDR_T_DATA1:
     trig_set_tdata(csr->trig, csr->tselect, 0, value);

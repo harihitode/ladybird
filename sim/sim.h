@@ -54,6 +54,7 @@ typedef struct sim_t {
   struct disk_t *disk;
   struct plic_t *plic;
   struct aclint_t *aclint;
+  // for debugger
   unsigned dbg_mode;
   char **reginfo;  // register information
   char triple[64]; // triple information

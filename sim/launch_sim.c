@@ -122,9 +122,9 @@ int main(int argc, char *argv[]) {
   sim_init(sim);
   // set ebreak calling debug callback
   sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
-  trigger_set(sim);
+  // trigger_set(sim);
+  // sim_set_step_callback(sim, step_handler);
   sim_set_debug_callback(sim, debug_handler);
-  sim_set_step_callback(sim, step_handler);
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);

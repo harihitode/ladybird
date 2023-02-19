@@ -1,17 +1,26 @@
 #include "core.h"
 #include "memory.h"
 #include "csr.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 #define CORE_MA_NONE 0
 #define CORE_MA_LOAD (CSR_MATCH6_LOAD)
 #define CORE_MA_STORE (CSR_MATCH6_STORE)
 #define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
+#define CORE_WINDOW_SIZE 8
 
 void core_init(core_t *core) {
   // clear gpr
   for (unsigned i = 0; i < NUM_GPR; i++) {
     core->gpr[i] = 0;
   }
+  core->window.pc = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+    core->window.pc[i] = 0xffffffff;
+  }
+  core->window.inst = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
 }
 
 static unsigned get_opcode(unsigned inst) { return inst & 0x0000007f; }
@@ -414,38 +423,100 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_st
   }
 }
 
+void core_window_flush(core_t *core) {
+  for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+    core->window.pc[i] = 0xffffffff;
+  }
+}
+
+void core_fetch_instruction(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
+  // hit the instruction fetch window
+  int found = 0;
+  unsigned inst = 0;
+  unsigned exception = 0;
+  for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+    if (core->window.pc[i] == pc) {
+      found = 1;
+      inst = core->window.inst[i];
+      exception = core->window.exception[i];
+      break;
+    }
+  }
+  if (!found) {
+    unsigned window_pc = pc;
+    unsigned paddr;
+    unsigned char *line = NULL;
+    unsigned index = 0;
+    exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+    line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+    index = paddr & core->mem->icache->line_mask;
+    // update window
+    for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+      core->window.pc[i] = window_pc;
+      if (index >= core->mem->icache->line_mask) {
+        // get new line
+        index = 0;
+        exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+        line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+      }
+      if ((line[index] & 0x03) == 0x3) {
+        if (index + 3 > core->mem->icache->line_mask) {
+          core->window.inst[i] = (line[index + 1] << 8) | line[index];
+          // get new line
+          index = 0;
+          exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+          line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+          core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
+          index = 2; // this 2 is ok, not a typo
+        } else {
+          core->window.inst[i] =
+            (line[index + 3] << 24) | (line[index + 2] << 16) |
+            (line[index + 1] << 8) | line[index];
+          index += 4;
+        }
+        window_pc += 4;
+      } else {
+        core->window.inst[i] = (line[index + 1] << 8) | line[index];
+        index += 2;
+        window_pc += 2;
+      }
+      core->window.exception[i] = exception;
+    }
+    // re-search in window
+    for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+      if (core->window.pc[i] == pc) {
+        inst = core->window.inst[i];
+        exception = core->window.exception[i];
+        break;
+      }
+    }
+  }
+  result->inst = inst;
+  result->exception_code = exception;
+  return;
+}
+
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
   result->pc = pc;
   result->cycle = core->csr->cycle;
-  result->rd_regno = 0;
-  result->rd_data = 0;
-  result->exception_code = 0;
-  result->m_access = CORE_MA_NONE;
-  result->m_vaddr = 0;
-  result->m_data = 0;
-  result->trapret = 0;
-  result->trigger = 0;
-  result->inst = 0;
   result->prv = prv;
   result->pc_next = pc;
-  result->rs1_regno = 0;
-  result->rs2_regno = 0;
   // instruction fetch & decode
   unsigned inst;
-  result->exception_code = memory_load_instruction(core->mem, pc, &inst, prv);
   unsigned pc_next;
   unsigned opcode;
+  core_fetch_instruction(core, pc, result, prv);
   if (result->exception_code != 0) {
     return;
   }
-  if ((inst & 0x03) == 0x03) {
+  if ((result->inst & 0x03) == 0x03) {
     pc_next = pc + 4;
+    inst = result->inst;
   } else {
     pc_next = pc + 2;
-    inst = decompress(inst);
+    inst = decompress(result->inst);
   }
-  result->inst = inst;
   opcode = get_opcode(inst);
   // exec
   switch (opcode) {
@@ -716,5 +787,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
 }
 
 void core_fini(core_t *core) {
+  free(core->window.pc);
+  free(core->window.inst);
+  free(core->window.exception);
   return;
 }

@@ -3,21 +3,12 @@
 #include "plic.h"
 #include "sim.h"
 #include "csr.h"
+#include "riscv.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-// SV32 page table
-#define PTE_V (1 << 0)
-#define PTE_R (1 << 1)
-#define PTE_W (1 << 2)
-#define PTE_X (1 << 3)
-#define PTE_U (1 << 4)
-
-#define ACCESS_TYPE_INSTRUCTION PTE_X
-#define ACCESS_TYPE_LOAD PTE_R
-#define ACCESS_TYPE_STORE PTE_W
 #define MAX_MMIO 8
 
 void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned ram_block_size) {
@@ -31,8 +22,6 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->vmrppn = 0;
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
   mem->dcache = (cache_t *)malloc(sizeof(cache_t));
-  mem->inst_line = NULL;
-  mem->inst_line_pc = 0;
   mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
   cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
@@ -155,10 +144,10 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
       }
     }
     // search ROM
-    if (found == 0) {
+    if (found == 0 && mem->rom_list) {
       struct rom_t *rom = NULL;
       // search ROM
-      for (struct rom_t *p = mem->rom_list; p != NULL; p++) {
+      for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
         if (paddr >= p->base && (paddr + size) < p->base + p->size) {
           rom = p;
           break;
@@ -236,36 +225,21 @@ unsigned memory_load_reserved(memory_t *mem, unsigned addr, unsigned *value, uns
 unsigned memory_load_instruction(memory_t *mem, unsigned addr, unsigned *inst, unsigned prv) {
   unsigned paddr;
   unsigned exception = 0;
-  if (mem->inst_line && (mem->inst_line_pc == (addr & ~(mem->icache->line_mask)))) {
-    mem->icache->access_count++;
-    mem->icache->hit_count++;
-    *inst = ((unsigned short *)(&mem->inst_line[addr & mem->icache->line_mask]))[0];
-    if ((*inst & 0x03) == 3) {
-      if ((addr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
-        exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-        mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
-      }
-      *inst |= (((unsigned short *)(&mem->inst_line[(addr + 2) & mem->icache->line_mask]))[0] << 16);
-    }
-  } else {
-    exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-    // pmp check
-    if (exception == 0) {
-      if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
-        mem->inst_line_pc = (addr & ~(mem->icache->line_mask));
-        mem->inst_line = cache_get(mem->icache, paddr & ~(mem->icache->line_mask), 0);
-        *inst = ((unsigned short *)(&mem->inst_line[paddr & mem->icache->line_mask]))[0];
-        if ((*inst & 0x03) == 3) {
-          if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
-            mem->inst_line_pc = ((addr + 2) & ~(mem->icache->line_mask));
-            mem->inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
-          }
-          *inst |= (((unsigned short *)(&mem->inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
+  char *inst_line;
+  exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+  // pmp check
+  if (exception == 0) {
+    if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
+      inst_line = cache_get(mem->icache, paddr & ~(mem->icache->line_mask), 0);
+      *inst = ((unsigned short *)(&inst_line[paddr & mem->icache->line_mask]))[0];
+      if ((*inst & 0x03) == 3) {
+        if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
+          inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
         }
-      } else {
-        exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
+        *inst |= (((unsigned short *)(&inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
       }
+    } else {
+      exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
     }
   }
   return exception;
@@ -337,7 +311,6 @@ void memory_icache_invalidate(memory_t *mem) {
   for (unsigned i = 0; i < mem->icache->line_size; i++) {
     mem->icache->line[i].valid = 0;
   }
-  mem->inst_line = NULL;
 }
 
 void memory_dcache_invalidate(memory_t *mem, unsigned paddr) {
@@ -346,7 +319,6 @@ void memory_dcache_invalidate(memory_t *mem, unsigned paddr) {
       mem->dcache->line[i].valid = 0;
     }
   }
-  return;
 }
 
 void memory_dcache_write_back(memory_t *mem) {

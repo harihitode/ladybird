@@ -60,7 +60,6 @@ void sim_init(sim_t *sim) {
   /// trigger module
   sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
   trig_init(sim->trigger);
-  trig_resize(sim->trigger, 16);
   // set weak reference to csr
   sim->csr->mem = sim->mem;
   sim->csr->plic = sim->plic;
@@ -159,8 +158,9 @@ void sim_set_step_callback(sim_t *sim, void (*callback)(struct core_step_result 
 void sim_resume(sim_t *sim) {
   sim->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
   sim->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
-  struct core_step_result result;
   while (sim->csr->mode != PRIVILEGE_MODE_D) {
+    struct core_step_result result;
+    memset(&result, 0, sizeof(struct core_step_result));
     unsigned pc = sim->csr->pc;
     core_step(sim->core, pc, &result, sim->csr->mode);
     if (sim->stp_handler) sim->stp_handler(&result);
@@ -220,6 +220,7 @@ void sim_write_memory(sim_t *sim, unsigned addr, char value) {
 void sim_cache_flush(sim_t *sim) {
   memory_dcache_write_back(sim->mem);
   memory_icache_invalidate(sim->mem);
+  core_window_flush(sim->core);
   return;
 }
 

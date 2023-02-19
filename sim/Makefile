@@ -8,12 +8,17 @@ STUBOBJS=$(STUBSRCS:.c=.o)
 CFLAGS=-O3 -Wall -I./
 LDLIBS=-lm -lpthread
 RVPATH?=~/llvm-riscv/bin
-XV6KRNL=../../ladybird_xv6/kernel/kernel
-XV6DISK=../../ladybird_xv6/fs.img
+XV6KRNL=~/ladybird-xv6/kernel/kernel
+XV6DISK=~/ladybird-xv6/fs.img
 KRNL?=$(XV6KRNL)
 DISK?=$(XV6DISK)
-PORT=12345
+PORT?=12345
+PROFILE=0
 COMMANDS?=
+
+ifeq ($(PROFILE),1)
+	CFLAGS+=-pg
+endif
 
 .PHONY: all clean xv6 run_rspsim run_lldb
 .INTERMEDIATE: $(OBJS) $(POBJS)
