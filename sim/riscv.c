@@ -1,7 +1,306 @@
 #include "riscv.h"
 #include <stdio.h>
 
-const char *get_mnemonic(unsigned inst) {
+static unsigned inst_addi(unsigned rd, unsigned rs1, unsigned imm) {
+  return (imm << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP_IMM;
+}
+
+static unsigned inst_slli(unsigned rd, unsigned rs1, unsigned shamt) {
+  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b001 << 12) | (rd << 7) | OPCODE_OP_IMM;
+}
+
+static unsigned inst_lw(unsigned rd, unsigned base, unsigned offs) {
+  return (offs << 20) | (base << 15) | (0b010 << 12) | (rd << 7) | OPCODE_LOAD;
+}
+
+static unsigned inst_sw(unsigned base, unsigned src, unsigned offs) {
+  return ((offs & 0x0fe0) << 20) | (src << 20) | (base << 15) | (0b010 << 12) |
+    ((offs & 0x01f) << 7) | OPCODE_STORE;
+}
+
+static unsigned inst_ebreak() {
+  return 0x00100073;
+}
+
+static unsigned inst_add(unsigned rd, unsigned rs1, unsigned rs2) {
+  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP;
+}
+
+static unsigned inst_jalr(unsigned rd, unsigned rs1, unsigned offs) {
+  return (offs << 20) | (rs1 << 15) | (rd << 7) | OPCODE_JALR;
+}
+
+static unsigned inst_jal(unsigned rd, unsigned offs) {
+  return ((offs & 0x00100000) << 11) | ((offs & 0x07fe) << 20) | ((offs & 0x0800) << 9) | ((offs & 0x000ff000)) | (rd << 7) | OPCODE_JAL;
+}
+
+static unsigned inst_lui(unsigned rd, unsigned imm) {
+  return (imm & 0xfffff000) | (rd << 7) | OPCODE_LUI;
+}
+
+static unsigned inst_beq(unsigned rs1, unsigned rs2, unsigned offs) {
+  return ((offs & 0x1000) << 19) | ((offs & 0x07e0) << 20) | (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | ((offs & 0x01e) << 7) | ((offs & 0x0800) >> 4) | OPCODE_BRANCH;
+}
+
+static unsigned inst_bne(unsigned rs1, unsigned rs2, unsigned offs) {
+  return ((offs & 0x1000) << 19) | ((offs & 0x07e0) << 20) | (rs2 << 20) | (rs1 << 15) | (0b001 << 12) | ((offs & 0x01e) << 7) | ((offs & 0x0800) >> 4) | OPCODE_BRANCH;
+}
+
+static unsigned inst_sub(unsigned rd, unsigned rs1, unsigned rs2) {
+  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP | 0x40000000;
+}
+
+static unsigned inst_xor(unsigned rd, unsigned rs1, unsigned rs2) {
+  return (rs2 << 20) | (rs1 << 15) | (0b100 << 12) | (rd << 7) | OPCODE_OP;
+}
+
+static unsigned inst_or(unsigned rd, unsigned rs1, unsigned rs2) {
+  return (rs2 << 20) | (rs1 << 15) | (0b110 << 12) | (rd << 7) | OPCODE_OP;
+}
+
+static unsigned inst_and(unsigned rd, unsigned rs1, unsigned rs2) {
+  return (rs2 << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | OPCODE_OP;
+}
+
+static unsigned inst_andi(unsigned rd, unsigned rs1, unsigned imm) {
+  return (imm << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | OPCODE_OP_IMM;
+}
+
+static unsigned inst_srli(unsigned rd, unsigned rs1, unsigned shamt) {
+  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM;
+}
+
+static unsigned inst_srai(unsigned rd, unsigned rs1, unsigned shamt) {
+  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | 0x40000000;
+}
+
+unsigned riscv_decompress(unsigned inst) {
+  unsigned ret = 0; // illegal
+  switch (inst & 0x03) {
+  case 0x00: {
+    unsigned rs1 = ((inst >> 7) & 0x00000007) | 0x00000008;
+    unsigned rs2 = ((inst >> 2) & 0x00000007) | 0x00000008;
+    unsigned rd = rs2;
+    // quadrant 0
+    switch ((inst >> 13) & 0x7) {
+    case 0b000: { // ADDI4SPN
+      unsigned imm = ((((inst >> 5) & 0x00000001) << 3) |
+                      (((inst >> 6) & 0x00000001) << 2) |
+                      (((inst >> 7) & 0x0000000f) << 6) |
+                      (((inst >> 11) & 0x00000003) << 4));
+      ret = inst_addi(rd, REG_SP, imm);
+      break;
+    }
+    case 0b010: { // LW
+      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
+                       (((inst >> 6) & 0x00000001) << 2) |
+                       (((inst >> 10) & 0x00000007) << 3));
+      ret = inst_lw(rd, rs1, offs);
+      break;
+    }
+    case 0b110: { // SW
+      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
+                       (((inst >> 6) & 0x00000001) << 2) |
+                       (((inst >> 10) & 0x00000007) << 3));
+      ret = inst_sw(rs1, rs2, offs);
+      break;
+    }
+    default:
+      ret = 0;
+      break;
+    }
+    break;
+  }
+  case 0x01:
+    // quadrant 1
+    switch ((inst >> 13) & 0x7) {
+    case 0b000: { // ADDI
+      unsigned rs1 = (inst >> 7) & 0x1f;
+      unsigned rd = rs1;
+      unsigned imm = ((inst & 0x00001000) ? 0xfffffe0 : 0) | ((inst >> 2) & 0x01f);
+      ret = inst_addi(rd, rs1, imm);
+      break;
+    }
+    case 0b001: { // JAL
+      unsigned offs = ((inst & 0x00001000) ? 0xfffff800 : 0) |
+        (((inst >> 2) & 0x01) << 5) |
+        (((inst >> 3) & 0x07) << 1) |
+        (((inst >> 6) & 0x01) << 7) |
+        (((inst >> 7) & 0x01) << 6) |
+        (((inst >> 8) & 0x01) << 10) |
+        (((inst >> 9) & 0x03) << 8) |
+        (((inst >> 11) & 0x01) << 4);
+      ret = inst_jal(REG_RA, offs);
+      break;
+    }
+    case 0b010: { // LI
+      unsigned rd = (inst >> 7) & 0x1f;
+      unsigned imm = ((inst & 0x00001000) ? 0xfffffe0 : 0) | ((inst >> 2) & 0x01f);
+      ret = inst_addi(rd, REG_ZERO, imm);
+      break;
+    }
+    case 0b011: {
+      unsigned rd = (inst >> 7) & 0x1f;
+      if (rd == REG_SP) { // ADDI16SP
+        unsigned imm = ((inst & 0x00001000) ? 0xfffffe00 : 0) |
+          (((inst >> 2) & 0x1) << 5) |
+          (((inst >> 3) & 0x3) << 7) |
+          (((inst >> 5) & 0x1) << 6) |
+          (((inst >> 6) & 0x1) << 4);
+        ret = inst_addi(REG_SP, REG_SP, imm);
+      } else { // LUI
+        unsigned imm = ((inst & 0x00001000) ? 0xfffe0000 : 0) | (((inst >> 2) & 0x1f) << 12);
+        ret = inst_lui(rd, imm);
+      }
+      break;
+    }
+    case 0b100: { // other arithmetics
+      switch ((inst >> 10) & 0x03) {
+      case 0b00: { // SRLI
+        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+        unsigned rd = rs1;
+        unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
+        ret = inst_srli(rd, rs1, shamt);
+        break;
+      }
+      case 0b01: { // SRAI
+        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+        unsigned rd = rs1;
+        unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
+        ret = inst_srai(rd, rs1, shamt);
+        break;
+      }
+      case 0b10: { // ANDI
+        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+        unsigned rd = rs1;
+        unsigned imm = ((inst & 0x00001000) ? 0xffffffe0 : 0) | ((inst >> 2) & 0x1f);
+        ret = inst_andi(rd, rs1, imm);
+        break;
+      }
+      default: {
+        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+        unsigned rs2 = ((inst >> 2) & 0x07) | 0x08;
+        unsigned rd = rs1;
+        switch ((inst >> 5) & 0x03) {
+        case 0b00: // SUB
+          ret = inst_sub(rd, rs1, rs2);
+          break;
+        case 0b01: // XOR
+          ret = inst_xor(rd, rs1, rs2);
+          break;
+        case 0b10: // OR
+          ret = inst_or(rd, rs1, rs2);
+          break;
+        case 0b11: // AND
+          ret = inst_and(rd, rs1, rs2);
+          break;
+        }
+      }
+      }
+      break;
+    }
+    case 0b101: { // JUMP
+      unsigned offs = ((inst & 0x00001000) ? 0xfffff800 : 0) |
+        (((inst >> 2) & 0x01) << 5) |
+        (((inst >> 3) & 0x07) << 1) |
+        (((inst >> 6) & 0x01) << 7) |
+        (((inst >> 7) & 0x01) << 6) |
+        (((inst >> 8) & 0x01) << 10) |
+        (((inst >> 9) & 0x03) << 8) |
+        (((inst >> 11) & 0x01) << 4);
+      ret = inst_jal(REG_ZERO, offs);
+      break;
+    }
+    case 0b110: { // BEQZ
+      unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+      unsigned offs = ((inst & 0x00001000) ? 0xffffff00 : 0) |
+        (((inst >> 2) & 0x01) << 5) |
+        (((inst >> 3) & 0x03) << 1) |
+        (((inst >> 5) & 0x03) << 6) |
+        (((inst >> 10) & 0x03) << 3);
+      ret = inst_beq(rs1, REG_ZERO, offs);
+      break;
+    }
+    case 0b111: { // BNEZ
+      unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
+      unsigned offs = ((inst & 0x00001000) ? 0xffffff00 : 0) |
+        (((inst >> 2) & 0x01) << 5) |
+        (((inst >> 3) & 0x03) << 1) |
+        (((inst >> 5) & 0x03) << 6) |
+        (((inst >> 10) & 0x03) << 3);
+      ret = inst_bne(rs1, REG_ZERO, offs);
+      break;
+    }
+    default:
+      ret = 0;
+      break;
+    }
+    break;
+  case 0x02:
+    // quadrent 2
+    switch ((inst >> 13) & 0x7) {
+    case 0b000: { // SLLI
+      unsigned rs1 = (inst >> 7) & 0x0000001f;
+      unsigned rd = rs1;
+      unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
+      ret = inst_slli(rd, rs1, shamt);
+      break;
+    }
+    case 0b010: { // Load Word with Stack Pointer
+      unsigned rd = (inst >> 7) & 0x1f;
+      unsigned offs = ((((inst >> 2) & 0x03) << 6) |
+                       (((inst >> 4) & 0x07) << 2) |
+                       (((inst >> 12) & 0x01) << 5));
+      ret = inst_lw(rd, REG_SP, offs);
+      break;
+    }
+    case 0b100: {
+      unsigned rs1 = (inst >> 7) & 0x1f;
+      unsigned rs2 = (inst >> 2) & 0x1f;
+      unsigned rd = rs1;
+      if ((inst & 0x1000) == 0) {
+        if (rs2 != 0) {
+          ret = inst_addi(rd, rs2, 0); // MV
+        } else {
+          ret = inst_jalr(REG_ZERO, rs1, 0); // JR
+        }
+      } else {
+        // EBREAK, JALR, ADD
+        if (rs1 == 0 && rs2 == 0) {
+          ret = inst_ebreak();
+        } else if (rs1 != 0 && rs2 == 0) {
+          ret = inst_jalr(REG_RA, rs1, 0); // JALR
+        } else if (rs1 != 0 && rs2 != 0) {
+          ret = inst_add(rd, rs1, rs2); // ADD
+        }
+        // HINT for rs1 is 0
+      }
+      break;
+    }
+    case 0b110: { // Store Word with Stack Pointer
+      unsigned rs2 = (inst >> 2) & 0x1f;
+      unsigned offs = ((((inst >> 7) & 0x03) << 6) |
+                       (((inst >> 9) & 0x0f) << 2));
+      ret = inst_sw(REG_SP, rs2, offs);
+      break;
+    }
+    case 0b001:
+    case 0b011:
+    case 0b101:
+    case 0b111:
+    default:
+      ret = 0;
+      break;
+    }
+    break;
+  default:
+    ret = inst;
+    break;
+  }
+  return ret;
+}
+
+const char *riscv_get_mnemonic(unsigned inst) {
   static char buf[128];
   sprintf(buf, "ILLEGAL");
   unsigned funct3 = (inst >> 12) & 0x00000007;

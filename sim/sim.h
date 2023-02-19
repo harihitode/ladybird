@@ -31,9 +31,12 @@ struct core_step_result {
   unsigned pc;
   unsigned inst;
   unsigned rd_regno;
+  unsigned rd_write_skip;
   unsigned rd_data;
   unsigned rs1_regno;
+  unsigned rs1_read_skip;
   unsigned rs2_regno;
+  unsigned rs2_read_skip;
   unsigned pc_next;
   unsigned exception_code;
   unsigned char m_access;

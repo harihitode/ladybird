@@ -161,6 +161,7 @@
 #define CSR_MATCH6_STORE 0x2
 #define CSR_MATCH6_LOAD 0x1
 
-const char *get_mnemonic(unsigned inst);
+const char *riscv_get_mnemonic(unsigned inst);
+unsigned riscv_decompress(unsigned inst);
 
 #endif

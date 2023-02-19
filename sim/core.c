@@ -1,6 +1,7 @@
 #include "core.h"
 #include "memory.h"
 #include "csr.h"
+#include "riscv.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -56,305 +57,6 @@ static unsigned get_csr_addr(unsigned inst) {
 static unsigned get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 static unsigned get_immediate(unsigned inst) {
   return ((int)inst >> 20);
-}
-
-static unsigned inst_addi(unsigned rd, unsigned rs1, unsigned imm) {
-  return (imm << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP_IMM;
-}
-
-static unsigned inst_slli(unsigned rd, unsigned rs1, unsigned shamt) {
-  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b001 << 12) | (rd << 7) | OPCODE_OP_IMM;
-}
-
-static unsigned inst_lw(unsigned rd, unsigned base, unsigned offs) {
-  return (offs << 20) | (base << 15) | (0b010 << 12) | (rd << 7) | OPCODE_LOAD;
-}
-
-static unsigned inst_sw(unsigned base, unsigned src, unsigned offs) {
-  return ((offs & 0x0fe0) << 20) | (src << 20) | (base << 15) | (0b010 << 12) |
-    ((offs & 0x01f) << 7) | OPCODE_STORE;
-}
-
-static unsigned inst_ebreak() {
-  return 0x00100073;
-}
-
-static unsigned inst_add(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP;
-}
-
-static unsigned inst_jalr(unsigned rd, unsigned rs1, unsigned offs) {
-  return (offs << 20) | (rs1 << 15) | (rd << 7) | OPCODE_JALR;
-}
-
-static unsigned inst_jal(unsigned rd, unsigned offs) {
-  return ((offs & 0x00100000) << 11) | ((offs & 0x07fe) << 20) | ((offs & 0x0800) << 9) | ((offs & 0x000ff000)) | (rd << 7) | OPCODE_JAL;
-}
-
-static unsigned inst_lui(unsigned rd, unsigned imm) {
-  return (imm & 0xfffff000) | (rd << 7) | OPCODE_LUI;
-}
-
-static unsigned inst_beq(unsigned rs1, unsigned rs2, unsigned offs) {
-  return ((offs & 0x1000) << 19) | ((offs & 0x07e0) << 20) | (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | ((offs & 0x01e) << 7) | ((offs & 0x0800) >> 4) | OPCODE_BRANCH;
-}
-
-static unsigned inst_bne(unsigned rs1, unsigned rs2, unsigned offs) {
-  return ((offs & 0x1000) << 19) | ((offs & 0x07e0) << 20) | (rs2 << 20) | (rs1 << 15) | (0b001 << 12) | ((offs & 0x01e) << 7) | ((offs & 0x0800) >> 4) | OPCODE_BRANCH;
-}
-
-static unsigned inst_sub(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP | 0x40000000;
-}
-
-static unsigned inst_xor(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b100 << 12) | (rd << 7) | OPCODE_OP;
-}
-
-static unsigned inst_or(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b110 << 12) | (rd << 7) | OPCODE_OP;
-}
-
-static unsigned inst_and(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | OPCODE_OP;
-}
-
-static unsigned inst_andi(unsigned rd, unsigned rs1, unsigned imm) {
-  return (imm << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | OPCODE_OP_IMM;
-}
-
-static unsigned inst_srli(unsigned rd, unsigned rs1, unsigned shamt) {
-  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM;
-}
-
-static unsigned inst_srai(unsigned rd, unsigned rs1, unsigned shamt) {
-  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | 0x40000000;
-}
-
-static unsigned decompress(unsigned inst) {
-  unsigned ret = 0; // illegal
-  switch (inst & 0x03) {
-  case 0x00: {
-    unsigned rs1 = ((inst >> 7) & 0x00000007) | 0x00000008;
-    unsigned rs2 = ((inst >> 2) & 0x00000007) | 0x00000008;
-    unsigned rd = rs2;
-    // quadrant 0
-    switch ((inst >> 13) & 0x7) {
-    case 0b000: { // ADDI4SPN
-      unsigned imm = ((((inst >> 5) & 0x00000001) << 3) |
-                      (((inst >> 6) & 0x00000001) << 2) |
-                      (((inst >> 7) & 0x0000000f) << 6) |
-                      (((inst >> 11) & 0x00000003) << 4));
-      ret = inst_addi(rd, REG_SP, imm);
-      break;
-    }
-    case 0b010: { // LW
-      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
-                       (((inst >> 6) & 0x00000001) << 2) |
-                       (((inst >> 10) & 0x00000007) << 3));
-      ret = inst_lw(rd, rs1, offs);
-      break;
-    }
-    case 0b110: { // SW
-      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
-                       (((inst >> 6) & 0x00000001) << 2) |
-                       (((inst >> 10) & 0x00000007) << 3));
-      ret = inst_sw(rs1, rs2, offs);
-      break;
-    }
-    default:
-      ret = 0;
-      break;
-    }
-    break;
-  }
-  case 0x01:
-    // quadrant 1
-    switch ((inst >> 13) & 0x7) {
-    case 0b000: { // ADDI
-      unsigned rs1 = (inst >> 7) & 0x1f;
-      unsigned rd = rs1;
-      unsigned imm = ((inst & 0x00001000) ? 0xfffffe0 : 0) | ((inst >> 2) & 0x01f);
-      ret = inst_addi(rd, rs1, imm);
-      break;
-    }
-    case 0b001: { // JAL
-      unsigned offs = ((inst & 0x00001000) ? 0xfffff800 : 0) |
-        (((inst >> 2) & 0x01) << 5) |
-        (((inst >> 3) & 0x07) << 1) |
-        (((inst >> 6) & 0x01) << 7) |
-        (((inst >> 7) & 0x01) << 6) |
-        (((inst >> 8) & 0x01) << 10) |
-        (((inst >> 9) & 0x03) << 8) |
-        (((inst >> 11) & 0x01) << 4);
-      ret = inst_jal(REG_RA, offs);
-      break;
-    }
-    case 0b010: { // LI
-      unsigned rd = (inst >> 7) & 0x1f;
-      unsigned imm = ((inst & 0x00001000) ? 0xfffffe0 : 0) | ((inst >> 2) & 0x01f);
-      ret = inst_addi(rd, REG_ZERO, imm);
-      break;
-    }
-    case 0b011: {
-      unsigned rd = (inst >> 7) & 0x1f;
-      if (rd == REG_SP) { // ADDI16SP
-        unsigned imm = ((inst & 0x00001000) ? 0xfffffe00 : 0) |
-          (((inst >> 2) & 0x1) << 5) |
-          (((inst >> 3) & 0x3) << 7) |
-          (((inst >> 5) & 0x1) << 6) |
-          (((inst >> 6) & 0x1) << 4);
-        ret = inst_addi(REG_SP, REG_SP, imm);
-      } else { // LUI
-        unsigned imm = ((inst & 0x00001000) ? 0xfffe0000 : 0) | (((inst >> 2) & 0x1f) << 12);
-        ret = inst_lui(rd, imm);
-      }
-      break;
-    }
-    case 0b100: { // other arithmetics
-      switch ((inst >> 10) & 0x03) {
-      case 0b00: { // SRLI
-        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-        unsigned rd = rs1;
-        unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
-        ret = inst_srli(rd, rs1, shamt);
-        break;
-      }
-      case 0b01: { // SRAI
-        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-        unsigned rd = rs1;
-        unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
-        ret = inst_srai(rd, rs1, shamt);
-        break;
-      }
-      case 0b10: { // ANDI
-        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-        unsigned rd = rs1;
-        unsigned imm = ((inst & 0x00001000) ? 0xffffffe0 : 0) | ((inst >> 2) & 0x1f);
-        ret = inst_andi(rd, rs1, imm);
-        break;
-      }
-      default: {
-        unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-        unsigned rs2 = ((inst >> 2) & 0x07) | 0x08;
-        unsigned rd = rs1;
-        switch ((inst >> 5) & 0x03) {
-        case 0b00: // SUB
-          ret = inst_sub(rd, rs1, rs2);
-          break;
-        case 0b01: // XOR
-          ret = inst_xor(rd, rs1, rs2);
-          break;
-        case 0b10: // OR
-          ret = inst_or(rd, rs1, rs2);
-          break;
-        case 0b11: // AND
-          ret = inst_and(rd, rs1, rs2);
-          break;
-        }
-      }
-      }
-      break;
-    }
-    case 0b101: { // JUMP
-      unsigned offs = ((inst & 0x00001000) ? 0xfffff800 : 0) |
-        (((inst >> 2) & 0x01) << 5) |
-        (((inst >> 3) & 0x07) << 1) |
-        (((inst >> 6) & 0x01) << 7) |
-        (((inst >> 7) & 0x01) << 6) |
-        (((inst >> 8) & 0x01) << 10) |
-        (((inst >> 9) & 0x03) << 8) |
-        (((inst >> 11) & 0x01) << 4);
-      ret = inst_jal(REG_ZERO, offs);
-      break;
-    }
-    case 0b110: { // BEQZ
-      unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-      unsigned offs = ((inst & 0x00001000) ? 0xffffff00 : 0) |
-        (((inst >> 2) & 0x01) << 5) |
-        (((inst >> 3) & 0x03) << 1) |
-        (((inst >> 5) & 0x03) << 6) |
-        (((inst >> 10) & 0x03) << 3);
-      ret = inst_beq(rs1, REG_ZERO, offs);
-      break;
-    }
-    case 0b111: { // BNEZ
-      unsigned rs1 = ((inst >> 7) & 0x07) | 0x08;
-      unsigned offs = ((inst & 0x00001000) ? 0xffffff00 : 0) |
-        (((inst >> 2) & 0x01) << 5) |
-        (((inst >> 3) & 0x03) << 1) |
-        (((inst >> 5) & 0x03) << 6) |
-        (((inst >> 10) & 0x03) << 3);
-      ret = inst_bne(rs1, REG_ZERO, offs);
-      break;
-    }
-    default:
-      ret = 0;
-      break;
-    }
-    break;
-  case 0x02:
-    // quadrent 2
-    switch ((inst >> 13) & 0x7) {
-    case 0b000: { // SLLI
-      unsigned rs1 = (inst >> 7) & 0x0000001f;
-      unsigned rd = rs1;
-      unsigned shamt = (((inst >> 12) & 0x00000001) << 5) | ((inst >> 2) & 0x0000001f);
-      ret = inst_slli(rd, rs1, shamt);
-      break;
-    }
-    case 0b010: { // Load Word with Stack Pointer
-      unsigned rd = (inst >> 7) & 0x1f;
-      unsigned offs = ((((inst >> 2) & 0x03) << 6) |
-                       (((inst >> 4) & 0x07) << 2) |
-                       (((inst >> 12) & 0x01) << 5));
-      ret = inst_lw(rd, REG_SP, offs);
-      break;
-    }
-    case 0b100: {
-      unsigned rs1 = (inst >> 7) & 0x1f;
-      unsigned rs2 = (inst >> 2) & 0x1f;
-      unsigned rd = rs1;
-      if ((inst & 0x1000) == 0) {
-        if (rs2 != 0) {
-          ret = inst_addi(rd, rs2, 0); // MV
-        } else {
-          ret = inst_jalr(REG_ZERO, rs1, 0); // JR
-        }
-      } else {
-        // EBREAK, JALR, ADD
-        if (rs1 == 0 && rs2 == 0) {
-          ret = inst_ebreak();
-        } else if (rs1 != 0 && rs2 == 0) {
-          ret = inst_jalr(REG_RA, rs1, 0); // JALR
-        } else if (rs1 != 0 && rs2 != 0) {
-          ret = inst_add(rd, rs1, rs2); // ADD
-        }
-        // HINT for rs1 is 0
-      }
-      break;
-    }
-    case 0b110: { // Store Word with Stack Pointer
-      unsigned rs2 = (inst >> 2) & 0x1f;
-      unsigned offs = ((((inst >> 7) & 0x03) << 6) |
-                       (((inst >> 9) & 0x0f) << 2));
-      ret = inst_sw(REG_SP, rs2, offs);
-      break;
-    }
-    case 0b001:
-    case 0b011:
-    case 0b101:
-    case 0b111:
-    default:
-      ret = 0;
-      break;
-    }
-    break;
-  default:
-    ret = inst;
-    break;
-  }
-  return ret;
 }
 
 static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
@@ -429,16 +131,18 @@ void core_window_flush(core_t *core) {
   }
 }
 
-void core_fetch_instruction(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
+static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // hit the instruction fetch window
   int found = 0;
   unsigned inst = 0;
   unsigned exception = 0;
+  unsigned w_index = 0;
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     if (core->window.pc[i] == pc) {
       found = 1;
       inst = core->window.inst[i];
       exception = core->window.exception[i];
+      w_index = i;
       break;
     }
   }
@@ -486,6 +190,7 @@ void core_fetch_instruction(core_t *core, unsigned pc, struct core_step_result *
     for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
       if (core->window.pc[i] == pc) {
         inst = core->window.inst[i];
+        w_index = i;
         exception = core->window.exception[i];
         break;
       }
@@ -493,7 +198,7 @@ void core_fetch_instruction(core_t *core, unsigned pc, struct core_step_result *
   }
   result->inst = inst;
   result->exception_code = exception;
-  return;
+  return w_index;
 }
 
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
@@ -506,7 +211,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   unsigned inst;
   unsigned pc_next;
   unsigned opcode;
-  core_fetch_instruction(core, pc, result, prv);
+  int window_index = 0;
+  window_index = core_fetch_instruction(core, pc, result, prv);
   if (result->exception_code != 0) {
     return;
   }
@@ -515,7 +221,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     inst = result->inst;
   } else {
     pc_next = pc + 2;
-    inst = decompress(result->inst);
+    inst = riscv_decompress(result->inst);
   }
   opcode = get_opcode(inst);
   // exec
@@ -783,6 +489,49 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     core->gpr[result->rd_regno] = result->rd_data;
   }
   result->pc_next = pc_next;
+
+  // for debug
+  result->rs1_read_skip = 0;
+  result->rs2_read_skip = 0;
+  result->rd_write_skip = 0;
+
+  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
+    unsigned r_break = 0;
+    unsigned w_break = 0;
+    for (int i = 1; i < 4; i++) {
+      // read skip search
+      int r_index = window_index - i;
+      if (!r_break && r_index < CORE_WINDOW_SIZE && core->window.pc[r_index] != 0xffffffff) {
+        unsigned r_inst = riscv_decompress(core->window.inst[r_index]);
+        unsigned r_opcode = get_opcode(r_inst);
+        if (r_opcode == OPCODE_OP || r_opcode == OPCODE_OP_IMM ||
+            r_opcode == OPCODE_LUI || r_opcode == OPCODE_AUIPC) {
+          if (result->rs1_regno != 0 && result->rs1_regno == get_rd(r_inst)) {
+            result->rs1_read_skip = 1;
+          }
+          if (opcode == OPCODE_OP && result->rs2_regno != 0 && result->rs2_regno == get_rd(r_inst)) {
+            result->rs2_read_skip = 1;
+          }
+        } else if (r_opcode == OPCODE_BRANCH || r_opcode == OPCODE_JAL || r_opcode == OPCODE_JALR) {
+          r_break = 1;
+        }
+      }
+      // write skip search
+      int w_index = window_index + i;
+      if (!w_break && w_index >= 0 && core->window.pc[w_index] != 0xffffffff) {
+        unsigned w_inst = riscv_decompress(core->window.inst[w_index]);
+        unsigned w_opcode = get_opcode(w_inst);
+        if (w_opcode == OPCODE_OP || w_opcode == OPCODE_OP_IMM ||
+            w_opcode == OPCODE_LUI || w_opcode == OPCODE_AUIPC || w_opcode == OPCODE_LOAD) {
+          if (opcode == OPCODE_OP && result->rd_regno != 0 && result->rd_regno == get_rd(w_inst)) {
+            result->rd_write_skip = 1;
+          }
+        } else if (w_opcode == OPCODE_BRANCH || w_opcode == OPCODE_JAL || w_opcode == OPCODE_JALR) {
+          w_break = 1;
+        }
+      }
+    }
+  }
   return;
 }
 
