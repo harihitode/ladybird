@@ -220,6 +220,7 @@ void sim_write_memory(sim_t *sim, unsigned addr, char value) {
 void sim_cache_flush(sim_t *sim) {
   memory_dcache_write_back(sim->mem);
   memory_icache_invalidate(sim->mem);
+  core_window_flush(sim->core);
   return;
 }
 
