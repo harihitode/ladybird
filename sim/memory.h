@@ -34,14 +34,12 @@ typedef struct memory_t {
   // CACHE for RAM
   struct cache_t *dcache;
   struct cache_t *icache;
-  char *inst_line;
-  unsigned inst_line_pc;
   // MMU
-  struct tlb_t *tlb;
-  char vmflag;
   // To support a physical address space larger than 4GiB,
   // RV32 stores a PPN in satp, ranther than a physical address.
   unsigned vmrppn; // root physical page number
+  char vmflag; // true: virtual memory on
+  struct tlb_t *tlb;
   // MMIO
   struct mmio_t **mmio_list;
   // ROM
@@ -109,6 +107,9 @@ void memory_icache_invalidate(memory_t *);
 void memory_dcache_invalidate(memory_t *, unsigned paddr);
 void memory_dcache_write_back(memory_t *);
 unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
+
+#define CACHE_WRITE 1
+#define CACHE_READ 0
 
 // cache (instruction or data)
 void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);

@@ -24,6 +24,17 @@
 #define REG_FP 8
 #define REG_PC 32
 
+// SV32 page table
+#define PTE_V (1 << 0)
+#define PTE_R (1 << 1)
+#define PTE_W (1 << 2)
+#define PTE_X (1 << 3)
+#define PTE_U (1 << 4)
+
+#define ACCESS_TYPE_INSTRUCTION PTE_X
+#define ACCESS_TYPE_LOAD PTE_R
+#define ACCESS_TYPE_STORE PTE_W
+
 // stab
 #define VENDOR_NAME "harihitode"
 #define ARCH_NAME "ladybird"
