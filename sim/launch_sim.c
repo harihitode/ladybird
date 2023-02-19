@@ -11,7 +11,9 @@ long long regwrite[32];
 long long regalu[32];
 int touch[32];
 long long regwrite_total = 0;
+long long regwrite_skip_total = 0;
 long long regread_total = 0;
+long long regread_skip_total = 0;
 
 void print_banner() {
   fprintf(stderr, "=============================================\n");
@@ -23,6 +25,50 @@ void print_banner() {
 
 void dump_inst_callback(struct core_step_result *result) {
   printf("%08x -> %08x, %s\n", result->pc, result->pc_next, riscv_get_mnemonic(riscv_decompress(result->inst)));
+}
+
+void step_handler(struct core_step_result *result) {
+  unsigned inst = riscv_decompress(result->inst);
+  unsigned opcode = inst & 0x7f;
+  if (result->rs1_regno != 0) {
+    regread_total++;
+  }
+  if (result->rs1_read_skip != 0) {
+    regread_skip_total++;
+  }
+  if (result->rs2_regno != 0) {
+    regread_total++;
+  }
+  if (result->rs2_read_skip != 0) {
+    regread_skip_total++;
+  }
+  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
+    if (result->rs1_regno != 0 && regwrite[result->rs1_regno] != -1 && regalu[result->rs1_regno]) {
+      fprintf(logfile, "%s %d R %lld\n", riscv_get_mnemonic(inst), result->rs1_regno, result->cycle - regwrite[result->rs1_regno]);
+      touch[result->rs1_regno]++;
+    }
+    if (result->rs2_regno != 0 && regwrite[result->rs2_regno] != -1 && regalu[result->rs2_regno]) {
+      fprintf(logfile, "%s %d R %lld\n", riscv_get_mnemonic(inst), result->rs2_regno, result->cycle - regwrite[result->rs2_regno]);
+      touch[result->rs2_regno]++;
+    }
+    if (result->rd_regno != 0 && regwrite[result->rd_regno] != -1 && regalu[result->rd_regno]) {
+      fprintf(logfile, "%s %d W %lld %d\n", riscv_get_mnemonic(inst), result->rd_regno, result->cycle - regwrite[result->rd_regno], touch[result->rd_regno]);
+    }
+  }
+  if (result->rd_regno != 0) {
+    regwrite_total++;
+    if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
+      regalu[result->rd_regno] = 1;
+    } else {
+      regalu[result->rd_regno] = 0;
+    }
+    touch[result->rd_regno] = 0;
+    regwrite[result->rd_regno] = result->cycle;
+  }
+  if (result->rd_write_skip != 0) {
+    regwrite_skip_total++;
+  }
+  return;
 }
 
 void debug_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned tdata1, unsigned tdata2, unsigned tdata3) {
@@ -70,6 +116,8 @@ int main(int argc, char *argv[]) {
       htif_enable = 1;
     } else if (strcmp(argv[i], "--ebreak") == 0) {
       sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
+    } else if (strcmp(argv[i], "--stat") == 0) {
+      sim_set_step_callback(sim, step_handler);
     } else if (strcmp(argv[i], "--dump") == 0) {
       sim_set_step_callback(sim, dump_inst_callback);
     } else if (strcmp(argv[i], "--uart-in") == 0) {
@@ -131,9 +179,13 @@ int main(int argc, char *argv[]) {
   while (sim->state == running) {
     sim_resume(sim);
   }
+
   if (stat_enable) {
     fprintf(logfile, "# total_regwrite %lld total_regread %lld\n", regwrite_total, regread_total);
+    fprintf(logfile, "# total_regwrite_skip %lld total regread_skip %lld\n", regwrite_skip_total, regread_skip_total);
+    fprintf(logfile, "# write_skip %f, read_skip %f\n", (double)regwrite_skip_total/(double)regwrite_total, (double)regread_skip_total/(double)regread_total);
   }
+
  cleanup:
   sim_fini(sim);
   free(sim);
