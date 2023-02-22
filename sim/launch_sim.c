@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
   if (stat_enable) {
     fprintf(logfile, "# total_regwrite %lld total_regread %lld\n", regwrite_total, regread_total);
     fprintf(logfile, "# total_regwrite_skip %lld total regread_skip %lld\n", regwrite_skip_total, regread_skip_total);
-    fprintf(logfile, "# write_skip %f, read_skip %f\n", (double)regwrite_skip_total/(double)regwrite_total, (double)regread_skip_total/(double)regread_total);
+    fprintf(logfile, "# write_skip %f read_skip %f\n", 1.0 - (double)regwrite_skip_total/(double)regwrite_total, 1.0 - (double)regread_skip_total/(double)regread_total);
   }
 
  cleanup:
