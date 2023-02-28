@@ -163,6 +163,8 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
        (D_EXTENSION << 3) |
        (F_EXTENSION << 5) |
        (M_EXTENSION << 12) |
+       (S_EXTENSION << 18) |
+       (U_EXTENSION << 20) |
        (V_EXTENSION << 21));
   }
   case CSR_ADDR_D_CSR: {
