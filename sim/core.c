@@ -152,47 +152,49 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
     unsigned char *line = NULL;
     unsigned index = 0;
     exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-    line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
-    index = paddr & core->mem->icache->line_mask;
-    // update window
-    for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
-      core->window.pc[i] = window_pc;
-      if (index >= core->mem->icache->line_mask) {
-        // get new line
-        index = 0;
-        exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-        line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
-      }
-      if ((line[index] & 0x03) == 0x3) {
-        if (index + 3 > core->mem->icache->line_mask) {
-          core->window.inst[i] = (line[index + 1] << 8) | line[index];
+    if (!exception) {
+      line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+      index = paddr & core->mem->icache->line_mask;
+      // update window
+      for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+        core->window.pc[i] = window_pc;
+        if (index >= core->mem->icache->line_mask) {
           // get new line
           index = 0;
-          exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+          exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
           line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
-          core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
-          index = 2; // this 2 is ok, not a typo
-        } else {
-          core->window.inst[i] =
-            (line[index + 3] << 24) | (line[index + 2] << 16) |
-            (line[index + 1] << 8) | line[index];
-          index += 4;
         }
-        window_pc += 4;
-      } else {
-        core->window.inst[i] = (line[index + 1] << 8) | line[index];
-        index += 2;
-        window_pc += 2;
+        if ((line[index] & 0x03) == 0x3) {
+          if (index + 2 > core->mem->icache->line_mask) {
+            core->window.inst[i] = (line[index + 1] << 8) | line[index];
+            // get new line
+            index = 0;
+            exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+            line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+            core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
+            index = 2; // this 2 is ok, not a typo
+          } else {
+            core->window.inst[i] =
+              (line[index + 3] << 24) | (line[index + 2] << 16) |
+              (line[index + 1] << 8) | line[index];
+            index += 4;
+          }
+          window_pc += 4;
+        } else {
+          core->window.inst[i] = (line[index + 1] << 8) | line[index];
+          index += 2;
+          window_pc += 2;
+        }
+        core->window.exception[i] = exception;
       }
-      core->window.exception[i] = exception;
-    }
-    // re-search in window
-    for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
-      if (core->window.pc[i] == pc) {
-        inst = core->window.inst[i];
-        w_index = i;
-        exception = core->window.exception[i];
-        break;
+      // re-search in window
+      for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+        if (core->window.pc[i] == pc) {
+          inst = core->window.inst[i];
+          w_index = i;
+          exception = core->window.exception[i];
+          break;
+        }
       }
     }
   }
