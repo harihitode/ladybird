@@ -31,6 +31,8 @@ void hello() {
 }
 
 void trigger_set(sim_t *sim) {
+  // set ebreak calling debug callback
+  sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
   // trigger to memory write to 0x80001000 (tohost)
   sim_write_csr(sim, CSR_ADDR_T_SELECT, 0);
   sim_write_csr(sim, CSR_ADDR_T_DATA1, sim_match6(CSR_MATCH6_SELECT_ADDRESS, CSR_MATCH6_TIMING_AFTER, CSR_MATCH6_LOAD | CSR_MATCH6_STORE));
@@ -38,36 +40,7 @@ void trigger_set(sim_t *sim) {
 }
 
 void step_handler(struct core_step_result *result) {
-  unsigned opcode = result->inst & 0x7f;
-  if (result->rs1_regno != 0) {
-    regread_total++;
-  }
-  if (result->rs2_regno != 0) {
-    regread_total++;
-  }
-  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
-    if (result->rs1_regno != 0 && regwrite[result->rs1_regno] != -1 && regalu[result->rs1_regno]) {
-      fprintf(logfile, "%s %d R %lld\n", get_mnemonic(result->inst), result->rs1_regno, result->cycle - regwrite[result->rs1_regno]);
-      touch[result->rs1_regno]++;
-    }
-    if (result->rs2_regno != 0 && regwrite[result->rs2_regno] != -1 && regalu[result->rs2_regno]) {
-      fprintf(logfile, "%s %d R %lld\n", get_mnemonic(result->inst), result->rs2_regno, result->cycle - regwrite[result->rs2_regno]);
-      touch[result->rs2_regno]++;
-    }
-    if (result->rd_regno != 0 && regwrite[result->rd_regno] != -1 && regalu[result->rd_regno]) {
-      fprintf(logfile, "%s %d W %lld %d\n", get_mnemonic(result->inst), result->rd_regno, result->cycle - regwrite[result->rd_regno], touch[result->rd_regno]);
-    }
-  }
-  if (result->rd_regno != 0) {
-    if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
-      regalu[result->rd_regno] = 1;
-    } else {
-      regalu[result->rd_regno] = 0;
-    }
-    touch[result->rd_regno] = 0;
-    regwrite[result->rd_regno] = result->cycle;
-    regwrite_total++;
-  }
+  printf("%08x, %s\n", result->pc, riscv_get_mnemonic(riscv_decompress(result->inst)));
   return;
 }
 
@@ -120,11 +93,14 @@ int main(int argc, char *argv[]) {
   char log_file_name[128];
   // initialization
   sim_init(sim);
-  // set ebreak calling debug callback
-  sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
+
+  // [option] for riscv-benchmarks (I/O)
   // trigger_set(sim);
+  // [option] dump cycle instructions (noisy)
   // sim_set_step_callback(sim, step_handler);
-  sim_set_debug_callback(sim, debug_handler);
+  // [option] callback for Debug Extension (for ex. lldb)
+  // sim_set_debug_callback(sim, debug_handler);
+
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);

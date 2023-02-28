@@ -224,35 +224,44 @@ void sim_cache_flush(sim_t *sim) {
   return;
 }
 
-int sim_set_exec_trigger(sim_t *sim, unsigned addr, int type, int kind) {
-  return -1;
+static int sim_set_address_trigger(sim_t *sim, unsigned addr, unsigned access_type) {
+  unsigned size = trig_size(sim->trigger);
+  trig_resize(sim->trigger, size++);
+  sim_write_csr(sim, CSR_ADDR_T_SELECT, size);
+  sim_write_csr(sim, CSR_ADDR_T_DATA1, sim_match6(CSR_MATCH6_SELECT_ADDRESS, CSR_MATCH6_TIMING_AFTER, access_type));
+  sim_write_csr(sim, CSR_ADDR_T_DATA2, addr);
+  return 0;
 }
 
-int sim_set_write_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+int sim_set_exec_trigger(sim_t *sim, unsigned addr) {
+  return sim_set_address_trigger(sim, addr, CSR_MATCH6_EXECUTE);
+}
+
+int sim_set_write_trigger(sim_t *sim, unsigned addr) {
+  return sim_set_address_trigger(sim, addr, CSR_MATCH6_STORE);
+};
+
+int sim_set_read_trigger(sim_t *sim, unsigned addr) {
+  return sim_set_address_trigger(sim, addr, CSR_MATCH6_LOAD);
+};
+
+int sim_set_access_trigger(sim_t *sim, unsigned addr) {
+  return sim_set_address_trigger(sim, addr, CSR_MATCH6_STORE | CSR_MATCH6_LOAD);
+};
+
+int sim_rst_exec_trigger(sim_t *sim, unsigned addr) {
   return -1;
 };
 
-int sim_set_read_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+int sim_rst_write_trigger(sim_t *sim, unsigned addr) {
   return -1;
 };
 
-int sim_set_access_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+int sim_rst_read_trigger(sim_t *sim, unsigned addr) {
   return -1;
 };
 
-int sim_rst_exec_trigger(sim_t *sim, unsigned addr, int type, int kind) {
-  return -1;
-};
-
-int sim_rst_write_trigger(sim_t *sim, unsigned addr, int type, int kind) {
-  return -1;
-};
-
-int sim_rst_read_trigger(sim_t *sim, unsigned addr, int type, int kind) {
-  return -1;
-};
-
-int sim_rst_access_trigger(sim_t *sim, unsigned addr, int type, int kind) {
+int sim_rst_access_trigger(sim_t *sim, unsigned addr) {
   return -1;
 };
 

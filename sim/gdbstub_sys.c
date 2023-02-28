@@ -111,13 +111,13 @@ int dbg_sys_set_bw_point(struct dbg_state *state, address addr, int type, int ki
     }
     return 0;
   case 1: // HW Breakpoint
-    return sim_set_exec_trigger(state->sim, addr, type, kind);
+    return sim_set_exec_trigger(state->sim, addr);
   case 2: // Watchpoint (write)
-    return sim_set_write_trigger(state->sim, addr, type, kind);
+    return sim_set_write_trigger(state->sim, addr);
   case 3: // Watchpoint (read)
-    return sim_set_read_trigger(state->sim, addr, type, kind);
+    return sim_set_read_trigger(state->sim, addr);
   default: // Watchpoint (access)
-    return sim_set_access_trigger(state->sim, addr, type, kind);
+    return sim_set_access_trigger(state->sim, addr);
   }
 }
 
@@ -144,13 +144,13 @@ int dbg_sys_rst_bw_point(struct dbg_state *state, address addr, int type, int ki
     }
     return 0;
   case 1: // HW Breakpoint
-    return sim_rst_exec_trigger(state->sim, addr, type, kind);
+    return sim_rst_exec_trigger(state->sim, addr);
   case 2: // Watchpoint (write)
-    return sim_rst_write_trigger(state->sim, addr, type, kind);
+    return sim_rst_write_trigger(state->sim, addr);
   case 3: // Watchpoint (read)
-    return sim_rst_read_trigger(state->sim, addr, type, kind);
+    return sim_rst_read_trigger(state->sim, addr);
   default: // Watchpoint (access)
-    return sim_rst_access_trigger(state->sim, addr, type, kind);
+    return sim_rst_access_trigger(state->sim, addr);
   }
 }
 

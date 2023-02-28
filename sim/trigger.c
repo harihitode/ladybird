@@ -117,7 +117,9 @@ unsigned trig_info(const trigger_t *trig, unsigned index) {
 }
 
 static unsigned trig_match6_fire(struct trigger_elem *elem, const struct core_step_result *result) {
-  if ((elem->access & result->m_access) && (elem->data2 == result->m_vaddr)) {
+  if ((elem->access & CSR_MATCH6_EXECUTE) && (elem->data2 == result->pc)) {
+    return 1;
+  } else if ((elem->access & result->m_access) && (elem->data2 == result->m_vaddr)) {
     return 1;
   } else {
     return 0;
@@ -156,7 +158,6 @@ void trig_cycle(trigger_t *trig, struct core_step_result *result) {
   }
   return;
 }
-
 
 void trig_fini(trigger_t *trig) {
   for (unsigned i = 0; i < trig->size; i++) {

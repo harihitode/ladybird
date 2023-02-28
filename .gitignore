@@ -1,2 +1,8 @@
-sim/test_sim
+sim/launch_sim
+sim/rspsim
+*.png
+*.vcd
+*.txt
+*.log
 kernel/*
+tb/obj_dir/*
