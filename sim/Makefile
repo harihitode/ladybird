@@ -45,5 +45,8 @@ run_rspsim: rspsim
 run_lldb:
 	$(RVPATH)/lldb $(KRNL) -o 'process connect connect://localhost:$(PORT)'
 
+ladybird.dtb: ladybird.dts
+	dtc -O dtb -o ladybird.dtb ladybird.dts
+
 clean:
 	$(RM) launch_sim rspsim *.o
