@@ -24,9 +24,9 @@ void sim_init(sim_t *sim) {
   sim->core->mem = sim->mem;
   sim->core->csr = sim->csr;
   /// for riscv config string ROM
-  sim->config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
-  *(unsigned *)(sim->config_rom + 0x0c) = 0x00001020;
-  sprintf(&sim->config_rom[32],
+  char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
+  *(unsigned *)(config_rom + 0x0c) = 0x00001020;
+  sprintf(&config_rom[32],
           "platform { vendor %s; arch %s; };\n"
           "rtc { addr %08x; };\n"
           "ram { 0 { addr %08x; size %08x; }; };\n"
@@ -35,7 +35,9 @@ void sim_init(sim_t *sim) {
           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
           EXTENSION_STR,
           ACLINT_MTIMER_MTIMECMP_BASE, ACLINT_SSWI_BASE); // [TODO?] MSWI_BASE?
-  memory_set_rom(sim->mem, sim->config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE);
+  memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
+  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+  free(config_rom);
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
@@ -141,7 +143,6 @@ void sim_fini(sim_t *sim) {
     free(sim->reginfo[i]);
   }
   free(sim->reginfo);
-  free(sim->config_rom);
   return;
 }
 

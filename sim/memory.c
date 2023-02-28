@@ -8,6 +8,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
 #define MAX_MMIO 8
 
@@ -39,7 +42,7 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   return mem->ram_block[bid];
 }
 
-void memory_set_rom(memory_t *mem, char *rom_ptr, unsigned base, unsigned size) {
+void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned size, unsigned type) {
   struct rom_t *new_rom;
   if (!mem->rom_list) {
     mem->rom_list = (struct rom_t *)calloc(1, sizeof(struct rom_t));
@@ -51,7 +54,11 @@ void memory_set_rom(memory_t *mem, char *rom_ptr, unsigned base, unsigned size) 
   }
   new_rom->base = base;
   new_rom->size = size;
-  new_rom->rom = rom_ptr;
+  if (type == MEMORY_ROM_TYPE_DEFAULT) {
+    rom_str(new_rom, rom_ptr);
+  } else {
+    rom_mmap(new_rom, rom_ptr, 1); // 1: read only
+  }
   new_rom->next = NULL;
   return;
 }
@@ -155,7 +162,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
       }
       if (rom) {
         for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & rom->rom[paddr + i - rom->base]) << (8 * i));
+          *value |= ((0x000000ff & rom->data[paddr + i - rom->base]) << (8 * i));
         }
         found = 1;
       }
@@ -519,4 +526,41 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     }
   }
   return exception;
+}
+
+void rom_init(rom_t *rom) {
+  rom->rom_type = MEMORY_ROM_TYPE_DEFAULT;
+  rom->data = NULL;
+}
+
+void rom_str(rom_t *rom, const char *str) {
+  rom->rom_type = MEMORY_ROM_TYPE_DEFAULT;
+  rom->data = (char *)calloc(strlen(str) + 1, sizeof(char));
+  strcpy(rom->data, str);
+}
+
+void rom_mmap(rom_t *rom, const char *img_path, int rom_mode) {
+  int fd = 0;
+  int open_flag = (rom_mode == 1) ? O_RDONLY : O_RDWR;
+  int mmap_flag = (rom_mode == 1) ? MAP_PRIVATE : MAP_SHARED;
+  if ((fd = open(img_path, open_flag)) == -1) {
+    perror("rom file open");
+    return;
+  }
+  stat(img_path, &rom->file_stat);
+  rom->data = (char *)mmap(NULL, rom->file_stat.st_size, PROT_WRITE, mmap_flag, fd, 0);
+  if (rom->data == MAP_FAILED) {
+    perror("rom mmap");
+    close(fd);
+    return;
+  }
+  rom->rom_type = MEMORY_ROM_TYPE_MMAP;
+}
+
+void rom_fini(rom_t *rom) {
+  if (rom->rom_type == MEMORY_ROM_TYPE_MMAP && rom->data) {
+    munmap(rom->data, rom->file_stat.st_size);
+  } else {
+    free(rom->data);
+  }
 }

@@ -14,7 +14,10 @@
 #define RAM_PAGE_SIZE (4 * 1024)
 
 // debug address
-#define CONFIG_ROM_ADDR 0x00001000
+#define DEVTREE_BLOB_FILE "./ladybird.dtb"
+#define DEVTREE_ROM_ADDR 0x00001020
+#define DEVTREE_ROM_SIZE 1024
+#define CONFIG_ROM_ADDR 0x00002000
 #define CONFIG_ROM_SIZE 1024
 
 // advanced core local interrupt map
@@ -61,7 +64,6 @@ typedef struct sim_t {
   unsigned dbg_mode;
   char **reginfo;  // register information
   char triple[64]; // triple information
-  char *config_rom;
   void (*dbg_handler)(struct sim_t *);
   void (*stp_handler)(struct core_step_result *);
 } sim_t;

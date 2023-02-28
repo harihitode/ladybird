@@ -5,6 +5,13 @@
 #define MEMORY_STORE_SUCCESS 0
 #define MEMORY_STORE_FAILURE 1
 
+// rom type
+#define MEMORY_ROM_TYPE_DEFAULT 0
+#define MEMORY_ROM_TYPE_MMAP 1
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+
 struct mmio_t;
 struct cache_t;
 struct tlb_t;
@@ -16,12 +23,14 @@ struct mmio_t {
   void (*writeb)(struct mmio_t* unit, unsigned addr, char value);
 };
 
-struct rom_t {
+typedef struct rom_t {
   unsigned base;
   unsigned size;
-  char *rom;
+  char *data;
+  unsigned rom_type;
+  struct stat file_stat;
   struct rom_t *next;
-};
+} rom_t;
 
 typedef struct memory_t {
   // RAM
@@ -94,7 +103,7 @@ void memory_fini(memory_t *);
 // ram and rom
 char *memory_get_page(memory_t *, unsigned);
 // [NOTE] memory does not free rom_ptr on fini
-void memory_set_rom(memory_t *, char *rom_ptr, unsigned base, unsigned size);
+void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 // atomic
 unsigned memory_load_reserved(memory_t *, unsigned addr, unsigned *value, unsigned prv);
@@ -122,5 +131,10 @@ void tlb_init(tlb_t *, memory_t *, unsigned line_size);
 unsigned tlb_get(tlb_t *, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
 void tlb_clear(tlb_t *);
 void tlb_fini(tlb_t *);
+
+void rom_init(rom_t *rom);
+void rom_str(rom_t *rom, const char *data);
+void rom_mmap(rom_t *rom, const char *img_path, int rom_mode);
+void rom_fini(rom_t *rom);
 
 #endif

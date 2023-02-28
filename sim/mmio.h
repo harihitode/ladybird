@@ -10,8 +10,6 @@ typedef pthread_mutex_t mtx_t;
 #include <threads.h>
 #endif
 
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include "memory.h"
 
 typedef struct uart_t {
@@ -38,9 +36,8 @@ void uart_fini(uart_t *uart);
 
 typedef struct disk_t {
   struct mmio_t base;
-  struct stat img_stat;
   struct memory_t *mem;
-  char *data;
+  struct rom_t *rom;
   unsigned queue_num;
   unsigned queue_notify;
   unsigned queue_ppn;

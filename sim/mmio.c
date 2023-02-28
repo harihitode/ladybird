@@ -293,8 +293,9 @@ void disk_init(disk_t *disk) {
   disk->base.size = 4096;
   disk->base.readb = disk_read;
   disk->base.writeb = disk_write;
-  disk->data = NULL;
   disk->mem = NULL;
+  disk->rom = (rom_t *)calloc(1, sizeof(rom_t));
+  rom_init(disk->rom);
   disk->current_queue = 0;
   disk->queue_num = 0;
   disk->queue_notify = 0;
@@ -304,21 +305,7 @@ void disk_init(disk_t *disk) {
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
-  int fd = 0;
-  int open_flag = (rom_mode == 1) ? O_RDONLY : O_RDWR;
-  int mmap_flag = (rom_mode == 1) ? MAP_PRIVATE : MAP_SHARED;
-  if ((fd = open(img_path, open_flag)) == -1) {
-    perror("disk file open");
-    return 1;
-  }
-  stat(img_path, &disk->img_stat);
-  disk->data = (char *)mmap(NULL, disk->img_stat.st_size, PROT_WRITE, mmap_flag, fd, 0);
-  if (disk->data == MAP_FAILED) {
-    perror("disk mmap");
-    close(fd);
-    disk->data = NULL;
-    return 1;
-  }
+  rom_mmap(disk->rom, img_path, rom_mode);
   return 0;
 }
 
@@ -457,10 +444,10 @@ static void disk_process_queue(disk_t *disk) {
       fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
     } else if (i == VIRTQ_STAGE_RW_SECTOR) {
-      if (disk->data == NULL) {
+      if (disk->rom->data == NULL) {
         fprintf(stderr, "mmio disk (RW queue): no disk\n");
       } else {
-        char *sector = disk->data + (512 * req->sector);
+        char *sector = disk->rom->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
         if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
           // disk -> memory
@@ -564,8 +551,7 @@ void disk_irq_ack(disk_t *disk) {
 }
 
 void disk_fini(disk_t *disk) {
-  if (disk->data) {
-    munmap(disk->data, disk->img_stat.st_size);
-  }
+  rom_fini(disk->rom);
+  free(disk->rom);
   return;
 }
