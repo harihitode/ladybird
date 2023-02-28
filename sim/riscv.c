@@ -536,6 +536,8 @@ const char *riscv_get_mnemonic(unsigned inst) {
       case 0x08:
         if (rs2 == 2) {
           sprintf(buf, "SRET");
+        } else if (rs2 == 5) {
+          sprintf(buf, "WFI");
         }
         break;
       case 0x09:
