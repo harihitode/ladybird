@@ -7,8 +7,13 @@
 #define SYS_exit 93
 #define SYS_stats 1234
 
+#ifndef TOHOST_ADDR
 #define TOHOST_ADDR 0x80001000
+#endif
+
+#ifndef FROMHOST_ADDR
 #define FROMHOST_ADDR 0x80001040
+#endif
 
 sim_t *sim;
 FILE *logfile = NULL;
@@ -36,7 +41,6 @@ void console_action(sim_t *sim) {
   for (int i = 0; i < 4; i++) {
     magic_mem = magic_mem | ((unsigned char)sim_read_memory(sim, TOHOST_ADDR + i) << (i * 8));
   }
-  printf("to host: %c, %08x", (char)magic_mem, magic_mem);
   if (magic_mem & 0x1) {
     sim->state = quit;
     fprintf(stderr, "exit with code: %d\n", (int)magic_mem >> 1);
@@ -53,8 +57,13 @@ void console_action(sim_t *sim) {
       arg2 = arg2 | ((unsigned char)sim_read_memory(sim, magic_mem + 24 + i) << (i * 8));
       test = test | ((unsigned char)sim_read_memory(sim, magic_mem + 32 + i) << (i * 8));
     }
-    for (unsigned i = 0; i < arg2; i++) {
-      putchar((unsigned char)sim_read_memory(sim, arg1 + i));
+    char ch = sim_read_memory(sim, arg1);
+    putchar(ch);
+    // for (unsigned i = 0; i < arg2; i++) {
+    //   putchar((unsigned char)sim_read_memory(sim, arg1 + i));
+    // }
+    for (int i = 0; i < 8; i++) {
+      sim_write_memory(sim, TOHOST_ADDR + i, 0x0);
     }
     sim_write_memory(sim, FROMHOST_ADDR, 0x1);
   }
@@ -104,6 +113,7 @@ void debug_handler(sim_t *sim) {
       dcsr &= ~CSR_DCSR_MPRV_EN;
       sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
     }
+    sim_rst_trigger_hit(sim);
   } else if (cause == CSR_DCSR_CAUSE_EBREAK) {
     sim->state = quit;
   }
@@ -125,6 +135,7 @@ int main(int argc, char *argv[]) {
 
   // [option] set ebreak calling debug callback
   // sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
+  sim_set_write_trigger(sim, TOHOST_ADDR);
 
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
