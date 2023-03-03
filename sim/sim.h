@@ -95,6 +95,9 @@ int sim_virtio_disk(sim_t *, const char *img_path, int mode);
 // set character device I/O
 int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 // debugger helper to tdata
+int sim_get_trigger_fired(const sim_t *);
+void sim_rst_trigger_hit(sim_t *);
+unsigned sim_get_trigger_type(unsigned tdata1);
 unsigned sim_match6(unsigned select, unsigned access, unsigned timing);
 unsigned sim_icount(unsigned count);
 

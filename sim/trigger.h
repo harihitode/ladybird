@@ -8,6 +8,7 @@ struct trigger_elem {
   unsigned char dmode;
   unsigned char vs;
   unsigned char vu;
+  unsigned char hit;
   unsigned char m;
   unsigned char s;
   unsigned char u;

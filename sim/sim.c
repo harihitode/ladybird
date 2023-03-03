@@ -314,6 +314,27 @@ void sim_debug_dump_status(sim_t *sim) {
   fprintf(stderr, "TLB: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->tlb->hit_count / sim->mem->tlb->access_count, sim->mem->tlb->hit_count, sim->mem->tlb->access_count);
 }
 
+int sim_get_trigger_fired(const sim_t *sim) {
+  int size = trig_size(sim->trigger);
+  for (int i = 0; i < size; i++) {
+    if (sim->trigger->elem[i]->hit) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void sim_rst_trigger_hit(sim_t *sim) {
+  int size = trig_size(sim->trigger);
+  for (int i = 0; i < size; i++) {
+    sim->trigger->elem[i]->hit = 0;
+  }
+}
+
+unsigned sim_get_trigger_type(unsigned tdata1) {
+  return ((tdata1 >> 28) & 0x0f);
+}
+
 unsigned sim_match6(unsigned select, unsigned timing, unsigned access) {
   return ((CSR_TDATA1_TYPE_MATCH6 << CSR_TDATA1_TYPE_FIELD) |
           (1 << CSR_TDATA1_DMODE_FIELD) |
