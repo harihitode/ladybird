@@ -277,11 +277,11 @@ int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
 }
 
 unsigned sim_read_csr(sim_t *sim, unsigned addr) {
-  return csr_csrr(sim->csr, addr);
+  return csr_csrr(sim->csr, addr, NULL);
 }
 
 void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
-  csr_csrw(sim->csr, addr, value);
+  csr_csrw(sim->csr, addr, value, NULL);
 }
 
 void sim_debug_dump_status(sim_t *sim) {
@@ -303,11 +303,11 @@ void sim_debug_dump_status(sim_t *sim) {
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
     break;
   }
-  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
-  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
-  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));
-  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP));
-  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE));
+  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS, NULL));
+  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP, NULL));
+  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE, NULL));
+  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP, NULL));
+  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE, NULL));
   fprintf(stderr, "Instruction Count: %llu\n", sim->csr->instret);
   fprintf(stderr, "ICACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->icache->hit_count / sim->mem->icache->access_count, sim->mem->icache->hit_count, sim->mem->icache->access_count);
   fprintf(stderr, "DCACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->dcache->hit_count / sim->mem->dcache->access_count, sim->mem->dcache->hit_count, sim->mem->dcache->access_count);

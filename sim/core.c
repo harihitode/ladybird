@@ -391,27 +391,27 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x2: // READ_SET
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x3: // READ_CLEAR
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x4: // Hypervisor Extension
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x6: // READ_SET (imm)
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x7: // READ_CLEAR (imm)
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct12(inst)) {

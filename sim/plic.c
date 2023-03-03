@@ -133,8 +133,8 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
     value64 = csr_get_timecmp(aclint->csr);
   } else if (addr <= 0x0000BFFF) {
     value64 =
-      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIMEH) << 32) |
-      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIME));
+      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIMEH, NULL) << 32) |
+      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIME, NULL));
   } else {
     fprintf(stderr, "aclint read unimplemented region: %08x\n", addr);
   }

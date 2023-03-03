@@ -40,6 +40,8 @@ typedef struct csr_t {
   unsigned sscratch;
   unsigned stvec; // [S] trap base address
   unsigned stval; // [S] trap value
+  unsigned mcounteren;
+  unsigned scounteren;
   // Sdext
   unsigned char dcsr_ebreakm;
   unsigned char dcsr_ebreaks;
@@ -51,6 +53,7 @@ typedef struct csr_t {
   unsigned dpc; // debugging PC
   // Sdtrig
   unsigned tselect;
+
 } csr_t;
 
 void csr_init(csr_t *);
@@ -58,11 +61,11 @@ void csr_fini(csr_t *);
 // call once at every cycle
 void csr_cycle(csr_t *, struct core_step_result *);
 // basic interface
-unsigned csr_csrr(csr_t *, unsigned addr);
-void csr_csrw(csr_t *, unsigned addr, unsigned value);
-unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value);
-unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value);
-unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value);
+unsigned csr_csrr(csr_t *, unsigned addr, struct core_step_result *result);
+void csr_csrw(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
+unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
+unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
+unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
 // 64 bit timer interface
 unsigned long long csr_get_timecmp(csr_t *);
 void csr_set_timecmp(csr_t *, unsigned long long);

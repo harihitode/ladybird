@@ -39,6 +39,8 @@ void csr_init(csr_t *csr) {
   csr->scause = 0;
   csr->stval = 0;
   csr->stvec = 0;
+  csr->mcounteren = 0;
+  csr->scounteren = 0;
   // SW interrupts
   csr->software_interrupt_m = 0;
   csr->software_interrupt_s = 0;
@@ -54,7 +56,37 @@ void csr_init(csr_t *csr) {
   return;
 }
 
-unsigned csr_csrr(csr_t *csr, unsigned addr) {
+static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
+  unsigned value = 0;
+  unsigned swint = 0;
+  unsigned extint = 0;
+  unsigned timerint = 0;
+  extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
+  timerint = 0;
+  swint = csr->software_interrupt_s;
+  value =
+    (swint << CSR_INT_SSI_FIELD) |
+    (extint << CSR_INT_SEI_FIELD) |
+    (timerint << CSR_INT_STI_FIELD);
+  return value;
+}
+
+static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
+  unsigned value = csr_get_s_interrupts_pending(csr);
+  unsigned swint = 0;
+  unsigned extint = 0;
+  unsigned timerint = 0;
+  extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
+  timerint = (csr->time >= csr->timecmp) ? 1 : 0;
+  swint = csr->software_interrupt_m;
+  value |=
+    (swint << CSR_INT_MSI_FIELD) |
+    (extint << CSR_INT_MEI_FIELD) |
+    (timerint << CSR_INT_MTI_FIELD);
+  return value;
+}
+
+unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   switch (addr) {
   case CSR_ADDR_M_EPC:
     return csr->mepc;
@@ -111,30 +143,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
   case CSR_ADDR_U_INSTRETH:
     return (unsigned)(csr->instret >> 32);
   case CSR_ADDR_M_IP:
+    return csr_get_m_interrupts_pending(csr);
   case CSR_ADDR_S_IP:
-    {
-      unsigned value = 0;
-      unsigned swint = 0;
-      unsigned extint = 0;
-      unsigned timerint = 0;
-      extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
-      timerint = 0;
-      swint = csr->software_interrupt_s;
-      value =
-        (swint << CSR_INT_SSI_FIELD) |
-        (extint << CSR_INT_SEI_FIELD) |
-        (timerint << CSR_INT_STI_FIELD);
-      if (addr == CSR_ADDR_M_IP) {
-        extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
-        timerint = (csr->time >= csr->timecmp) ? 1 : 0;
-        swint = csr->software_interrupt_m;
-        value |=
-          (swint << CSR_INT_MSI_FIELD) |
-          (extint << CSR_INT_MEI_FIELD) |
-          (timerint << CSR_INT_MTI_FIELD);
-      }
-      return value;
-    }
+    return csr_get_s_interrupts_pending(csr);
   case CSR_ADDR_S_EPC:
     return csr->sepc;
   case CSR_ADDR_S_CAUSE:
@@ -192,13 +203,108 @@ unsigned csr_csrr(csr_t *csr, unsigned addr) {
     return trig_get_tdata(csr->trig, csr->tselect, 2);
   case CSR_ADDR_T_INFO:
     return trig_info(csr->trig, csr->tselect);
+  case CSR_ADDR_M_COUNTEREN:
+    return csr->mcounteren;
+  case CSR_ADDR_S_COUNTEREN:
+    return csr->scounteren;
+  case CSR_ADDR_M_HPMCOUNTER3:
+  case CSR_ADDR_M_HPMCOUNTER4:
+  case CSR_ADDR_M_HPMCOUNTER5:
+  case CSR_ADDR_M_HPMCOUNTER6:
+  case CSR_ADDR_M_HPMCOUNTER7:
+  case CSR_ADDR_M_HPMCOUNTER8:
+  case CSR_ADDR_M_HPMCOUNTER9:
+  case CSR_ADDR_M_HPMCOUNTER10:
+  case CSR_ADDR_M_HPMCOUNTER11:
+  case CSR_ADDR_M_HPMCOUNTER12:
+  case CSR_ADDR_M_HPMCOUNTER13:
+  case CSR_ADDR_M_HPMCOUNTER14:
+  case CSR_ADDR_M_HPMCOUNTER15:
+  case CSR_ADDR_M_HPMCOUNTER16:
+  case CSR_ADDR_M_HPMCOUNTER17:
+  case CSR_ADDR_M_HPMCOUNTER18:
+  case CSR_ADDR_M_HPMCOUNTER19:
+  case CSR_ADDR_M_HPMCOUNTER20:
+  case CSR_ADDR_M_HPMCOUNTER21:
+  case CSR_ADDR_M_HPMCOUNTER22:
+  case CSR_ADDR_M_HPMCOUNTER23:
+  case CSR_ADDR_M_HPMCOUNTER24:
+  case CSR_ADDR_M_HPMCOUNTER25:
+  case CSR_ADDR_M_HPMCOUNTER26:
+  case CSR_ADDR_M_HPMCOUNTER27:
+  case CSR_ADDR_M_HPMCOUNTER28:
+  case CSR_ADDR_M_HPMCOUNTER29:
+  case CSR_ADDR_M_HPMCOUNTER30:
+  case CSR_ADDR_M_HPMCOUNTER31:
+  case CSR_ADDR_M_HPMCOUNTER3H:
+  case CSR_ADDR_M_HPMCOUNTER4H:
+  case CSR_ADDR_M_HPMCOUNTER5H:
+  case CSR_ADDR_M_HPMCOUNTER6H:
+  case CSR_ADDR_M_HPMCOUNTER7H:
+  case CSR_ADDR_M_HPMCOUNTER8H:
+  case CSR_ADDR_M_HPMCOUNTER9H:
+  case CSR_ADDR_M_HPMCOUNTER10H:
+  case CSR_ADDR_M_HPMCOUNTER11H:
+  case CSR_ADDR_M_HPMCOUNTER12H:
+  case CSR_ADDR_M_HPMCOUNTER13H:
+  case CSR_ADDR_M_HPMCOUNTER14H:
+  case CSR_ADDR_M_HPMCOUNTER15H:
+  case CSR_ADDR_M_HPMCOUNTER16H:
+  case CSR_ADDR_M_HPMCOUNTER17H:
+  case CSR_ADDR_M_HPMCOUNTER18H:
+  case CSR_ADDR_M_HPMCOUNTER19H:
+  case CSR_ADDR_M_HPMCOUNTER20H:
+  case CSR_ADDR_M_HPMCOUNTER21H:
+  case CSR_ADDR_M_HPMCOUNTER22H:
+  case CSR_ADDR_M_HPMCOUNTER23H:
+  case CSR_ADDR_M_HPMCOUNTER24H:
+  case CSR_ADDR_M_HPMCOUNTER25H:
+  case CSR_ADDR_M_HPMCOUNTER26H:
+  case CSR_ADDR_M_HPMCOUNTER27H:
+  case CSR_ADDR_M_HPMCOUNTER28H:
+  case CSR_ADDR_M_HPMCOUNTER29H:
+  case CSR_ADDR_M_HPMCOUNTER30H:
+  case CSR_ADDR_M_HPMCOUNTER31H:
+  case CSR_ADDR_M_HPMEVENT3:
+  case CSR_ADDR_M_HPMEVENT4:
+  case CSR_ADDR_M_HPMEVENT5:
+  case CSR_ADDR_M_HPMEVENT6:
+  case CSR_ADDR_M_HPMEVENT7:
+  case CSR_ADDR_M_HPMEVENT8:
+  case CSR_ADDR_M_HPMEVENT9:
+  case CSR_ADDR_M_HPMEVENT10:
+  case CSR_ADDR_M_HPMEVENT11:
+  case CSR_ADDR_M_HPMEVENT12:
+  case CSR_ADDR_M_HPMEVENT13:
+  case CSR_ADDR_M_HPMEVENT14:
+  case CSR_ADDR_M_HPMEVENT15:
+  case CSR_ADDR_M_HPMEVENT16:
+  case CSR_ADDR_M_HPMEVENT17:
+  case CSR_ADDR_M_HPMEVENT18:
+  case CSR_ADDR_M_HPMEVENT19:
+  case CSR_ADDR_M_HPMEVENT20:
+  case CSR_ADDR_M_HPMEVENT21:
+  case CSR_ADDR_M_HPMEVENT22:
+  case CSR_ADDR_M_HPMEVENT23:
+  case CSR_ADDR_M_HPMEVENT24:
+  case CSR_ADDR_M_HPMEVENT25:
+  case CSR_ADDR_M_HPMEVENT26:
+  case CSR_ADDR_M_HPMEVENT27:
+  case CSR_ADDR_M_HPMEVENT28:
+  case CSR_ADDR_M_HPMEVENT29:
+  case CSR_ADDR_M_HPMEVENT30:
+  case CSR_ADDR_M_HPMEVENT31:
+    return 0;
   default:
+    if (result) result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#if 0
     fprintf(stderr, "unknown: CSR[R]: addr: %08x @%08x\n", addr, csr->pc);
+#endif
     return 0;
   }
 }
 
-void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
+void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
   switch (addr) {
   case CSR_ADDR_M_EPC:
     csr->mepc = value;
@@ -314,28 +420,125 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value) {
   case CSR_ADDR_T_DATA3:
     trig_set_tdata(csr->trig, csr->tselect, 2, value);
     break;
+  case CSR_ADDR_M_COUNTEREN:
+    csr->mcounteren = value & 0x07;
+    break;
+  case CSR_ADDR_S_COUNTEREN:
+    csr->scounteren = value & 0x07;
+    break;
+  case CSR_ADDR_M_HPMCOUNTER3:
+  case CSR_ADDR_M_HPMCOUNTER4:
+  case CSR_ADDR_M_HPMCOUNTER5:
+  case CSR_ADDR_M_HPMCOUNTER6:
+  case CSR_ADDR_M_HPMCOUNTER7:
+  case CSR_ADDR_M_HPMCOUNTER8:
+  case CSR_ADDR_M_HPMCOUNTER9:
+  case CSR_ADDR_M_HPMCOUNTER10:
+  case CSR_ADDR_M_HPMCOUNTER11:
+  case CSR_ADDR_M_HPMCOUNTER12:
+  case CSR_ADDR_M_HPMCOUNTER13:
+  case CSR_ADDR_M_HPMCOUNTER14:
+  case CSR_ADDR_M_HPMCOUNTER15:
+  case CSR_ADDR_M_HPMCOUNTER16:
+  case CSR_ADDR_M_HPMCOUNTER17:
+  case CSR_ADDR_M_HPMCOUNTER18:
+  case CSR_ADDR_M_HPMCOUNTER19:
+  case CSR_ADDR_M_HPMCOUNTER20:
+  case CSR_ADDR_M_HPMCOUNTER21:
+  case CSR_ADDR_M_HPMCOUNTER22:
+  case CSR_ADDR_M_HPMCOUNTER23:
+  case CSR_ADDR_M_HPMCOUNTER24:
+  case CSR_ADDR_M_HPMCOUNTER25:
+  case CSR_ADDR_M_HPMCOUNTER26:
+  case CSR_ADDR_M_HPMCOUNTER27:
+  case CSR_ADDR_M_HPMCOUNTER28:
+  case CSR_ADDR_M_HPMCOUNTER29:
+  case CSR_ADDR_M_HPMCOUNTER30:
+  case CSR_ADDR_M_HPMCOUNTER31:
+  case CSR_ADDR_M_HPMCOUNTER3H:
+  case CSR_ADDR_M_HPMCOUNTER4H:
+  case CSR_ADDR_M_HPMCOUNTER5H:
+  case CSR_ADDR_M_HPMCOUNTER6H:
+  case CSR_ADDR_M_HPMCOUNTER7H:
+  case CSR_ADDR_M_HPMCOUNTER8H:
+  case CSR_ADDR_M_HPMCOUNTER9H:
+  case CSR_ADDR_M_HPMCOUNTER10H:
+  case CSR_ADDR_M_HPMCOUNTER11H:
+  case CSR_ADDR_M_HPMCOUNTER12H:
+  case CSR_ADDR_M_HPMCOUNTER13H:
+  case CSR_ADDR_M_HPMCOUNTER14H:
+  case CSR_ADDR_M_HPMCOUNTER15H:
+  case CSR_ADDR_M_HPMCOUNTER16H:
+  case CSR_ADDR_M_HPMCOUNTER17H:
+  case CSR_ADDR_M_HPMCOUNTER18H:
+  case CSR_ADDR_M_HPMCOUNTER19H:
+  case CSR_ADDR_M_HPMCOUNTER20H:
+  case CSR_ADDR_M_HPMCOUNTER21H:
+  case CSR_ADDR_M_HPMCOUNTER22H:
+  case CSR_ADDR_M_HPMCOUNTER23H:
+  case CSR_ADDR_M_HPMCOUNTER24H:
+  case CSR_ADDR_M_HPMCOUNTER25H:
+  case CSR_ADDR_M_HPMCOUNTER26H:
+  case CSR_ADDR_M_HPMCOUNTER27H:
+  case CSR_ADDR_M_HPMCOUNTER28H:
+  case CSR_ADDR_M_HPMCOUNTER29H:
+  case CSR_ADDR_M_HPMCOUNTER30H:
+  case CSR_ADDR_M_HPMCOUNTER31H:
+  case CSR_ADDR_M_HPMEVENT3:
+  case CSR_ADDR_M_HPMEVENT4:
+  case CSR_ADDR_M_HPMEVENT5:
+  case CSR_ADDR_M_HPMEVENT6:
+  case CSR_ADDR_M_HPMEVENT7:
+  case CSR_ADDR_M_HPMEVENT8:
+  case CSR_ADDR_M_HPMEVENT9:
+  case CSR_ADDR_M_HPMEVENT10:
+  case CSR_ADDR_M_HPMEVENT11:
+  case CSR_ADDR_M_HPMEVENT12:
+  case CSR_ADDR_M_HPMEVENT13:
+  case CSR_ADDR_M_HPMEVENT14:
+  case CSR_ADDR_M_HPMEVENT15:
+  case CSR_ADDR_M_HPMEVENT16:
+  case CSR_ADDR_M_HPMEVENT17:
+  case CSR_ADDR_M_HPMEVENT18:
+  case CSR_ADDR_M_HPMEVENT19:
+  case CSR_ADDR_M_HPMEVENT20:
+  case CSR_ADDR_M_HPMEVENT21:
+  case CSR_ADDR_M_HPMEVENT22:
+  case CSR_ADDR_M_HPMEVENT23:
+  case CSR_ADDR_M_HPMEVENT24:
+  case CSR_ADDR_M_HPMEVENT25:
+  case CSR_ADDR_M_HPMEVENT26:
+  case CSR_ADDR_M_HPMEVENT27:
+  case CSR_ADDR_M_HPMEVENT28:
+  case CSR_ADDR_M_HPMEVENT29:
+  case CSR_ADDR_M_HPMEVENT30:
+  case CSR_ADDR_M_HPMEVENT31:
+    break;
   default:
+    if (result) result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#if 0
     fprintf(stderr, "unknown: CSR[W]: addr: %08x value: %08x @%08x\n", addr, value, csr->pc);
+#endif
     break;
   }
   return;
 }
 
-unsigned csr_csrrw(csr_t *csr, unsigned addr, unsigned value) {
-  unsigned csr_read_value = csr_csrr(csr, addr);
-  csr_csrw(csr, addr, value);
+unsigned csr_csrrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
+  unsigned csr_read_value = csr_csrr(csr, addr, result);
+  csr_csrw(csr, addr, value, result);
   return csr_read_value;
 }
 
-unsigned csr_csrrs(csr_t *csr, unsigned addr, unsigned value) {
-  unsigned csr_read_value = csr_csrr(csr, addr);
-  csr_csrw(csr, addr, value | csr_read_value);
+unsigned csr_csrrs(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
+  unsigned csr_read_value = csr_csrr(csr, addr, result);
+  csr_csrw(csr, addr, value | csr_read_value, result);
   return csr_read_value;
 }
 
-unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value) {
-  unsigned csr_read_value = csr_csrr(csr, addr);
-  csr_csrw(csr, addr, (~value) & csr_read_value);
+unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
+  unsigned csr_read_value = csr_csrr(csr, addr, result);
+  csr_csrw(csr, addr, (~value) & csr_read_value, result);
   return csr_read_value;
 }
 
@@ -360,7 +563,7 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
         ((csr->mode == PRIVILEGE_MODE_M && csr->status_mie) ||
          (csr->mode < PRIVILEGE_MODE_M)) &&
         // (b) interrupt bit is set in both mip and mie
-        ((((csr_csrr(csr, CSR_ADDR_M_IP) & csr_csrr(csr, CSR_ADDR_M_IE)) >> code)) & 0x00000001) &&
+        ((((csr_get_m_interrupts_pending(csr) & csr->interrupts_enable) >> code)) & 0x00000001) &&
         // (c) interrupt is not set in mideleg
         !((csr->mideleg >> code) & 0x00000001)
         ) {
@@ -480,15 +683,15 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
     // catch interrupt
     unsigned interrupts_enable;
     if (csr->mode == PRIVILEGE_MODE_M) {
-      interrupts_enable = (csr->status_mie) ? csr_csrr(csr, CSR_ADDR_M_IE) : 0;
+      interrupts_enable = (csr->status_mie) ? csr->interrupts_enable : 0;
     } else if (csr->mode == PRIVILEGE_MODE_S) {
-      interrupts_enable = (csr->status_sie) ? csr_csrr(csr, CSR_ADDR_M_IE) : 0;
+      interrupts_enable = (csr->status_sie) ? csr->interrupts_enable : 0;
     } else {
       // all interrupts are enabled
       interrupts_enable = 0x0000FFFF;
     }
 
-    unsigned interrupts_pending = csr_csrr(csr, CSR_ADDR_M_IP);
+    unsigned interrupts_pending = csr_get_m_interrupts_pending(csr);
     unsigned interrupt = interrupts_enable & interrupts_pending;
     // Simultaneous interrupts destined for M-mode are handled in the following
     // decreasing priority order: MEI, MSI, MTI, SEI, SSI, STI
