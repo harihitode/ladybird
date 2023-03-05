@@ -1,5 +1,5 @@
-SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c core.c trigger.c riscv.c
-HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h core.h trigger.h riscv.h
+SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c core.c trigger.c riscv.c htif.c
+HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h core.h trigger.h riscv.h htif.h
 OBJS=$(SRCS:.c=.o)
 POBJS=launch_sim.o gdbstub_sys.o
 STUBSRCS=gdbstub/gdbstub.c

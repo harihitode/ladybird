@@ -64,7 +64,7 @@ typedef struct sim_t {
   unsigned dbg_mode;
   char **reginfo;  // register information
   char triple[64]; // triple information
-  void (*dbg_handler)(struct sim_t *);
+  void (**dbg_handler)(struct sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned);
   void (*stp_handler)(struct core_step_result *);
 } sim_t;
 
@@ -102,7 +102,7 @@ unsigned sim_match6(unsigned select, unsigned access, unsigned timing);
 unsigned sim_icount(unsigned count);
 
 // set callback function on entering debug mode
-void sim_set_debug_callback(sim_t *, void (*func)(sim_t *sim));
+void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned));
 // set callback function on every step
 void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result));
 

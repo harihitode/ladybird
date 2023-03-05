@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_DBG_HANDLER 10
+
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
@@ -85,7 +87,7 @@ void sim_init(sim_t *sim) {
     sim->reginfo[i] = buf;
   }
   sprintf(sim->triple, "%s", TARGET_TRIPLE);
-  sim->dbg_handler = NULL;
+  sim->dbg_handler = (void (**)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned))calloc(MAX_DBG_HANDLER, sizeof(void (*)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned)));
   sim->stp_handler = NULL;
   sim->state = running;
   return;
@@ -143,11 +145,18 @@ void sim_fini(sim_t *sim) {
     free(sim->reginfo[i]);
   }
   free(sim->reginfo);
+  free(sim->dbg_handler);
   return;
 }
 
-void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *)) {
-  sim->dbg_handler = callback;
+void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned)) {
+  for (unsigned i = 0; i < MAX_DBG_HANDLER; i++) {
+    if (sim->dbg_handler[i] == NULL) {
+      sim->dbg_handler[i] = callback;
+      return;
+    }
+  }
+  fprintf(stderr, "exceeds debug handler\n");
   return;
 }
 
@@ -168,7 +177,36 @@ void sim_resume(sim_t *sim) {
     trig_cycle(sim->trigger, &result);
     csr_cycle(sim->csr, &result);
   }
-  if (sim->dbg_handler) sim->dbg_handler(sim);
+
+  // fire debug handlers
+  unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);
+  unsigned cause = (dcsr >> 6) & 0x7;
+  if (cause != CSR_DCSR_CAUSE_NONE) {
+    unsigned trigger_type = 0;
+    unsigned tdata1 = 0;
+    unsigned tdata2 = 0;
+    unsigned tdata3 = 0;
+    if (cause == CSR_DCSR_CAUSE_TRIGGER) {
+      int trigger_index = sim_get_trigger_fired(sim);
+      if (trigger_index >= 0) {
+        dcsr |= CSR_DCSR_MPRV_EN;
+        // [M mode] access to MMU -> ON
+        sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
+        sim_write_csr(sim, CSR_ADDR_T_SELECT, trigger_index);
+        tdata1 = sim_read_csr(sim, CSR_ADDR_T_DATA1);
+        tdata2 = sim_read_csr(sim, CSR_ADDR_T_DATA2);
+        tdata3 = sim_read_csr(sim, CSR_ADDR_T_DATA3);
+        trigger_type = sim_get_trigger_type(tdata1);
+        // [M mode] access to MMU -> OFF
+        dcsr &= ~CSR_DCSR_MPRV_EN;
+        sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
+      }
+      sim_rst_trigger_hit(sim);
+    }
+    for (unsigned i = 0; i < MAX_DBG_HANDLER; i++) {
+      if (sim->dbg_handler[i]) sim->dbg_handler[i](sim, cause, trigger_type, tdata1, tdata2, tdata3);
+    }
+  }
   return;
 }
 
