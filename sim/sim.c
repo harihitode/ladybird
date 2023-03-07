@@ -186,26 +186,26 @@ void sim_resume(sim_t *sim) {
     unsigned tdata1 = 0;
     unsigned tdata2 = 0;
     unsigned tdata3 = 0;
+    dcsr |= CSR_DCSR_MPRV_EN;
+    // [M mode] access to MMU -> ON
+    sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
     if (cause == CSR_DCSR_CAUSE_TRIGGER) {
       int trigger_index = sim_get_trigger_fired(sim);
       if (trigger_index >= 0) {
-        dcsr |= CSR_DCSR_MPRV_EN;
-        // [M mode] access to MMU -> ON
-        sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
         sim_write_csr(sim, CSR_ADDR_T_SELECT, trigger_index);
         tdata1 = sim_read_csr(sim, CSR_ADDR_T_DATA1);
         tdata2 = sim_read_csr(sim, CSR_ADDR_T_DATA2);
         tdata3 = sim_read_csr(sim, CSR_ADDR_T_DATA3);
         trigger_type = sim_get_trigger_type(tdata1);
-        // [M mode] access to MMU -> OFF
-        dcsr &= ~CSR_DCSR_MPRV_EN;
-        sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
       }
       sim_rst_trigger_hit(sim);
     }
     for (unsigned i = 0; i < MAX_DBG_HANDLER; i++) {
       if (sim->dbg_handler[i]) sim->dbg_handler[i](sim, cause, trigger_type, tdata1, tdata2, tdata3);
     }
+    // [M mode] access to MMU -> OFF
+    dcsr &= ~CSR_DCSR_MPRV_EN;
+    sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
   }
   return;
 }
