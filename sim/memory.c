@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 
+#define SUPPORT_MEGAPAGE
 #define MAX_MMIO 8
 
 void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned ram_block_size) {
@@ -544,7 +545,11 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     // hardware page walking
     unsigned pte_base = tlb->mem->vmrppn;
     unsigned pw_result = PAGE_SUCCESS;
-    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+#ifdef SUPPORT_MEGAPAGE
+    pw_result = megapage_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+    if (pw_result != PAGE_SUCCESS)
+#endif
+      pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
     if (pw_result == PAGE_SUCCESS) {
       // register to TLB
       tlb->line[index].valid = 1;
