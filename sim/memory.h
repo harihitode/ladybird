@@ -81,6 +81,7 @@ typedef struct tlb_line_t {
   unsigned dirty;
   unsigned tag;
   unsigned value;
+  unsigned megapage;
 } tlb_line_t;
 
 typedef struct tlb_t {

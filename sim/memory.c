@@ -121,7 +121,11 @@ unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *pad
     *paddr = vaddr;
     return 0;
   } else {
-    return tlb_get(mem->tlb, vaddr, paddr, access_type, prv);
+    unsigned code = tlb_get(mem->tlb, vaddr, paddr, access_type, prv);
+#if 0
+    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
+#endif
+    return code;
   }
 }
 
@@ -419,6 +423,7 @@ void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
 void tlb_clear(tlb_t *tlb) {
   for (unsigned i = 0; i < tlb->line_size; i++) {
     tlb->line[i].valid = 0;
+    tlb->line[i].megapage = 0;
   }
 }
 
@@ -527,7 +532,11 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     tlb->hit_count++;
     pte = tlb->line[index].value;
     if (page_check_privilege(pte, access_type, prv)) {
-      *paddr = ((pte & 0xfffffc00) << 2) | (vaddr & 0x00000fff);
+      if (tlb->line[index].megapage) {
+        *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
+      } else {
+        *paddr = ((pte & 0xfffffc00) << 2) | (vaddr & 0x00000fff);
+      }
     } else {
       switch (access_type) {
       case ACCESS_TYPE_INSTRUCTION:
@@ -545,17 +554,30 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     // hardware page walking
     unsigned pte_base = tlb->mem->vmrppn;
     unsigned pw_result = PAGE_SUCCESS;
+    unsigned pw_megapage = 0;
+#if 0
+    fprintf(stderr, "HW page walking for addr: %08x, pte_base: %08x\n", vaddr, pte_base);
+#endif
+
 #ifdef SUPPORT_MEGAPAGE
     pw_result = megapage_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
-    if (pw_result != PAGE_SUCCESS)
-#endif
+    if (pw_result == PAGE_SUCCESS) {
+      *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
+      pw_megapage = 1;
+    } else {
       pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+      *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+    }
+#else
+    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+    *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+#endif
     if (pw_result == PAGE_SUCCESS) {
       // register to TLB
       tlb->line[index].valid = 1;
       tlb->line[index].tag = tag;
       tlb->line[index].value = pte;
-      *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+      tlb->line[index].megapage = pw_megapage;
     } else if (pw_result == PAGE_ACCESS_ERROR) {
       switch (access_type) {
       case ACCESS_TYPE_INSTRUCTION:
