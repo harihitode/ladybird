@@ -325,7 +325,14 @@ void memory_icache_invalidate(memory_t *mem) {
   }
 }
 
-void memory_dcache_invalidate(memory_t *mem, unsigned paddr) {
+void memory_dcache_invalidate(memory_t *mem) {
+  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
+    cache_write_back(mem->dcache, i);
+    mem->dcache->line[i].valid = 0;
+  }
+}
+
+void memory_dcache_invalidate_line(memory_t *mem, unsigned paddr) {
   for (unsigned i = 0; i < mem->dcache->line_size; i++) {
     if (mem->dcache->line[i].valid && mem->dcache->line[i].tag == (paddr & mem->dcache->tag_mask)) {
       mem->dcache->line[i].valid = 0;

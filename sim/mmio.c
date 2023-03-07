@@ -455,7 +455,7 @@ static void disk_process_queue(disk_t *disk) {
             char *page = memory_get_page(disk->mem, dma_base + j);
             page[(dma_base + j) & disk->page_size_mask] = sector[j];
             // invalidate cache
-            memory_dcache_invalidate(disk->mem, dma_base + j);
+            memory_dcache_invalidate_line(disk->mem, dma_base + j);
           }
         } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
           // memory -> disk
@@ -472,7 +472,7 @@ static void disk_process_queue(disk_t *disk) {
       // done
       char *page = memory_get_page(disk->mem, current_desc->addr);
       page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
-      memory_dcache_invalidate(disk->mem, current_desc->addr);
+      memory_dcache_invalidate_line(disk->mem, current_desc->addr);
       // complete
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
