@@ -2,16 +2,19 @@
 / {
   #address-cells = <1>;
   #size-cells = <1>;
+  model="harihitode,ladybird";
 
   cpus {
     #address-cells = <1>;
     #size-cells = <0>;
+    timebase-frequency = <10000000>;
+
     cpu0: cpu@0 {
       device_type = "cpu";
-      clock-frequency = <100000000>;
       i-cache-size = <32768>;
       d-cache-size = <32768>;
       mmu-type = "riscv,sv32";
+      clock-frequency = <100000000>;
       reg = <0>;
       riscv,isa = "rv32imac";
       status = "okay";
@@ -23,18 +26,33 @@
     };
   };
 
-  memory@80000000 {
+  memory0: memory@80000000 {
     device_type = "memory";
-    reg = <0x80000000 0x80000000>;
+    #address-cells = <1>;
+    #size-cells = <1>;
+    reg = <0x80000000 0x08000000>;
   };
 
-  plic0: interrupt-controller@C000000 {
+  plic0: interrupt-controller@c000000 {
     #interrupt-cells = <1>;
     compatible = "riscv,plic0";
     interrupt-controller;
-    interrupts-extended =
-      <&cpu0_intc 11 &cpu0_intc 9>;
-    reg = <0x0 0xc000000 0x0 0x4000000>;
+    interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9>;
+    reg = <0x0c000000 0x1000 0x0c002000 0x10000 0x0c200000 0x10000>;
+  };
+
+  mtimer0: mtimer@2000000 {
+    compatible = "riscv,aclint-mtimer";
+    interrupts-extended = <&cpu0_intc 7>;
+    reg = <0x02000000 0x8 0x02007ff8 0x8>;
+  };
+
+  mswi0: mswi@2008000 {
+    #interrupt-cells = <1>;
+    compatible = "riscv,aclint-mswi";
+    reg = <0x02008000 0x8>;
+    interrupts-extended = <&cpu0_intc 3>;
+    interrupt-controller;
   };
 
   htif {
