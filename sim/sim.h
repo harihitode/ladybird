@@ -9,14 +9,14 @@
 #define MEMORY_BASE_ADDR_ACLINT 0x02000000
 #define MEMORY_BASE_ADDR_PLIC   0x0c000000
 #define MEMORY_BASE_ADDR_RAM    0x80000000
-// 128GiB, 4KiB page RAM
+// 128MiB, 4KiB page RAM
 #define RAM_SIZE (128 * 1024 * 1024)
 #define RAM_PAGE_SIZE (4 * 1024)
 
 // debug address
 #define DEVTREE_BLOB_FILE "./ladybird.dtb"
 #define DEVTREE_ROM_ADDR 0x00001020
-#define DEVTREE_ROM_SIZE 1024
+#define DEVTREE_ROM_SIZE 2048
 #define CONFIG_ROM_ADDR 0x00002000
 #define CONFIG_ROM_SIZE 1024
 
@@ -33,6 +33,7 @@ struct core_step_result {
   unsigned long long cycle;
   unsigned pc;
   unsigned inst;
+  unsigned flush;
   unsigned rd_regno;
   unsigned rd_write_skip;
   unsigned rd_data;

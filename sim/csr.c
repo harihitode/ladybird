@@ -114,9 +114,10 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_PMPADDR0:
     return 0; // not supported
   case CSR_ADDR_S_ATP:
-    return
-      (csr->mem->vmflag << 31) |
-      ((csr->mem->vmrppn >> 12) & 0x000fffff);
+#if 0
+    fprintf(stderr, "ATP (read) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+#endif
+    return (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff);
   case CSR_ADDR_S_IE:
     return csr->interrupts_enable & 0x00000222;
   case CSR_ADDR_S_TVEC:
@@ -340,6 +341,10 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     } else {
       memory_atp_off(csr->mem);
     }
+    result->flush = 1;
+#if 0
+    fprintf(stderr, "ATP (write) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+#endif
     break;
   case CSR_ADDR_S_IE:
     csr->interrupts_enable = (csr->interrupts_enable & 0x00000888) | value;

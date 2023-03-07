@@ -209,6 +209,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->cycle = core->csr->cycle;
   result->prv = prv;
   result->pc_next = pc;
+  result->flush = 0;
   // instruction fetch & decode
   unsigned inst;
   unsigned pc_next;
@@ -437,6 +438,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       default:
         if (get_funct7(inst) == 0x09) {
           // SFENCE.VMA
+          memory_icache_invalidate(core->mem);
+          memory_dcache_write_back(core->mem);
           memory_tlb_clear(core->mem);
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -491,6 +494,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     core->gpr[result->rd_regno] = result->rd_data;
   }
   result->pc_next = pc_next;
+  if (result->flush) {
+    core_window_flush(core);
+  }
 
   // for debug
   result->rs1_read_skip = 0;
