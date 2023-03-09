@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <libgen.h>
 #include "sim.h"
@@ -24,7 +25,7 @@ void hello() {
   fprintf(stderr, "===================\n");
 }
 
-void step_handler(struct core_step_result *result) {
+void dump_inst_callback(struct core_step_result *result) {
   printf("%08x, %s\n", result->pc, riscv_get_mnemonic(riscv_decompress(result->inst)));
   return;
 }
@@ -53,37 +54,52 @@ void debug_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "%s [ELF FILE] [DISK FILE]\n", argv[0]);
+    fprintf(stderr, "%s [ELF FILE]\n", argv[0]);
     return 0;
   }
   sim = (sim_t *)malloc(sizeof(sim_t));
   char log_file_name[128];
+  char *uart_in_file_name = NULL;
+  char *uart_out_file_name = NULL;
+  char *disk_file_name = NULL;
   // initialization
   sim_init(sim);
   // callback for Debug Extension (for ex. lldb)
-  // sim_set_debug_callback(sim, debug_callback);
-  // sim_set_debug_callback(sim, htif_callback);
-  // [option] dump cycle instructions (noisy)
-  // sim_set_step_callback(sim, step_handler);
-
-  // [option] set ebreak calling debug callback
-  // sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
-  // sim_set_write_trigger(sim, TOHOST_ADDR);
-
+  sim_set_debug_callback(sim, debug_callback);
+  for (int i = 2; i < argc; i++) {
+    if (strcmp(argv[i], "--htif") == 0) {
+      sim_set_debug_callback(sim, htif_callback);
+      sim_set_write_trigger(sim, TOHOST_ADDR);
+    } else if (strcmp(argv[i], "--ebreak") == 0) {
+      sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
+    } else if (strcmp(argv[i], "--dump") == 0) {
+      sim_set_step_callback(sim, dump_inst_callback);
+    } else if (strcmp(argv[i], "--uart-in") == 0) {
+      i++;
+      if (i < argc) {
+        uart_in_file_name = argv[i];
+      }
+    } else if (strcmp(argv[i], "--uart-out") == 0) {
+      i++;
+      if (i < argc) {
+        uart_out_file_name = argv[i];
+      }
+    } else if (strcmp(argv[i], "--disk") == 0) {
+      i++;
+      if (i < argc) {
+        disk_file_name = argv[i];
+      }
+    }
+  }
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
     goto cleanup;
   }
-  if (argc >= 3) {
-    // if you open disk file read only mode, set 1 to the last argument below
-    sim_virtio_disk(sim, argv[2], 0);
-  }
-  if (argc >= 5) {
-    sim_uart_io(sim, argv[3], argv[4]);
-  } else if (argc >= 4) {
-    sim_uart_io(sim, argv[3], NULL);
-  }
+  // if you open disk file read only mode, set 1 to the last argument below
+  sim_virtio_disk(sim, disk_file_name, 0);
+  sim_uart_io(sim, uart_in_file_name, uart_out_file_name);
+
   regwrite_total = 0;
   for (int i = 0; i < 32; i++) {
     regwrite[i] = -1;
