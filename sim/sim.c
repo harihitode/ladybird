@@ -310,7 +310,9 @@ int sim_virtio_disk(sim_t *sim, const char *img_path, int mode) {
 }
 
 int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
-  uart_set_io(sim->uart, in_path, out_path);
+  if (in_path != NULL || out_path != NULL) {
+    uart_set_io(sim->uart, in_path, out_path);
+  }
   return 0;
 }
 

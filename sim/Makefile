@@ -36,14 +36,14 @@ rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 xv6: launch_sim
-	./$^ $(XV6KRNL) $(XV6DISK) $(COMMANDS)
+	./$^ $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
 
 $(POJBS): sim.h
 
 $(OBJS): $(HDRS)
 
 run_rspsim: rspsim
-	./rspsim $(KRNL) $(DISK) $(COMMANDS)
+	./rspsim $(KRNL) --ebreak --disk $(DISK) --uart-in $(COMMANDS)
 
 run_lldb:
 	$(RVPATH)/lldb $(KRNL) -o 'process connect connect://localhost:$(PORT)'

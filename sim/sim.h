@@ -26,6 +26,9 @@
 #define ACLINT_MSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00008000)
 #define ACLINT_SSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x0000c000)
 
+#define CORE_WINDOW_SIZE 16
+// #define REGISTER_ACCESS_STATS
+
 enum sim_state { running, quit };
 
 struct core_step_result {
