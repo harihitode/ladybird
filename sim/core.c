@@ -9,7 +9,6 @@
 #define CORE_MA_LOAD (CSR_MATCH6_LOAD)
 #define CORE_MA_STORE (CSR_MATCH6_STORE)
 #define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
-#define CORE_WINDOW_SIZE 8
 
 void core_init(core_t *core) {
   // clear gpr
@@ -214,8 +213,11 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   unsigned inst;
   unsigned pc_next;
   unsigned opcode;
-  int window_index = 0;
-  window_index = core_fetch_instruction(core, pc, result, prv);
+#ifdef REGISTER_ACCESS_STATS
+  int window_index = core_fetch_instruction(core, pc, result, prv);
+#else
+  core_fetch_instruction(core, pc, result, prv);
+#endif
   if (result->exception_code != 0) {
     return;
   }
@@ -498,7 +500,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     core_window_flush(core);
   }
 
-  // for debug
+#ifdef REGISTER_ACCESS_STATS
   result->rs1_read_skip = 0;
   result->rs2_read_skip = 0;
   result->rd_write_skip = 0;
@@ -540,6 +542,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       }
     }
   }
+#endif
   return;
 }
 
