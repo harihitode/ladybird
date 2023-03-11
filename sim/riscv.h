@@ -22,6 +22,10 @@
 #endif
 #define NUM_REGISTERS (NUM_GPR + 1 + NUM_FPR) // 1 is for PC
 
+#define VENDOR_ID 0
+#define ARCH_ID 0
+#define IMP_ID 1
+
 #define REG_ZERO 0
 #define REG_RA 1
 #define REG_SP 2
@@ -247,6 +251,9 @@
 #define CSR_ADDR_M_HPMEVENT29 0x0000033d
 #define CSR_ADDR_M_HPMEVENT30 0x0000033e
 #define CSR_ADDR_M_HPMEVENT31 0x0000033f
+#define CSR_ADDR_M_VENDORID 0x00000f11
+#define CSR_ADDR_M_ARCHID 0x00000f12
+#define CSR_ADDR_M_IMPID 0x00000f13
 
 // opcode
 #define OPCODE_LOAD 0x00000003

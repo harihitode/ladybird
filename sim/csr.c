@@ -208,6 +208,12 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return csr->mcounteren;
   case CSR_ADDR_S_COUNTEREN:
     return csr->scounteren;
+  case CSR_ADDR_M_VENDORID:
+    return VENDOR_ID;
+  case CSR_ADDR_M_ARCHID:
+    return ARCH_ID;
+  case CSR_ADDR_M_IMPID:
+    return IMP_ID;
   case CSR_ADDR_M_HPMCOUNTER3:
   case CSR_ADDR_M_HPMCOUNTER4:
   case CSR_ADDR_M_HPMCOUNTER5:
@@ -431,6 +437,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_S_COUNTEREN:
     csr->scounteren = value & 0x07;
     break;
+  case CSR_ADDR_M_VENDORID:
+  case CSR_ADDR_M_ARCHID:
+  case CSR_ADDR_M_IMPID:
   case CSR_ADDR_M_HPMCOUNTER3:
   case CSR_ADDR_M_HPMCOUNTER4:
   case CSR_ADDR_M_HPMCOUNTER5:
