@@ -110,16 +110,32 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_st
     result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
     break;
   case 0x4: // DIV
-    result->rd_data = (int)src1 / (int)src2;
+    if (src2 == 0) {
+      result->rd_data = -1;
+    } else {
+      result->rd_data = (int)src1 / (int)src2;
+    }
     break;
   case 0x5: // DIVU
-    result->rd_data = (unsigned)src1 / (unsigned)src2;
+    if (src2 == 0) {
+      result->rd_data = 0xffffffff;
+    } else {
+      result->rd_data = (unsigned)src1 / (unsigned)src2;
+    }
     break;
   case 0x6: // REM
-    result->rd_data = (int)src1 % (int)src2;
+    if (src2 == 0) {
+      result->rd_data = src1;
+    } else {
+      result->rd_data = (int)src1 % (int)src2;
+    }
     break;
   case 0x7: // REMU
-    result->rd_data = (unsigned)src1 % (unsigned)src2;
+    if (src2 == 0) {
+      result->rd_data = src1;
+    } else {
+      result->rd_data = (unsigned)src1 % (unsigned)src2;
+    }
     break;
   }
 }
