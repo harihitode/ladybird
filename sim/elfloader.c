@@ -83,8 +83,14 @@ void elf_init(elf_t *elf, const char *elf_path) {
       elf->program = (char **)realloc(elf->program, (elf->programs + 1) * sizeof(char *));
       elf->program[elf->programs] = &(elf->head[ph->p_offset]);
       elf->programs++;
+#if 0
+      fprintf(stderr, "LOAD: p_paddr %08x memsize %08x filesize %08x\n", ph->p_paddr, ph->p_memsz, ph->p_filesz);
+#endif
       break;
     default:
+#if 0
+      fprintf(stderr, "NOT LOAD: p_paddr %08x memsize %08x filesize %08x\n", ph->p_paddr, ph->p_memsz, ph->p_filesz);
+#endif
       break;
     }
   }
