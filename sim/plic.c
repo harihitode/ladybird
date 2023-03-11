@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-void plic_init (plic_t *plic) {
+void plic_init(plic_t *plic) {
   plic->base.base = 0;
   plic->base.size = (1 << 24);
   plic->base.readb = plic_read;
@@ -37,7 +37,9 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
     }
     break;
   default:
+#if 0
     fprintf(stderr, "PLIC: unknown addr read: %08x\n", addr);
+#endif
     break;
   }
   return value;
@@ -87,7 +89,9 @@ void plic_write(struct mmio_t *unit, unsigned addr, char value) {
     }
     break;
   default:
+#if 0
     fprintf(stderr, "PLIC: unknown addr write: %08x, %08x\n", addr, value);
+#endif
     break;
   }
   return;
