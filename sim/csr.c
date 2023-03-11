@@ -401,6 +401,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_U_TIME:
     csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
     break;
+  case CSR_ADDR_U_TIMEH:
+    csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
+    break;
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
     csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
