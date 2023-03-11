@@ -4,6 +4,11 @@
   #size-cells = <1>;
   model="harihitode,ladybird";
 
+  chosen {
+    bootargs = "console=ttyS0 ro root=/dev/vda";
+    stdout-path = &serial0;
+  };
+
   cpus {
     #address-cells = <1>;
     #size-cells = <0>;
@@ -39,7 +44,8 @@
     compatible = "riscv,plic0";
     interrupt-controller;
     interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9>;
-    reg = <0x0c000000 0x1000 0x0c002000 0x10000 0x0c200000 0x10000>;
+    riscv,ndev=<10>;
+    reg = <0x0c000000 0x02000000>;
   };
 
   mtimer0: mtimer@2000000 {
@@ -54,6 +60,17 @@
     reg = <0x02008000 0x8>;
     interrupts-extended = <&cpu0_intc 3>;
     interrupt-controller;
+  };
+
+  serial0: serial@10000000 {
+    clock-frequency = <100000000>;
+    compatible = "ns16550a";
+    current-speed = <115200>;
+    device_type = "serial";
+    interrupt-parent = <&cpu0_intc>;
+    interrupts = <11 9>;
+    reg = <0x10000000 0x1000>;
+    reg-shift = <0>;
   };
 
   htif {
