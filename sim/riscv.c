@@ -1,6 +1,8 @@
 #include "riscv.h"
 #include <stdio.h>
 
+#define ALT_INST 0x40000000
+
 static unsigned inst_addi(unsigned rd, unsigned rs1, unsigned imm) {
   return (imm << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP_IMM;
 }
@@ -47,7 +49,7 @@ static unsigned inst_bne(unsigned rs1, unsigned rs2, unsigned offs) {
 }
 
 static unsigned inst_sub(unsigned rd, unsigned rs1, unsigned rs2) {
-  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP | 0x40000000;
+  return (rs2 << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP | ALT_INST;
 }
 
 static unsigned inst_xor(unsigned rd, unsigned rs1, unsigned rs2) {
@@ -71,7 +73,7 @@ static unsigned inst_srli(unsigned rd, unsigned rs1, unsigned shamt) {
 }
 
 static unsigned inst_srai(unsigned rd, unsigned rs1, unsigned shamt) {
-  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | 0x40000000;
+  return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | ALT_INST;
 }
 
 unsigned riscv_decompress(unsigned inst) {
@@ -307,7 +309,7 @@ const char *riscv_get_mnemonic(unsigned inst) {
   unsigned funct5 = (inst >> 27) & 0x0000001f;
   unsigned funct7 = (inst >> 25) & 0x0000007f;
   unsigned rs2 = (inst >> 20) & 0x0000001f;
-  unsigned alternate = (inst & 0x40000000);
+  unsigned alternate = (inst & ALT_INST);
   switch (inst & 0x7f) {
   case OPCODE_OP_IMM:
     switch (funct3) {

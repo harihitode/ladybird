@@ -236,7 +236,12 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->rs1_regno = get_rs1(inst);
     unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = get_immediate(inst);
-    process_alu(get_funct3(inst), src1, src2, 0, result);
+    unsigned funct = get_funct3(inst);
+    if (funct == 0x0) { // SUBI does not exist
+      process_alu(funct, src1, src2, 0, result);
+    } else {
+      process_alu(funct, src1, src2, (inst & 0x40000000), result);
+    }
     break;
   }
   case OPCODE_OP: {
