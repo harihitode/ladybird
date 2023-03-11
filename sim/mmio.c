@@ -11,16 +11,20 @@
 #include <string.h>
 #include <errno.h>
 
+// ns16650a (see `http://byterunner.com/16550.html`)
 #define UART_ADDR_RHR 0
 #define UART_ADDR_THR 0
 #define UART_ADDR_IER 1
 #define UART_IER_ENABLE 0x03
 #define UART_ADDR_FCR 2
 #define UART_FCR_CLEAR (3 << 1)
+#define UART_ADDR_ISR 2
 #define UART_ADDR_LCR 3
 #define UART_LCR_DEFAULT_MODE 3
 #define UART_LCR_SETBAUD_RATE_MODE (1 << 7)
+#define UART_ADDR_MCR 4
 #define UART_ADDR_LSR 5
+#define UART_ADDR_MSR 6
 #define UART_LSR_RX_READY (1 << 0)
 #define UART_LSR_TX_IDLE (1 << 5)
 
@@ -214,6 +218,18 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
     mtx_unlock(&uart->mutex);
     return ret;
   }
+  case UART_ADDR_ISR:
+    return (
+            1 << 7 |
+            1 << 6 |
+            1
+            );
+  case UART_ADDR_IER:
+    return uart->intr_enable;
+  case UART_ADDR_MCR: // Modem Control Register
+    return 0;
+  case UART_ADDR_MSR:
+
   case UART_ADDR_LSR: // Line Status Register
     {
       char ret = UART_LSR_TX_IDLE; // as default tx idle
@@ -223,7 +239,9 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
       return ret;
     }
   default:
+#if 0
     fprintf(stderr, "uart unknown address read: %08x\n", addr);
+#endif
     return 0;
   }
 }
@@ -233,11 +251,7 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_IER:
-    if (value & UART_IER_ENABLE) {
-      uart->intr_enable = 1;
-    } else {
-      uart->intr_enable = 0;
-    }
+    uart->intr_enable = value;
     break;
   case UART_ADDR_FCR:
     if (value & UART_FCR_CLEAR) {
@@ -249,17 +263,22 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
     break;
   case UART_ADDR_THR:
     // TX Register (uart output)
-    if (uart->mode == UART_LCR_DEFAULT_MODE) {
+    if (!(uart->mode & UART_LCR_SETBAUD_RATE_MODE)) {
       if (write(uart->fo, &value, 1) < 0) {
         perror("uart output");
       }
     }
     break;
+  case UART_ADDR_MCR:
+    // not implemented
+    break;
   case UART_ADDR_LCR: // Line Control Register
     uart->mode = value;
     break;
   default:
+#if 0
     fprintf(stderr, "uart unknown address write: %08x <- %08x\n", addr, value);
+#endif
     break;
   }
   return;
