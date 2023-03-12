@@ -67,10 +67,17 @@
     compatible = "ns16550a";
     current-speed = <115200>;
     device_type = "serial";
-    interrupt-parent = <&cpu0_intc>;
-    interrupts = <11 9>;
+    interrupt-parent = <&plic0>;
+    interrupts = <10>;
     reg = <0x10000000 0x1000>;
     reg-shift = <0>;
+  };
+
+  virtio0: virtio@10001000 {
+    compatible = "virtio,mmio";
+    interrupt-parent = <&plic0>;
+    interrupts = <1>;
+    reg = <0x10001000 0x1000>;
   };
 
   htif {
