@@ -5,8 +5,26 @@
   model="harihitode,ladybird";
 
   chosen {
-    bootargs = "console=ttyS0 ro root=/dev/vda";
+    bootargs = "console=ttyS0 rw root=/dev/vda";
     stdout-path = &serial0;
+  };
+
+  virtio0: virtio@10001000 {
+    compatible = "virtio,mmio";
+    interrupt-parent = <&plic0>;
+    interrupts = <1>;
+    reg = <0x10001000 0x1000>;
+  };
+
+  serial0: serial@10000000 {
+    clock-frequency = <0x384000>;
+    compatible = "ns16550a";
+    current-speed = <115200>;
+    device_type = "serial";
+    interrupt-parent = <&plic0>;
+    interrupts = <10>;
+    reg = <0x10000000 0x1000>;
+    reg-shift = <0>;
   };
 
   cpus {
@@ -32,20 +50,20 @@
     };
   };
 
+  plic0: interrupt-controller@c000000 {
+    compatible = "riscv,plic0";
+    #interrupt-cells = <1>;
+    interrupt-controller;
+    interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9>;
+    riscv,ndev=<10>;
+    reg = <0x0c000000 0x02000000>;
+  };
+
   memory0: memory@80000000 {
     device_type = "memory";
     #address-cells = <1>;
     #size-cells = <1>;
     reg = <0x80000000 0x08000000>;
-  };
-
-  plic0: interrupt-controller@c000000 {
-    #interrupt-cells = <1>;
-    compatible = "riscv,plic0";
-    interrupt-controller;
-    interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9>;
-    riscv,ndev=<10>;
-    reg = <0x0c000000 0x02000000>;
   };
 
   mtimer0: mtimer@2000000 {
@@ -55,29 +73,11 @@
   };
 
   mswi0: mswi@2008000 {
-    #interrupt-cells = <1>;
     compatible = "riscv,aclint-mswi";
+    #interrupt-cells = <1>;
     reg = <0x02008000 0x8>;
     interrupts-extended = <&cpu0_intc 3>;
     interrupt-controller;
-  };
-
-  serial0: serial@10000000 {
-    clock-frequency = <100000000>;
-    compatible = "ns16550a";
-    current-speed = <115200>;
-    device_type = "serial";
-    interrupt-parent = <&plic0>;
-    interrupts = <10>;
-    reg = <0x10000000 0x1000>;
-    reg-shift = <0>;
-  };
-
-  virtio0: virtio@10001000 {
-    compatible = "virtio,mmio";
-    interrupt-parent = <&plic0>;
-    interrupts = <1>;
-    reg = <0x10001000 0x1000>;
   };
 
   htif {
