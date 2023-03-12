@@ -21,6 +21,8 @@ struct mmio_t {
   unsigned size;
   char (*readb)(struct mmio_t* unit, unsigned addr);
   void (*writeb)(struct mmio_t* unit, unsigned addr, char value);
+  unsigned (*get_irq)(const struct mmio_t *unit);
+  void (*ack_irq)(struct mmio_t *unit);
 };
 
 typedef struct rom_t {

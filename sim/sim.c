@@ -53,8 +53,8 @@ void sim_init(sim_t *sim) {
   /// platform level interrupt controller
   sim->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(sim->plic);
-  sim->plic->uart = sim->uart;
-  sim->plic->disk = sim->disk;
+  plic_set_peripheral(sim->plic, (struct mmio_t *)sim->uart, PLIC_UART_IRQ_NO);
+  plic_set_peripheral(sim->plic, (struct mmio_t *)sim->disk, PLIC_VIRTIO_MMIO_IRQ_NO);
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC);
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));

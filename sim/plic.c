@@ -1,4 +1,5 @@
 #include "riscv.h"
+#include "sim.h"
 #include "plic.h"
 #include "csr.h"
 #include "mmio.h"
@@ -11,9 +12,10 @@ void plic_init(plic_t *plic) {
   plic->base.size = (1 << 24);
   plic->base.readb = plic_read;
   plic->base.writeb = plic_write;
+  plic->base.get_irq = NULL;
+  plic->base.ack_irq = NULL;
   plic->priorities = (unsigned *)malloc((PLIC_MAX_IRQ + 1) * sizeof(unsigned));
-  plic->uart = NULL;
-  plic->disk = NULL;
+  plic->peripherals = (struct mmio_t **)calloc((PLIC_MAX_IRQ + 1), sizeof(struct mmio_t));
   plic->s_interrupt_enable = 0;
   plic->s_interrupt_threshold = 0;
   plic->s_interrupt_complete = 0;
@@ -51,59 +53,64 @@ void plic_write(struct mmio_t *unit, unsigned addr, char value) {
   unsigned base = addr & 0xFFFFFFFC;
   unsigned woff = addr & 0x00000003;
   unsigned mask = 0x000000FF << (8 * woff);
-  switch (base) {
-  case PLIC_ADDR_UART_PRIORITY:
-    plic->priorities[1] =
-      (plic->priorities[1] & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_DISK_PRIORITY:
-    plic->priorities[10] =
-      (plic->priorities[10] & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_SENABLE:
-    plic->s_interrupt_enable =
-      (plic->s_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_STHRESHOLD:
-    plic->s_interrupt_threshold =
-      (plic->s_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_MENABLE:
-    plic->m_interrupt_enable =
-      (plic->m_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_MTHRESHOLD:
-    plic->m_interrupt_threshold =
-      (plic->m_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
-    break;
-  case PLIC_ADDR_SCOMPLETE:
-    plic->s_interrupt_complete =
-      (plic->s_interrupt_complete & (~mask)) | ((unsigned char)value << (8 * woff));
-    if (woff == 0 && plic->s_interrupt_complete) {
-      unsigned irq = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
-      if (irq == 1) {
-        disk_irq_ack(plic->disk);
-      } else if (irq == 10) {
-        uart_irq_ack(plic->uart);
+  if (base >= PLIC_ADDR_IRQ_PRIORITY(0) && base <= PLIC_ADDR_IRQ_PRIORITY(PLIC_MAX_IRQ)) {
+    unsigned irqno = ((base & 0x1fff) >> 2);
+    plic->priorities[irqno] =
+      (plic->priorities[irqno] & (~mask)) | ((unsigned char)value << (8 * woff));
+  } else {
+    switch (base) {
+    case PLIC_ADDR_SENABLE:
+      plic->s_interrupt_enable =
+        (plic->s_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
+      break;
+    case PLIC_ADDR_STHRESHOLD:
+      plic->s_interrupt_threshold =
+        (plic->s_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
+      break;
+    case PLIC_ADDR_MENABLE:
+      plic->m_interrupt_enable =
+        (plic->m_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
+      break;
+    case PLIC_ADDR_MTHRESHOLD:
+      plic->m_interrupt_threshold =
+        (plic->m_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
+      break;
+    case PLIC_ADDR_SCOMPLETE:
+      plic->s_interrupt_complete =
+        (plic->s_interrupt_complete & (~mask)) | ((unsigned char)value << (8 * woff));
+      if (woff == 0 && plic->s_interrupt_complete) {
+        unsigned irqno = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
+        if (plic->peripherals[irqno] && plic->peripherals[irqno]->ack_irq) {
+          plic->peripherals[irqno]->ack_irq(plic->peripherals[irqno]);
+        }
       }
-    }
-    break;
-  default:
+      break;
+    default:
 #if 0
-    fprintf(stderr, "PLIC: unknown addr write: %08x, %08x\n", addr, value);
+      fprintf(stderr, "PLIC: unknown addr write: %08x, %08x\n", addr, value);
 #endif
-    break;
+      break;
+    }
   }
   return;
 }
 
-// TODO: more cool way for arbitrary irq
+void plic_set_peripheral(plic_t *plic, struct mmio_t *mmio, unsigned irqno) {
+  if (irqno <= PLIC_MAX_IRQ) {
+    plic->peripherals[irqno] = mmio;
+  }
+}
+
 unsigned plic_get_interrupt(plic_t *plic, unsigned context) {
-  unsigned enable = (context == 0) ? plic->m_interrupt_enable : plic->s_interrupt_enable;
-  unsigned threshold = (context == 0) ? plic->m_interrupt_threshold : plic->s_interrupt_threshold;
-  unsigned irq1 = disk_irq(plic->disk);
-  unsigned irq10 = uart_irq(plic->uart);
-  unsigned pending = (irq10 << 10) | (irq1 << 1);
+  unsigned enable = (context == PLIC_MACHINE_CONTEXT) ? plic->m_interrupt_enable : plic->s_interrupt_enable;
+  unsigned threshold = (context == PLIC_MACHINE_CONTEXT) ? plic->m_interrupt_threshold : plic->s_interrupt_threshold;
+  unsigned pending = 0;
+  for (unsigned i = 1; i <= PLIC_MAX_IRQ; i++) {
+    if (plic->peripherals[i] && plic->peripherals[i]->get_irq &&
+        plic->peripherals[i]->get_irq(plic->peripherals[i])) {
+      pending = pending | (1 << i);
+    }
+  }
   unsigned irq_id = 0;
   for (unsigned i = 1; i <= PLIC_MAX_IRQ; i++) {
     if ((((enable & pending) >> i) & 0x00000001) && (plic->priorities[i] > threshold)) {
@@ -124,6 +131,8 @@ void aclint_init(aclint_t *aclint) {
   aclint->base.size = (1 << 16);
   aclint->base.readb = aclint_read;
   aclint->base.writeb = aclint_write;
+  aclint->base.get_irq = NULL;
+  aclint->base.ack_irq = NULL;
   aclint->csr = NULL;
 }
 

@@ -146,6 +146,8 @@ void uart_init(uart_t *uart) {
   uart->base.size = 4096;
   uart->base.readb = uart_read;
   uart->base.writeb = uart_write;
+  uart->base.get_irq = uart_irq;
+  uart->base.ack_irq = uart_irq_ack;
   uart->mode = UART_LCR_DEFAULT_MODE;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
   uart->intr_enable = 0;
@@ -229,7 +231,7 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
   case UART_ADDR_MCR: // Modem Control Register
     return 0;
   case UART_ADDR_MSR:
-
+    return 0;
   case UART_ADDR_LSR: // Line Status Register
     {
       char ret = UART_LSR_TX_IDLE; // as default tx idle
@@ -284,7 +286,8 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
   return;
 }
 
-unsigned uart_irq(const uart_t *uart) {
+unsigned uart_irq(const struct mmio_t *mmio) {
+  const struct uart_t *uart = (const struct uart_t *)mmio;
   if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
     return 1;
   } else {
@@ -292,7 +295,7 @@ unsigned uart_irq(const uart_t *uart) {
   }
 }
 
-void uart_irq_ack(uart_t *uart) {
+void uart_irq_ack(struct mmio_t *mmio) {
   return;
 }
 
@@ -312,6 +315,8 @@ void disk_init(disk_t *disk) {
   disk->base.size = 4096;
   disk->base.readb = disk_read;
   disk->base.writeb = disk_write;
+  disk->base.get_irq = disk_irq;
+  disk->base.ack_irq = disk_irq_ack;
   disk->mem = NULL;
   disk->rom = (rom_t *)calloc(1, sizeof(rom_t));
   rom_init(disk->rom);
@@ -321,6 +326,7 @@ void disk_init(disk_t *disk) {
   disk->queue_ppn = 0;
   disk->page_size = 0;
   disk->page_size_mask = 0;
+  disk->status = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
@@ -328,6 +334,7 @@ int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
   return 0;
 }
 
+// virtio-mmio (see https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html)
 #define VIRTIO_MMIO_MAGIC_VALUE 0x000
 #define VIRTIO_MMIO_VERSION 0x004
 #define VIRTIO_MMIO_DEVICE_ID 0x008
@@ -355,6 +362,7 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   char ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned offs = addr & 0x00000003;
+  struct disk_t *disk = (struct disk_t *)unit;
   switch (base) {
   case VIRTIO_MMIO_MAGIC_VALUE:
     ret = (virtio_mmio_magic >> (8 * offs)) & 0x000000FF;
@@ -377,9 +385,14 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   case VIRTIO_MMIO_INTERRUPT_STATUS:
     // TODO
     break;
+  case VIRTIO_MMIO_STATUS:
+    ret = (disk->status >> 8 * offs) & 0x000000FF;
+    break;
   default:
     ret = 0;
-    fprintf(stderr, "mmio (disk): unknown addr read: %08x\n", addr);
+#if 1
+    fprintf(stderr, "virtio-mmio (disk): unknown addr read: %08x\n", addr);
+#endif
     break;
   }
   return ret;
@@ -420,7 +433,9 @@ typedef struct {
 } virtq_used;
 
 #define VIRTQ_DESC_F_NEXT 1 // exits next queue
-#define VIRTQ_DESC_F_WRITE 2 // mmio writes to the descriptor
+#define VIRTQ_DESC_F_WRITE 2 // the descriptor is writable by device
+#define VIRTQ_DESC_F_AVAIL (1 << 7)
+#define VIRTQ_DESC_F_USED (1 << 15)
 
 #define VIRTIO_BLK_T_IN  0 // read the disk
 #define VIRTIO_BLK_T_OUT 1 // write the disk
@@ -460,7 +475,7 @@ static void disk_process_queue(disk_t *disk) {
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
       req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
 #if VIRTQ_DEBUG
-      fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
+      fprintf(stderr, "REQ: %s, (req->reserved) = %08x  (req_sector) = %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
     } else if (i == VIRTQ_STAGE_RW_SECTOR) {
       if (disk->rom->data == NULL) {
@@ -550,6 +565,8 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
     break;
   case VIRTIO_MMIO_STATUS:
     // [TODO] we will finally be ready written by 0x0000000F to STATUS
+    disk->status =
+      (disk->status & (~mask)) | ((unsigned char)value << (8 * offs));
     break;
   case VIRTIO_MMIO_INTERRUPT_ACK:
     // TODO
@@ -561,11 +578,13 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
   return;
 }
 
-unsigned disk_irq(const disk_t *disk) {
+unsigned disk_irq(const struct mmio_t *mmio) {
+  const disk_t *disk = (const disk_t *)mmio;
   return disk->queue_notify;
 }
 
-void disk_irq_ack(disk_t *disk) {
+void disk_irq_ack(struct mmio_t *mmio) {
+  disk_t *disk = (disk_t *)mmio;
   disk->queue_notify = 0;
 }
 
