@@ -35,10 +35,10 @@ rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 xv6: launch_sim
-	./$^ $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
+	./$< $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
 
-linux: launch_sim
-	./$^ $(LINUXKRNL) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
+linux: launch_sim ladybird.dtb
+	./$< $(LINUXKRNL) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
 
 $(POJBS): sim.h
 
