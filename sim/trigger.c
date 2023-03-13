@@ -34,6 +34,7 @@ unsigned trig_get_tdata(const trigger_t *trig, unsigned index, unsigned no) {
                 (elem->dmode << CSR_TDATA1_DMODE_FIELD) |
                 (elem->vs << 24) |
                 (elem->vu << 23) |
+                (elem->hit << 22) |
                 (elem->select << 21) |
                 (elem->timing << 20) |
                 (elem->action << 12) |
@@ -46,6 +47,7 @@ unsigned trig_get_tdata(const trigger_t *trig, unsigned index, unsigned no) {
                 (elem->dmode << CSR_TDATA1_DMODE_FIELD) |
                 (elem->vs << 26) |
                 (elem->vu << 25) |
+                (elem->hit << 22) |
                 ((elem->count & 0x03fff) << 10) |
                 (elem->m << 9) |
                 (elem->pending << 8) |
@@ -118,12 +120,11 @@ unsigned trig_info(const trigger_t *trig, unsigned index) {
 
 static unsigned trig_match6_fire(struct trigger_elem *elem, const struct core_step_result *result) {
   if ((elem->access & CSR_MATCH6_EXECUTE) && (elem->data2 == result->pc)) {
-    return 1;
+    elem->hit = 1;
   } else if ((elem->access & result->m_access) && (elem->data2 == result->m_vaddr)) {
-    return 1;
-  } else {
-    return 0;
+    elem->hit = 1;
   }
+  return elem->hit;
 }
 
 static unsigned trig_icount_fire(struct trigger_elem *elem, const struct core_step_result *result) {
@@ -132,6 +133,7 @@ static unsigned trig_icount_fire(struct trigger_elem *elem, const struct core_st
     return 0;
   } else if (elem->count == 1) {
     elem->count--;
+    elem->hit = 1; // TODO: timing
     elem->pending = 1;
     return 1;
   } else {

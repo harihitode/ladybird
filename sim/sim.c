@@ -10,6 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_DBG_HANDLER 10
+
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
@@ -24,9 +26,9 @@ void sim_init(sim_t *sim) {
   sim->core->mem = sim->mem;
   sim->core->csr = sim->csr;
   /// for riscv config string ROM
-  sim->config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
-  *(unsigned *)(sim->config_rom + 0x0c) = 0x00001020;
-  sprintf(&sim->config_rom[32],
+  char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
+  *(unsigned *)(config_rom + 0x0c) = 0x00001020;
+  sprintf(&config_rom[32],
           "platform { vendor %s; arch %s; };\n"
           "rtc { addr %08x; };\n"
           "ram { 0 { addr %08x; size %08x; }; };\n"
@@ -35,7 +37,9 @@ void sim_init(sim_t *sim) {
           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
           EXTENSION_STR,
           ACLINT_MTIMER_MTIMECMP_BASE, ACLINT_SSWI_BASE); // [TODO?] MSWI_BASE?
-  memory_set_rom(sim->mem, sim->config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE);
+  memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
+  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+  free(config_rom);
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
@@ -49,8 +53,8 @@ void sim_init(sim_t *sim) {
   /// platform level interrupt controller
   sim->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(sim->plic);
-  sim->plic->uart = sim->uart;
-  sim->plic->disk = sim->disk;
+  plic_set_peripheral(sim->plic, (struct mmio_t *)sim->uart, PLIC_UART_IRQ_NO);
+  plic_set_peripheral(sim->plic, (struct mmio_t *)sim->disk, PLIC_VIRTIO_MMIO_IRQ_NO);
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC);
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
@@ -83,9 +87,11 @@ void sim_init(sim_t *sim) {
     sim->reginfo[i] = buf;
   }
   sprintf(sim->triple, "%s", TARGET_TRIPLE);
-  sim->dbg_handler = NULL;
+  sim->dbg_handler = (void (**)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned))calloc(MAX_DBG_HANDLER, sizeof(void (*)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned)));
   sim->stp_handler = NULL;
   sim->state = running;
+  sim->htif_tohost = 0;
+  sim->htif_fromhost = 0;
   return;
 }
 
@@ -141,12 +147,18 @@ void sim_fini(sim_t *sim) {
     free(sim->reginfo[i]);
   }
   free(sim->reginfo);
-  free(sim->config_rom);
+  free(sim->dbg_handler);
   return;
 }
 
-void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *)) {
-  sim->dbg_handler = callback;
+void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned)) {
+  for (unsigned i = 0; i < MAX_DBG_HANDLER; i++) {
+    if (sim->dbg_handler[i] == NULL) {
+      sim->dbg_handler[i] = callback;
+      return;
+    }
+  }
+  fprintf(stderr, "exceeds debug handler\n");
   return;
 }
 
@@ -167,7 +179,36 @@ void sim_resume(sim_t *sim) {
     trig_cycle(sim->trigger, &result);
     csr_cycle(sim->csr, &result);
   }
-  if (sim->dbg_handler) sim->dbg_handler(sim);
+
+  // fire debug handlers
+  unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);
+  unsigned cause = (dcsr >> 6) & 0x7;
+  if (cause != CSR_DCSR_CAUSE_NONE) {
+    unsigned trigger_type = 0;
+    unsigned tdata1 = 0;
+    unsigned tdata2 = 0;
+    unsigned tdata3 = 0;
+    dcsr |= CSR_DCSR_MPRV_EN;
+    // [M mode] access to MMU -> ON
+    sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
+    if (cause == CSR_DCSR_CAUSE_TRIGGER) {
+      int trigger_index = sim_get_trigger_fired(sim);
+      if (trigger_index >= 0) {
+        sim_write_csr(sim, CSR_ADDR_T_SELECT, trigger_index);
+        tdata1 = sim_read_csr(sim, CSR_ADDR_T_DATA1);
+        tdata2 = sim_read_csr(sim, CSR_ADDR_T_DATA2);
+        tdata3 = sim_read_csr(sim, CSR_ADDR_T_DATA3);
+        trigger_type = sim_get_trigger_type(tdata1);
+      }
+      sim_rst_trigger_hit(sim);
+    }
+    for (unsigned i = 0; i < MAX_DBG_HANDLER; i++) {
+      if (sim->dbg_handler[i]) sim->dbg_handler[i](sim, cause, trigger_type, tdata1, tdata2, tdata3);
+    }
+    // [M mode] access to MMU -> OFF
+    dcsr &= ~CSR_DCSR_MPRV_EN;
+    sim_write_csr(sim, CSR_ADDR_D_CSR, dcsr);
+  }
   return;
 }
 
@@ -271,16 +312,18 @@ int sim_virtio_disk(sim_t *sim, const char *img_path, int mode) {
 }
 
 int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
-  uart_set_io(sim->uart, in_path, out_path);
+  if (in_path != NULL || out_path != NULL) {
+    uart_set_io(sim->uart, in_path, out_path);
+  }
   return 0;
 }
 
 unsigned sim_read_csr(sim_t *sim, unsigned addr) {
-  return csr_csrr(sim->csr, addr);
+  return csr_csrr(sim->csr, addr, NULL);
 }
 
 void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
-  csr_csrw(sim->csr, addr, value);
+  csr_csrw(sim->csr, addr, value, NULL);
 }
 
 void sim_debug_dump_status(sim_t *sim) {
@@ -302,15 +345,36 @@ void sim_debug_dump_status(sim_t *sim) {
     fprintf(stderr, "unknown: %d\n", sim->csr->mode);
     break;
   }
-  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS));
-  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP));
-  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE));
-  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP));
-  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE));
+  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS, NULL));
+  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP, NULL));
+  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE, NULL));
+  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP, NULL));
+  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE, NULL));
   fprintf(stderr, "Instruction Count: %llu\n", sim->csr->instret);
   fprintf(stderr, "ICACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->icache->hit_count / sim->mem->icache->access_count, sim->mem->icache->hit_count, sim->mem->icache->access_count);
   fprintf(stderr, "DCACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->dcache->hit_count / sim->mem->dcache->access_count, sim->mem->dcache->hit_count, sim->mem->dcache->access_count);
   fprintf(stderr, "TLB: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->tlb->hit_count / sim->mem->tlb->access_count, sim->mem->tlb->hit_count, sim->mem->tlb->access_count);
+}
+
+int sim_get_trigger_fired(const sim_t *sim) {
+  int size = trig_size(sim->trigger);
+  for (int i = 0; i < size; i++) {
+    if (sim->trigger->elem[i]->hit) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void sim_rst_trigger_hit(sim_t *sim) {
+  int size = trig_size(sim->trigger);
+  for (int i = 0; i < size; i++) {
+    sim->trigger->elem[i]->hit = 0;
+  }
+}
+
+unsigned sim_get_trigger_type(unsigned tdata1) {
+  return ((tdata1 >> 28) & 0x0f);
 }
 
 unsigned sim_match6(unsigned select, unsigned timing, unsigned access) {

@@ -9,7 +9,6 @@
 #define CORE_MA_LOAD (CSR_MATCH6_LOAD)
 #define CORE_MA_STORE (CSR_MATCH6_STORE)
 #define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
-#define CORE_WINDOW_SIZE 8
 
 void core_init(core_t *core) {
   // clear gpr
@@ -111,16 +110,32 @@ void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_st
     result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
     break;
   case 0x4: // DIV
-    result->rd_data = (int)src1 / (int)src2;
+    if (src2 == 0) {
+      result->rd_data = -1;
+    } else {
+      result->rd_data = (int)src1 / (int)src2;
+    }
     break;
   case 0x5: // DIVU
-    result->rd_data = (unsigned)src1 / (unsigned)src2;
+    if (src2 == 0) {
+      result->rd_data = 0xffffffff;
+    } else {
+      result->rd_data = (unsigned)src1 / (unsigned)src2;
+    }
     break;
   case 0x6: // REM
-    result->rd_data = (int)src1 % (int)src2;
+    if (src2 == 0) {
+      result->rd_data = src1;
+    } else {
+      result->rd_data = (int)src1 % (int)src2;
+    }
     break;
   case 0x7: // REMU
-    result->rd_data = (unsigned)src1 % (unsigned)src2;
+    if (src2 == 0) {
+      result->rd_data = src1;
+    } else {
+      result->rd_data = (unsigned)src1 % (unsigned)src2;
+    }
     break;
   }
 }
@@ -209,12 +224,16 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->cycle = core->csr->cycle;
   result->prv = prv;
   result->pc_next = pc;
+  result->flush = 0;
   // instruction fetch & decode
   unsigned inst;
   unsigned pc_next;
   unsigned opcode;
-  int window_index = 0;
-  window_index = core_fetch_instruction(core, pc, result, prv);
+#ifdef REGISTER_ACCESS_STATS
+  int window_index = core_fetch_instruction(core, pc, result, prv);
+#else
+  core_fetch_instruction(core, pc, result, prv);
+#endif
   if (result->exception_code != 0) {
     return;
   }
@@ -233,7 +252,12 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->rs1_regno = get_rs1(inst);
     unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = get_immediate(inst);
-    process_alu(get_funct3(inst), src1, src2, 0, result);
+    unsigned funct = get_funct3(inst);
+    if (funct == 0x0) { // SUBI does not exist
+      process_alu(funct, src1, src2, 0, result);
+    } else {
+      process_alu(funct, src1, src2, (inst & 0x40000000), result);
+    }
     break;
   }
   case OPCODE_OP: {
@@ -391,27 +415,27 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     switch (get_funct3(inst)) {
     case 0x1: // READ_WRITE
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x2: // READ_SET
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x3: // READ_CLEAR
       result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno]);
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x4: // Hypervisor Extension
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x6: // READ_SET (imm)
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x7: // READ_CLEAR (imm)
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst));
+      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
       switch (get_funct12(inst)) {
@@ -437,6 +461,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       default:
         if (get_funct7(inst) == 0x09) {
           // SFENCE.VMA
+          memory_icache_invalidate(core->mem);
+          memory_dcache_write_back(core->mem);
           memory_tlb_clear(core->mem);
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -491,8 +517,14 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     core->gpr[result->rd_regno] = result->rd_data;
   }
   result->pc_next = pc_next;
+  if (result->flush) {
+    core_window_flush(core);
+    memory_tlb_clear(core->mem);
+    memory_icache_invalidate(core->mem);
+    memory_dcache_invalidate(core->mem);
+  }
 
-  // for debug
+#ifdef REGISTER_ACCESS_STATS
   result->rs1_read_skip = 0;
   result->rs2_read_skip = 0;
   result->rd_write_skip = 0;
@@ -534,6 +566,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       }
     }
   }
+#endif
   return;
 }
 

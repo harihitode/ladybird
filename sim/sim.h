@@ -9,12 +9,15 @@
 #define MEMORY_BASE_ADDR_ACLINT 0x02000000
 #define MEMORY_BASE_ADDR_PLIC   0x0c000000
 #define MEMORY_BASE_ADDR_RAM    0x80000000
-// 128GiB, 4KiB page RAM
+// 128MiB, 4KiB page RAM
 #define RAM_SIZE (128 * 1024 * 1024)
 #define RAM_PAGE_SIZE (4 * 1024)
 
 // debug address
-#define CONFIG_ROM_ADDR 0x00001000
+#define DEVTREE_BLOB_FILE "./ladybird.dtb"
+#define DEVTREE_ROM_ADDR 0x00001020
+#define DEVTREE_ROM_SIZE 2048
+#define CONFIG_ROM_ADDR 0x00002000
 #define CONFIG_ROM_SIZE 1024
 
 // advanced core local interrupt map
@@ -23,6 +26,16 @@
 #define ACLINT_MSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00008000)
 #define ACLINT_SSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x0000c000)
 
+// IRQ
+#define PLIC_MAX_IRQ 10
+#define PLIC_MACHINE_CONTEXT 0
+#define PLIC_SUPERVISOR_CONTEXT 1
+#define PLIC_VIRTIO_MMIO_IRQ_NO 1
+#define PLIC_UART_IRQ_NO 10
+
+#define CORE_WINDOW_SIZE 16
+// #define REGISTER_ACCESS_STATS
+
 enum sim_state { running, quit };
 
 struct core_step_result {
@@ -30,6 +43,7 @@ struct core_step_result {
   unsigned long long cycle;
   unsigned pc;
   unsigned inst;
+  unsigned flush;
   unsigned rd_regno;
   unsigned rd_write_skip;
   unsigned rd_data;
@@ -57,12 +71,13 @@ typedef struct sim_t {
   struct disk_t *disk;
   struct plic_t *plic;
   struct aclint_t *aclint;
+  unsigned htif_tohost;
+  unsigned htif_fromhost;
   // for debugger
   unsigned dbg_mode;
   char **reginfo;  // register information
   char triple[64]; // triple information
-  char *config_rom;
-  void (*dbg_handler)(struct sim_t *);
+  void (**dbg_handler)(struct sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned);
   void (*stp_handler)(struct core_step_result *);
 } sim_t;
 
@@ -93,11 +108,14 @@ int sim_virtio_disk(sim_t *, const char *img_path, int mode);
 // set character device I/O
 int sim_uart_io(sim_t *, const char *in_path, const char *out_path);
 // debugger helper to tdata
+int sim_get_trigger_fired(const sim_t *);
+void sim_rst_trigger_hit(sim_t *);
+unsigned sim_get_trigger_type(unsigned tdata1);
 unsigned sim_match6(unsigned select, unsigned access, unsigned timing);
 unsigned sim_icount(unsigned count);
 
 // set callback function on entering debug mode
-void sim_set_debug_callback(sim_t *, void (*func)(sim_t *sim));
+void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned));
 // set callback function on every step
 void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result));
 

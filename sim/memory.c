@@ -8,7 +8,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
+#define SUPPORT_MEGAPAGE
 #define MAX_MMIO 8
 
 void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned ram_block_size) {
@@ -39,7 +43,7 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   return mem->ram_block[bid];
 }
 
-void memory_set_rom(memory_t *mem, char *rom_ptr, unsigned base, unsigned size) {
+void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned size, unsigned type) {
   struct rom_t *new_rom;
   if (!mem->rom_list) {
     mem->rom_list = (struct rom_t *)calloc(1, sizeof(struct rom_t));
@@ -51,7 +55,11 @@ void memory_set_rom(memory_t *mem, char *rom_ptr, unsigned base, unsigned size) 
   }
   new_rom->base = base;
   new_rom->size = size;
-  new_rom->rom = rom_ptr;
+  if (type == MEMORY_ROM_TYPE_DEFAULT) {
+    rom_str(new_rom, rom_ptr);
+  } else {
+    rom_mmap(new_rom, rom_ptr, 1); // 1: read only
+  }
   new_rom->next = NULL;
   return;
 }
@@ -113,7 +121,11 @@ unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *pad
     *paddr = vaddr;
     return 0;
   } else {
-    return tlb_get(mem->tlb, vaddr, paddr, access_type, prv);
+    unsigned code = tlb_get(mem->tlb, vaddr, paddr, access_type, prv);
+#if 0
+    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
+#endif
+    return code;
   }
 }
 
@@ -155,7 +167,7 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
       }
       if (rom) {
         for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & rom->rom[paddr + i - rom->base]) << (8 * i));
+          *value |= ((0x000000ff & rom->data[paddr + i - rom->base]) << (8 * i));
         }
         found = 1;
       }
@@ -313,7 +325,14 @@ void memory_icache_invalidate(memory_t *mem) {
   }
 }
 
-void memory_dcache_invalidate(memory_t *mem, unsigned paddr) {
+void memory_dcache_invalidate(memory_t *mem) {
+  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
+    cache_write_back(mem->dcache, i);
+    mem->dcache->line[i].valid = 0;
+  }
+}
+
+void memory_dcache_invalidate_line(memory_t *mem, unsigned paddr) {
   for (unsigned i = 0; i < mem->dcache->line_size; i++) {
     if (mem->dcache->line[i].valid && mem->dcache->line[i].tag == (paddr & mem->dcache->tag_mask)) {
       mem->dcache->line[i].valid = 0;
@@ -411,6 +430,7 @@ void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
 void tlb_clear(tlb_t *tlb) {
   for (unsigned i = 0; i < tlb->line_size; i++) {
     tlb->line[i].valid = 0;
+    tlb->line[i].megapage = 0;
   }
 }
 
@@ -418,19 +438,93 @@ void tlb_fini(tlb_t *tlb) {
   free(tlb->line);
 }
 
-static int tlb_check_privilege(tlb_t *tlb, unsigned pte, unsigned level, unsigned access_type, unsigned prv) {
+static int page_check_leaf(unsigned pte) {
+  if (pte & (PTE_X | PTE_W | PTE_R)) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+static int page_check_privilege(unsigned pte, unsigned access_type, unsigned prv) {
   int protect = (pte & PTE_V);
   // check protect
-  if (level > 0) {
-    // TODO: super page: currently level 1 should not be a leaf page table
-    protect = (protect && (!(pte & PTE_R) && !(pte & PTE_W)));
-  } else {
-    // level 0 should be leaf page table
+  if (page_check_leaf(pte)) {
     if (prv == PRIVILEGE_MODE_U)
       protect = (protect && (pte & PTE_U));
     protect = (protect && (pte & access_type));
+  } else {
+    protect &= 1;
   }
   return protect;
+}
+
+#define PAGE_SUCCESS 0
+#define PAGE_ACCESS_ERROR 1
+#define PAGE_PRIVILEGE_ERROR 2
+#define PAGE_NOTMEGAPAGE 3
+
+#ifdef SUPPORT_MEGAPAGE
+static unsigned megapage_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
+  unsigned pte_offs = ((vaddr >> 22) & 0x000003ff) << 2; // word offset
+  unsigned pte_addr = pte_base + pte_offs;
+  unsigned entry = 0;
+  if (pte_addr >= mem->ram_base && (pte_addr < mem->ram_base + mem->ram_size)) {
+    entry = memory_ram_load(mem, pte_addr, 4, mem->dcache);
+  }
+  if (page_check_leaf(entry) && page_check_privilege(entry, access_type, prv)) {
+    *pte = entry;
+    return PAGE_SUCCESS;
+  } else {
+    return PAGE_NOTMEGAPAGE;
+  }
+}
+#endif
+
+static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
+  unsigned access_fault = 0;
+  unsigned protect_fault = 0;
+  unsigned current_pte = 0;
+  for (int i = 1; i >= 0; i--) {
+    unsigned pte_offs = ((vaddr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
+    unsigned pte_addr = pte_base + pte_offs;
+    if (pte_addr < mem->ram_base || (pte_addr > mem->ram_base + mem->ram_size)) {
+#if 0
+      fprintf(stderr, "access fault pte%d: addr: %08x, offs: %08x\n", i, pte_addr, pte_offs);
+#endif
+      access_fault = 1;
+      break;
+    }
+    current_pte = memory_ram_load(mem, pte_addr, 4, mem->dcache); // [TODO?] not to use dcache
+    if (i == 0) {
+      if (page_check_leaf(current_pte) && page_check_privilege(current_pte, access_type, prv)) {
+        protect_fault = 0;
+      } else {
+        protect_fault = 1;
+      }
+    } else {
+      if (page_check_privilege(current_pte, access_type, prv)) {
+        protect_fault = 0;
+      } else {
+        protect_fault = 1;
+      }
+    }
+    if (protect_fault) {
+#if 0
+      fprintf(stderr, "TLB privilege error (PTE_ADDR: %08x, PTE: %08x, current privilege: %u)\n", pte_addr, current_pte, prv);
+#endif
+      break;
+    }
+    pte_base = ((current_pte >> 10) << 12);
+  }
+  *pte = current_pte;
+  if (access_fault) {
+    return PAGE_ACCESS_ERROR;
+  } else if (protect_fault) {
+    return PAGE_PRIVILEGE_ERROR;
+  } else {
+    return PAGE_SUCCESS;
+  }
 }
 
 unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
@@ -444,8 +538,12 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
   if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {
     tlb->hit_count++;
     pte = tlb->line[index].value;
-    if (tlb_check_privilege(tlb, pte, 0, access_type, prv)) {
-      *paddr = ((pte & 0xfffffc00) << 2) | (vaddr & 0x00000fff);
+    if (page_check_privilege(pte, access_type, prv)) {
+      if (tlb->line[index].megapage) {
+        *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
+      } else {
+        *paddr = ((pte & 0xfffffc00) << 2) | (vaddr & 0x00000fff);
+      }
     } else {
       switch (access_type) {
       case ACCESS_TYPE_INSTRUCTION:
@@ -461,62 +559,94 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     }
   } else {
     // hardware page walking
-    // level 1
     unsigned pte_base = tlb->mem->vmrppn;
-    int protect = 0;
-    int access_fault = 0;
-    for (int i = 1; i >= 0; i--) {
-      unsigned pte_offs = ((vaddr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
-      unsigned pte_addr = pte_base + pte_offs;
-      if (pte_addr < tlb->mem->ram_base || (pte_addr > tlb->mem->ram_base + tlb->mem->ram_size)) {
+    unsigned pw_result = PAGE_SUCCESS;
+    unsigned pw_megapage = 0;
 #if 0
-        fprintf(stderr, "access fault pte%d: %08x, addr: %08x\n", i, pte1_addr, addr);
+    fprintf(stderr, "HW page walking for addr: %08x, pte_base: %08x\n", vaddr, pte_base);
 #endif
-        access_fault = 1;
-        break;
-      }
-      // [TODO?] not to use dcache
-      pte = memory_ram_load(tlb->mem, pte_addr, 4, tlb->mem->dcache);
-      protect = tlb_check_privilege(tlb, pte, i, access_type, prv);
-      if (!protect) {
-        break;
-      }
-      pte_base = ((pte >> 10) << 12);
-    }
 
-    if (protect && !access_fault) {
+#ifdef SUPPORT_MEGAPAGE
+    pw_result = megapage_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+    if (pw_result == PAGE_SUCCESS) {
+      *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
+      pw_megapage = 1;
+    } else {
+      pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+      *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+    }
+#else
+    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+    *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+#endif
+    if (pw_result == PAGE_SUCCESS) {
       // register to TLB
       tlb->line[index].valid = 1;
       tlb->line[index].tag = tag;
       tlb->line[index].value = pte;
-      *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
+      tlb->line[index].megapage = pw_megapage;
+    } else if (pw_result == PAGE_ACCESS_ERROR) {
+      switch (access_type) {
+      case ACCESS_TYPE_INSTRUCTION:
+        exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
+        break;
+      case ACCESS_TYPE_LOAD:
+        exception = TRAP_CODE_LOAD_ACCESS_FAULT;
+        break;
+      default:
+        exception = TRAP_CODE_STORE_ACCESS_FAULT;
+        break;
+      }
     } else {
-      if (access_fault) {
-        switch (access_type) {
-        case ACCESS_TYPE_INSTRUCTION:
-          exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
-          break;
-        case ACCESS_TYPE_LOAD:
-          exception = TRAP_CODE_LOAD_ACCESS_FAULT;
-          break;
-        default:
-          exception = TRAP_CODE_STORE_ACCESS_FAULT;
-          break;
-        }
-      } else {
-        switch (access_type) {
-        case ACCESS_TYPE_INSTRUCTION:
-          exception = TRAP_CODE_INSTRUCTION_PAGE_FAULT;
-          break;
-        case ACCESS_TYPE_LOAD:
-          exception = TRAP_CODE_LOAD_PAGE_FAULT;
-          break;
-        default:
-          exception = TRAP_CODE_STORE_PAGE_FAULT;
-          break;
-        }
+      switch (access_type) {
+      case ACCESS_TYPE_INSTRUCTION:
+        exception = TRAP_CODE_INSTRUCTION_PAGE_FAULT;
+        break;
+      case ACCESS_TYPE_LOAD:
+        exception = TRAP_CODE_LOAD_PAGE_FAULT;
+        break;
+      default:
+        exception = TRAP_CODE_STORE_PAGE_FAULT;
+        break;
       }
     }
   }
   return exception;
+}
+
+void rom_init(rom_t *rom) {
+  rom->rom_type = MEMORY_ROM_TYPE_DEFAULT;
+  rom->data = NULL;
+}
+
+void rom_str(rom_t *rom, const char *str) {
+  rom->rom_type = MEMORY_ROM_TYPE_DEFAULT;
+  rom->data = (char *)calloc(strlen(str) + 1, sizeof(char));
+  strcpy(rom->data, str);
+}
+
+void rom_mmap(rom_t *rom, const char *img_path, int rom_mode) {
+  int fd = 0;
+  int open_flag = (rom_mode == 1) ? O_RDONLY : O_RDWR;
+  int mmap_flag = (rom_mode == 1) ? MAP_PRIVATE : MAP_SHARED;
+  if ((fd = open(img_path, open_flag)) == -1) {
+    perror("rom file open");
+    return;
+  }
+  stat(img_path, &rom->file_stat);
+  rom->data = (char *)mmap(NULL, rom->file_stat.st_size, PROT_WRITE, mmap_flag, fd, 0);
+  if (rom->data == MAP_FAILED) {
+    perror("rom mmap");
+    close(fd);
+    return;
+  }
+  rom->rom_type = MEMORY_ROM_TYPE_MMAP;
+}
+
+void rom_fini(rom_t *rom) {
+  if (rom->rom_type == MEMORY_ROM_TYPE_MMAP && rom->data) {
+    munmap(rom->data, rom->file_stat.st_size);
+  } else {
+    free(rom->data);
+  }
 }

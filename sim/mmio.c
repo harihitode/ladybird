@@ -11,16 +11,20 @@
 #include <string.h>
 #include <errno.h>
 
+// ns16650a (see `http://byterunner.com/16550.html`)
 #define UART_ADDR_RHR 0
 #define UART_ADDR_THR 0
 #define UART_ADDR_IER 1
 #define UART_IER_ENABLE 0x03
 #define UART_ADDR_FCR 2
 #define UART_FCR_CLEAR (3 << 1)
+#define UART_ADDR_ISR 2
 #define UART_ADDR_LCR 3
 #define UART_LCR_DEFAULT_MODE 3
 #define UART_LCR_SETBAUD_RATE_MODE (1 << 7)
+#define UART_ADDR_MCR 4
 #define UART_ADDR_LSR 5
+#define UART_ADDR_MSR 6
 #define UART_LSR_RX_READY (1 << 0)
 #define UART_LSR_TX_IDLE (1 << 5)
 
@@ -142,6 +146,8 @@ void uart_init(uart_t *uart) {
   uart->base.size = 4096;
   uart->base.readb = uart_read;
   uart->base.writeb = uart_write;
+  uart->base.get_irq = uart_irq;
+  uart->base.ack_irq = uart_irq_ack;
   uart->mode = UART_LCR_DEFAULT_MODE;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
   uart->intr_enable = 0;
@@ -214,6 +220,18 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
     mtx_unlock(&uart->mutex);
     return ret;
   }
+  case UART_ADDR_ISR:
+    return (
+            1 << 7 |
+            1 << 6 |
+            1
+            );
+  case UART_ADDR_IER:
+    return uart->intr_enable;
+  case UART_ADDR_MCR: // Modem Control Register
+    return 0;
+  case UART_ADDR_MSR:
+    return 0;
   case UART_ADDR_LSR: // Line Status Register
     {
       char ret = UART_LSR_TX_IDLE; // as default tx idle
@@ -223,7 +241,9 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
       return ret;
     }
   default:
+#if 0
     fprintf(stderr, "uart unknown address read: %08x\n", addr);
+#endif
     return 0;
   }
 }
@@ -233,11 +253,7 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
   case UART_ADDR_IER:
-    if (value & UART_IER_ENABLE) {
-      uart->intr_enable = 1;
-    } else {
-      uart->intr_enable = 0;
-    }
+    uart->intr_enable = value;
     break;
   case UART_ADDR_FCR:
     if (value & UART_FCR_CLEAR) {
@@ -249,23 +265,29 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
     break;
   case UART_ADDR_THR:
     // TX Register (uart output)
-    if (uart->mode == UART_LCR_DEFAULT_MODE) {
+    if (!(uart->mode & UART_LCR_SETBAUD_RATE_MODE)) {
       if (write(uart->fo, &value, 1) < 0) {
         perror("uart output");
       }
     }
     break;
+  case UART_ADDR_MCR:
+    // not implemented
+    break;
   case UART_ADDR_LCR: // Line Control Register
     uart->mode = value;
     break;
   default:
+#if 0
     fprintf(stderr, "uart unknown address write: %08x <- %08x\n", addr, value);
+#endif
     break;
   }
   return;
 }
 
-unsigned uart_irq(const uart_t *uart) {
+unsigned uart_irq(const struct mmio_t *mmio) {
+  const struct uart_t *uart = (const struct uart_t *)mmio;
   if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
     return 1;
   } else {
@@ -273,7 +295,7 @@ unsigned uart_irq(const uart_t *uart) {
   }
 }
 
-void uart_irq_ack(uart_t *uart) {
+void uart_irq_ack(struct mmio_t *mmio) {
   return;
 }
 
@@ -293,35 +315,26 @@ void disk_init(disk_t *disk) {
   disk->base.size = 4096;
   disk->base.readb = disk_read;
   disk->base.writeb = disk_write;
-  disk->data = NULL;
+  disk->base.get_irq = disk_irq;
+  disk->base.ack_irq = disk_irq_ack;
   disk->mem = NULL;
+  disk->rom = (rom_t *)calloc(1, sizeof(rom_t));
+  rom_init(disk->rom);
   disk->current_queue = 0;
   disk->queue_num = 0;
   disk->queue_notify = 0;
   disk->queue_ppn = 0;
   disk->page_size = 0;
   disk->page_size_mask = 0;
+  disk->status = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
-  int fd = 0;
-  int open_flag = (rom_mode == 1) ? O_RDONLY : O_RDWR;
-  int mmap_flag = (rom_mode == 1) ? MAP_PRIVATE : MAP_SHARED;
-  if ((fd = open(img_path, open_flag)) == -1) {
-    perror("disk file open");
-    return 1;
-  }
-  stat(img_path, &disk->img_stat);
-  disk->data = (char *)mmap(NULL, disk->img_stat.st_size, PROT_WRITE, mmap_flag, fd, 0);
-  if (disk->data == MAP_FAILED) {
-    perror("disk mmap");
-    close(fd);
-    disk->data = NULL;
-    return 1;
-  }
+  rom_mmap(disk->rom, img_path, rom_mode);
   return 0;
 }
 
+// virtio-mmio (see https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html)
 #define VIRTIO_MMIO_MAGIC_VALUE 0x000
 #define VIRTIO_MMIO_VERSION 0x004
 #define VIRTIO_MMIO_DEVICE_ID 0x008
@@ -349,6 +362,7 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   char ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned offs = addr & 0x00000003;
+  struct disk_t *disk = (struct disk_t *)unit;
   switch (base) {
   case VIRTIO_MMIO_MAGIC_VALUE:
     ret = (virtio_mmio_magic >> (8 * offs)) & 0x000000FF;
@@ -371,9 +385,17 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   case VIRTIO_MMIO_INTERRUPT_STATUS:
     // TODO
     break;
+  case VIRTIO_MMIO_STATUS:
+    ret = (disk->status >> 8 * offs) & 0x000000FF;
+    break;
+  case VIRTIO_MMIO_QUEUE_PFN:
+    ret = disk->queue_ppn;
+    break;
   default:
     ret = 0;
-    fprintf(stderr, "mmio (disk): unknown addr read: %08x\n", addr);
+#if 1
+    fprintf(stderr, "virtio-mmio (disk): unknown addr read: %08x\n", addr);
+#endif
     break;
   }
   return ret;
@@ -414,7 +436,9 @@ typedef struct {
 } virtq_used;
 
 #define VIRTQ_DESC_F_NEXT 1 // exits next queue
-#define VIRTQ_DESC_F_WRITE 2 // mmio writes to the descriptor
+#define VIRTQ_DESC_F_WRITE 2 // the descriptor is writable by device
+#define VIRTQ_DESC_F_AVAIL (1 << 7)
+#define VIRTQ_DESC_F_USED (1 << 15)
 
 #define VIRTIO_BLK_T_IN  0 // read the disk
 #define VIRTIO_BLK_T_OUT 1 // write the disk
@@ -425,7 +449,7 @@ typedef struct {
 #define VIRTQ_STAGE_RW_SECTOR 1
 #define VIRTQ_STAGE_COMPLETE 2
 
-#define VIRTQ_DEBUG 0
+#define VIRTIO_DEBUG_DUMP 0
 
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
@@ -433,7 +457,7 @@ static void disk_process_queue(disk_t *disk) {
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
     fprintf(stderr, " %d", avail->ring[i]);
@@ -444,7 +468,7 @@ static void disk_process_queue(disk_t *disk) {
   virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
     fprintf(stderr, "Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
             i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
             );
@@ -453,24 +477,24 @@ static void disk_process_queue(disk_t *disk) {
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
       req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
-#if VIRTQ_DEBUG
-      fprintf(stderr, "REQ: %s, %08x, %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
+#if VIRTIO_DEBUG_DUMP
+      fprintf(stderr, "REQ: %s, (req->reserved) = %08x  (req_sector) = %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
     } else if (i == VIRTQ_STAGE_RW_SECTOR) {
-      if (disk->data == NULL) {
+      if (disk->rom->data == NULL) {
         fprintf(stderr, "mmio disk (RW queue): no disk\n");
       } else {
-        char *sector = disk->data + (512 * req->sector);
+        char *sector = disk->rom->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
-        if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
+        if ((req->type == VIRTIO_BLK_T_IN)) {
           // disk -> memory
           for (unsigned j = 0; j < current_desc->len; j++) {
             char *page = memory_get_page(disk->mem, dma_base + j);
             page[(dma_base + j) & disk->page_size_mask] = sector[j];
             // invalidate cache
-            memory_dcache_invalidate(disk->mem, dma_base + j);
+            memory_dcache_invalidate_line(disk->mem, dma_base + j);
           }
-        } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
+        } else if ((req->type == VIRTIO_BLK_T_OUT)) {
           // memory -> disk
           for (unsigned j = 0; j < current_desc->len; j++) {
             // TODO
@@ -485,7 +509,7 @@ static void disk_process_queue(disk_t *disk) {
       // done
       char *page = memory_get_page(disk->mem, current_desc->addr);
       page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
-      memory_dcache_invalidate(disk->mem, current_desc->addr);
+      memory_dcache_invalidate_line(disk->mem, current_desc->addr);
       // complete
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
       used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
@@ -495,7 +519,7 @@ static void disk_process_queue(disk_t *disk) {
     if ((current_desc->flags & VIRTQ_DESC_F_NEXT) != VIRTQ_DESC_F_NEXT) {
       break;
     }
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
     fprintf(stderr, "next: -> %d\n", current_desc->next);
 #endif
     current_desc = desc + current_desc->next;
@@ -544,6 +568,8 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
     break;
   case VIRTIO_MMIO_STATUS:
     // [TODO] we will finally be ready written by 0x0000000F to STATUS
+    disk->status =
+      (disk->status & (~mask)) | ((unsigned char)value << (8 * offs));
     break;
   case VIRTIO_MMIO_INTERRUPT_ACK:
     // TODO
@@ -555,17 +581,18 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
   return;
 }
 
-unsigned disk_irq(const disk_t *disk) {
+unsigned disk_irq(const struct mmio_t *mmio) {
+  const disk_t *disk = (const disk_t *)mmio;
   return disk->queue_notify;
 }
 
-void disk_irq_ack(disk_t *disk) {
+void disk_irq_ack(struct mmio_t *mmio) {
+  disk_t *disk = (disk_t *)mmio;
   disk->queue_notify = 0;
 }
 
 void disk_fini(disk_t *disk) {
-  if (disk->data) {
-    munmap(disk->data, disk->img_stat.st_size);
-  }
+  rom_fini(disk->rom);
+  free(disk->rom);
   return;
 }
