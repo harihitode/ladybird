@@ -16,6 +16,6 @@
 
 `$ make xv6`
 
-## RUN [linux] see [Embedded Linux from Scratch](http://mcu.cz/images_articles/4980-opdenacker-embedded-linux-45minutes-riscv.pdf) to build kernel
+## RUN Linux see [Embedded Linux from Scratch](http://mcu.cz/images_articles/4980-opdenacker-embedded-linux-45minutes-riscv.pdf) to build kernel
 
 `$ make linux`
