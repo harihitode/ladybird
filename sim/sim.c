@@ -90,6 +90,8 @@ void sim_init(sim_t *sim) {
   sim->dbg_handler = (void (**)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned))calloc(MAX_DBG_HANDLER, sizeof(void (*)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned)));
   sim->stp_handler = NULL;
   sim->state = running;
+  sim->htif_tohost = 0;
+  sim->htif_fromhost = 0;
   return;
 }
 

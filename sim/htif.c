@@ -4,11 +4,11 @@
 void htif_callback(sim_t *sim, unsigned dcause, unsigned trigger_type,
                    unsigned tdata1, unsigned tdata2, unsigned tdata3) {
   unsigned addr = tdata2;
-  if (trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr == TOHOST_ADDR) {
+  if (trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr == sim->htif_tohost) {
     unsigned magic_mem = 0;
     sim_cache_flush(sim);
     for (int i = 0; i < 4; i++) {
-      magic_mem = magic_mem | ((unsigned char)sim_read_memory(sim, TOHOST_ADDR + i) << (i * 8));
+      magic_mem = magic_mem | ((unsigned char)sim_read_memory(sim, sim->htif_tohost + i) << (i * 8));
     }
     if (magic_mem & 0x1) {
       sim->state = quit;
@@ -32,9 +32,9 @@ void htif_callback(sim_t *sim, unsigned dcause, unsigned trigger_type,
       //   putchar((unsigned char)sim_read_memory(sim, arg1 + i));
       // }
       for (int i = 0; i < 8; i++) {
-        sim_write_memory(sim, TOHOST_ADDR + i, 0x0);
+        sim_write_memory(sim, sim->htif_tohost + i, 0x0);
       }
-      sim_write_memory(sim, FROMHOST_ADDR, 0x1);
+      sim_write_memory(sim, sim->htif_fromhost, 0x1);
     }
   }
 }

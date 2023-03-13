@@ -71,6 +71,8 @@ typedef struct sim_t {
   struct disk_t *disk;
   struct plic_t *plic;
   struct aclint_t *aclint;
+  unsigned htif_tohost;
+  unsigned htif_fromhost;
   // for debugger
   unsigned dbg_mode;
   char **reginfo;  // register information

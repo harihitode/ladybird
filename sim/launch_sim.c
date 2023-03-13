@@ -4,6 +4,7 @@
 #include <libgen.h>
 #include "sim.h"
 #include "htif.h"
+#include "memory.h"
 
 sim_t *sim;
 FILE *logfile = NULL;
@@ -26,13 +27,12 @@ void hello() {
 }
 
 void dump_inst_callback(struct core_step_result *result) {
-  printf("%08x, %s\n", result->pc, riscv_get_mnemonic(riscv_decompress(result->inst)));
-  return;
+  printf("%08x -> %08x, %s\n", result->pc, result->pc_next, riscv_get_mnemonic(riscv_decompress(result->inst)));
 }
 
 void debug_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned tdata1, unsigned tdata2, unsigned tdata3) {
   unsigned addr = tdata2;
-  if (dcause == CSR_DCSR_CAUSE_TRIGGER && trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr != TOHOST_ADDR) {
+  if (dcause == CSR_DCSR_CAUSE_TRIGGER && trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr != sim->htif_tohost) {
     unsigned access = tdata1 & 0x07;
     printf("break at ");
     if (access == (CSR_MATCH6_STORE | CSR_MATCH6_LOAD)) {
@@ -62,14 +62,14 @@ int main(int argc, char *argv[]) {
   char *uart_in_file_name = NULL;
   char *uart_out_file_name = NULL;
   char *disk_file_name = NULL;
+  int htif_enable = 0;
   // initialization
   sim_init(sim);
   // callback for Debug Extension (for ex. lldb)
   sim_set_debug_callback(sim, debug_callback);
   for (int i = 2; i < argc; i++) {
     if (strcmp(argv[i], "--htif") == 0) {
-      sim_set_debug_callback(sim, htif_callback);
-      sim_set_write_trigger(sim, TOHOST_ADDR);
+      htif_enable = 1;
     } else if (strcmp(argv[i], "--ebreak") == 0) {
       sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
     } else if (strcmp(argv[i], "--dump") == 0) {
@@ -89,8 +89,24 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         disk_file_name = argv[i];
       }
+    } else if (strcmp(argv[i], "--tohost") == 0) {
+      i++;
+      if (i < argc) {
+        sim->htif_tohost = (unsigned)strtol(argv[i], NULL, 0);
+      }
+    } else if (strcmp(argv[i], "--fromhost") == 0) {
+      i++;
+      if (i < argc) {
+        sim->htif_fromhost = (unsigned)strtol(argv[i], NULL, 0);
+      }
     }
   }
+
+  if (htif_enable) {
+    sim_set_debug_callback(sim, htif_callback);
+    sim_set_write_trigger(sim, sim->htif_tohost);
+  }
+
   // load elf file to ram
   if (sim_load_elf(sim, argv[1]) != 0) {
     fprintf(stderr, "error in elf file: %s\n", argv[1]);
@@ -109,8 +125,8 @@ int main(int argc, char *argv[]) {
   logfile = fopen(log_file_name, "w");
   fprintf(logfile, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
   // hello();
-  sim_write_register(sim, REG_A0, 0);
-  sim_write_register(sim, REG_A1, DEVTREE_ROM_ADDR);
+  sim_write_register(sim, REG_A0, 0); // contains a unique per-hart ID.
+  sim_write_register(sim, REG_A1, DEVTREE_ROM_ADDR); // contains device tree blob. address
   while (sim->state == running) {
     sim_resume(sim);
   }

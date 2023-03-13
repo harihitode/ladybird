@@ -642,6 +642,11 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
     fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->pc);
 #endif
   }
+
+  // if (trap_code == TRAP_CODE_S_EXTERNAL_INTERRUPT) {
+  //   printf("to mode %08x to pc %08x\n", to_mode, csr->pc);
+  // }
+
   return;
 }
 
@@ -728,8 +733,15 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
       // unknown
     }
 #if 0
-    fprintf(stderr, "mode: %d, code %08x, gmie: %d, gsie: %d, mie: %08x sie: %08x, ip:%08x\n", csr->mode, trap_code, global_interrupts_enable_m, global_interrupts_enable_s, csr_csrr(csr, CSR_ADDR_M_IE), csr_csrr(csr, CSR_ADDR_S_IE), interrupts_pending);
-    fprintf(stderr, "%016lx, %016lx\n", csr->time, csr->timecmp);
+    if (interrupt) {
+      fprintf(stderr, "mode %d interrupts_pending %08x interrupts_enable %08x SIE %08x MIE %08x\n",
+              csr->mode,
+              interrupts_pending,
+              interrupts_enable,
+              csr->status_mie,
+              csr->status_sie);
+      fprintf(stderr, "%016lx, %016lx\n", csr->time, csr->timecmp);
+    }
 #endif
   }
   return;

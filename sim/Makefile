@@ -8,16 +8,15 @@ STUBOBJS=$(STUBSRCS:.c=.o)
 CFLAGS=-O3 -Wall -I./
 LDLIBS=-lm -lpthread
 RVPATH?=~/llvm-riscv/bin
-XV6KRNL=~/ladybird-xv6/kernel/kernel
-XV6DISK=~/ladybird-xv6/fs.img
+XV6KRNL?=./kernel
+XV6DISK?=./fs.img
+LINUXKRNL?=./fw_payload.elf
+LINUXDISK?=./rootfs.img
 KRNL?=$(XV6KRNL)
 DISK?=$(XV6DISK)
 PORT?=12345
 PROFILE=0
 COMMANDS?=
-TOHOST_ADDR?=0x80001000
-FROMHOST_ADDR?=0x80001040
-CFLAGS+=-DTOHOST_ADDR=$(TOHOST_ADDR) -DFROMHOST_ADDR=$(FROMHOST_ADDR)
 
 ifeq ($(PROFILE),1)
 	CFLAGS+=-pg
@@ -37,6 +36,9 @@ rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 
 xv6: launch_sim
 	./$^ $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
+
+linux: launch_sim
+	./$^ $(LINUXKRNL) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
 
 $(POJBS): sim.h
 
