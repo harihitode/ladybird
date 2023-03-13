@@ -32,11 +32,23 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
   unsigned woff = addr & 0x00000003;
   unsigned value = 0;
   switch (base) {
+  case PLIC_ADDR_MENABLE:
+    value = plic->m_interrupt_enable;
+    break;
+  case PLIC_ADDR_SENABLE:
+    value = plic->s_interrupt_enable;
+    break;
+  case PLIC_ADDR_MTHRESHOLD:
+    value = plic->m_interrupt_threshold;
+    break;
+  case PLIC_ADDR_STHRESHOLD:
+    value = plic->s_interrupt_threshold;
+    break;
   case PLIC_ADDR_SCLAIM:
-    {
-      unsigned irq = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
-      value = irq >> (8 * woff);
-    }
+    value = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
+    break;
+  case PLIC_ADDR_MCLAIM:
+    value = plic_get_interrupt(plic, PLIC_MACHINE_CONTEXT);
     break;
   default:
 #if 0
@@ -44,7 +56,7 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
 #endif
     break;
   }
-  return value;
+  return (value >> (8 * woff));
 }
 
 void plic_write(struct mmio_t *unit, unsigned addr, char value) {

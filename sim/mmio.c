@@ -388,6 +388,9 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   case VIRTIO_MMIO_STATUS:
     ret = (disk->status >> 8 * offs) & 0x000000FF;
     break;
+  case VIRTIO_MMIO_QUEUE_PFN:
+    ret = disk->queue_ppn;
+    break;
   default:
     ret = 0;
 #if 1
@@ -446,7 +449,7 @@ typedef struct {
 #define VIRTQ_STAGE_RW_SECTOR 1
 #define VIRTQ_STAGE_COMPLETE 2
 
-#define VIRTQ_DEBUG 0
+#define VIRTIO_DEBUG_DUMP 0
 
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
@@ -454,7 +457,7 @@ static void disk_process_queue(disk_t *disk) {
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
     fprintf(stderr, " %d", avail->ring[i]);
@@ -465,7 +468,7 @@ static void disk_process_queue(disk_t *disk) {
   virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
     fprintf(stderr, "Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
             i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
             );
@@ -474,7 +477,7 @@ static void disk_process_queue(disk_t *disk) {
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
       req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
       fprintf(stderr, "REQ: %s, (req->reserved) = %08x  (req_sector) = %08x\n", (req->type == VIRTIO_BLK_T_IN) ? "read" : "write", req->reserved, req->sector);
 #endif
     } else if (i == VIRTQ_STAGE_RW_SECTOR) {
@@ -483,7 +486,7 @@ static void disk_process_queue(disk_t *disk) {
       } else {
         char *sector = disk->rom->data + (512 * req->sector);
         unsigned dma_base = current_desc->addr;
-        if ((req->type == VIRTIO_BLK_T_IN) && is_write) {
+        if ((req->type == VIRTIO_BLK_T_IN)) {
           // disk -> memory
           for (unsigned j = 0; j < current_desc->len; j++) {
             char *page = memory_get_page(disk->mem, dma_base + j);
@@ -491,7 +494,7 @@ static void disk_process_queue(disk_t *disk) {
             // invalidate cache
             memory_dcache_invalidate_line(disk->mem, dma_base + j);
           }
-        } else if ((req->type == VIRTIO_BLK_T_OUT) && !is_write) {
+        } else if ((req->type == VIRTIO_BLK_T_OUT)) {
           // memory -> disk
           for (unsigned j = 0; j < current_desc->len; j++) {
             // TODO
@@ -516,7 +519,7 @@ static void disk_process_queue(disk_t *disk) {
     if ((current_desc->flags & VIRTQ_DESC_F_NEXT) != VIRTQ_DESC_F_NEXT) {
       break;
     }
-#if VIRTQ_DEBUG
+#if VIRTIO_DEBUG_DUMP
     fprintf(stderr, "next: -> %d\n", current_desc->next);
 #endif
     current_desc = desc + current_desc->next;
