@@ -38,9 +38,15 @@ typedef struct disk_t {
   struct mmio_t base;
   struct memory_t *mem;
   struct rom_t *rom;
+  unsigned long long host_features;
+  unsigned host_features_sel;
+  unsigned long long guest_features;
+  unsigned guest_features_sel;
+  unsigned long long capacity;
   unsigned queue_num;
   unsigned queue_notify;
   unsigned queue_ppn;
+  unsigned queue_align;
   unsigned page_size;
   unsigned page_size_mask;
   unsigned current_queue;

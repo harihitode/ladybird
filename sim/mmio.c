@@ -310,6 +310,26 @@ void uart_fini(uart_t *uart) {
   return;
 }
 
+#define VIRTIO_BLK_F_SIZE_MAX (1) // Maximum size of any single segment is in size_max.
+#define VIRTIO_BLK_F_SEG_MAX (2) // Maximum number of segments in a request is in seg_max.
+#define VIRTIO_BLK_F_GEOMETRY (4) // Disk-style geometry specified in geometry.
+#define VIRTIO_BLK_F_RO (5) // Device is read-only.
+#define VIRTIO_BLK_F_BLK_SIZE (6) // Block size of disk is in blk_size.
+#define VIRTIO_BLK_F_FLUSH (9) // Cache flush command support.
+#define VIRTIO_BLK_F_TOPOLOGY (10) // Device exports information on optimal I/O alignment.
+#define VIRTIO_BLK_F_CONFIG_WCE (11) // Device can toggle its cache between writeback and writethrough modes.
+#define VIRTIO_BLK_F_DISCARD (13) // Device can support discard command, maximum discard sectors size in max_discard_sectors and maximum discard segment number in max_discard_seg.
+#define VIRTIO_BLK_F_WRITE_ZEROES (14) // Device can support write zeroes command, maximum write zeroes sectors size in max_write_zeroes_sectors and maximum write zeroes segment number in max_write_zeroes_seg.
+#define VIRTIO_F_RING_INDIRECT_DESC (28)
+#define VIRTIO_F_RING_EVENT_IDX (29)
+#define VIRTIO_F_VERSION_1 (32)
+#define VIRTIO_F_ACCESS_PLATFORM (33)
+#define VIRTIO_F_RING_PACKED (34)
+#define VIRTIO_F_IN_ORDER (35)
+#define VIRTIO_F_ORDER_PLATFORM (36)
+#define VIRTIO_F_SR_IOV (37)
+#define VIRTIO_F_NOTIFICATION_DATA (38)
+
 void disk_init(disk_t *disk) {
   disk->base.base = 0;
   disk->base.size = 4096;
@@ -317,6 +337,7 @@ void disk_init(disk_t *disk) {
   disk->base.writeb = disk_write;
   disk->base.get_irq = disk_irq;
   disk->base.ack_irq = disk_irq_ack;
+  disk->capacity = 0;
   disk->mem = NULL;
   disk->rom = (rom_t *)calloc(1, sizeof(rom_t));
   rom_init(disk->rom);
@@ -324,81 +345,127 @@ void disk_init(disk_t *disk) {
   disk->queue_num = 0;
   disk->queue_notify = 0;
   disk->queue_ppn = 0;
+  disk->queue_align = 0;
   disk->page_size = 0;
   disk->page_size_mask = 0;
   disk->status = 0;
+  disk->host_features =
+    (1LL << VIRTIO_F_NOTIFICATION_DATA) | (1LL << VIRTIO_F_VERSION_1);
+  disk->host_features_sel = 0;
+  disk->guest_features = 0; // init value
+  disk->guest_features_sel = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
   rom_mmap(disk->rom, img_path, rom_mode);
+  disk->capacity = disk->rom->file_stat.st_blocks;
   return 0;
 }
 
-// virtio-mmio (see https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html)
+// virtio (see https://docs.oasis-open.org/virtio/virtio/v1.1/csprd01/virtio-v1.1-csprd01.html)
+// mmio legacy interface, block device
 #define VIRTIO_MMIO_MAGIC_VALUE 0x000
 #define VIRTIO_MMIO_VERSION 0x004
 #define VIRTIO_MMIO_DEVICE_ID 0x008
 #define VIRTIO_MMIO_VENDOR_ID 0x00c
-#define VIRTIO_MMIO_DEVICE_FEATURES 0x010 // [TODO] feature negotiation
-#define VIRTIO_MMIO_DRIVER_FEATURES 0x020 // [TODO] feature negatiation
+#define VIRTIO_MMIO_HOST_FEATURES 0x010
+#define VIRTIO_MMIO_HOST_FEATURES_SEL 0x14
+#define VIRTIO_MMIO_GUEST_FEATURES 0x020
+#define VIRTIO_MMIO_GUEST_FEATURES_SEL 0x24
 #define VIRTIO_MMIO_GUEST_PAGE_SIZE 0x028
-#define VIRTIO_MMIO_SELECT_QUEUE 0x030
+#define VIRTIO_MMIO_QUEUE_SEL 0x030
 #define VIRTIO_MMIO_QUEUE_NUM_MAX 0x034
 #define VIRTIO_MMIO_QUEUE_NUM 0x038
+#define VIRTIO_MMIO_QUEUE_ALIGN 0x3c
 #define VIRTIO_MMIO_QUEUE_PFN 0x040
 #define VIRTIO_MMIO_QUEUE_NOTIFY 0x050
 #define VIRTIO_MMIO_INTERRUPT_STATUS 0x060 // read only
 #define VIRTIO_MMIO_INTERRUPT_ACK 0x064 // write only
 #define VIRTIO_MMIO_STATUS 0x070
+#define VIRTIO_MMIO_CAPACITY_0 0x100
+#define VIRTIO_MMIO_CAPACITY_1 0x104
 
 const unsigned virtio_mmio_magic = 0x74726976;
 const unsigned virtio_mmio_vendor_id = 0x554d4551;
-const unsigned virtio_mmio_device_feature = 0x0;
+const unsigned virtio_mmio_version_legacy = 0x1;
+const unsigned virtio_mmio_device_disk = 0x2;
+
+#define VIRTIO_MMIO_STATUS_ACKNOWLEDGE 1
+#define VIRTIO_MMIO_STATUS_DRIVER 2
+#define VIRTIO_MMIO_STATUS_FAILED 128
+#define VIRTIO_MMIO_STATUS_FEATURES_OK 8
+#define VIRTIO_MMIO_STATUS_DRIVER_OK 4
+#define VIRTIO_MMIO_STATUS_DEVICE_NEEDS_RESET 64
 
 #define VIRTIO_MMIO_MAX_QUEUE 8
+#define VIRTIO_DEBUG_DUMP 0
 
 char disk_read(struct mmio_t *unit, unsigned addr) {
   addr -= unit->base;
-  char ret = 0;
+  unsigned ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
   unsigned offs = addr & 0x00000003;
   struct disk_t *disk = (struct disk_t *)unit;
   switch (base) {
   case VIRTIO_MMIO_MAGIC_VALUE:
-    ret = (virtio_mmio_magic >> (8 * offs)) & 0x000000FF;
+    ret = virtio_mmio_magic;
     break;
   case VIRTIO_MMIO_VERSION:
-    ret = (1 >> (8 * offs)) & 0x000000FF; // legacy
+    ret = virtio_mmio_version_legacy;
     break;
   case VIRTIO_MMIO_DEVICE_ID:
-    ret = (2 >> (8 * offs)) & 0x000000FF; // disk
+    ret = virtio_mmio_device_disk;
     break;
   case VIRTIO_MMIO_VENDOR_ID:
-    ret = (virtio_mmio_vendor_id >> (8 * offs)) & 0x000000FF;
+    ret = virtio_mmio_vendor_id;
     break;
-  case VIRTIO_MMIO_DEVICE_FEATURES:
-    ret = (virtio_mmio_device_feature >> (8 * offs)) & 0x000000FF;
+  case VIRTIO_MMIO_HOST_FEATURES:
+    if (disk->host_features_sel) {
+      ret = (unsigned)(disk->host_features >> 32);
+    } else {
+      ret = (unsigned)disk->host_features;
+    }
+    break;
+  case VIRTIO_MMIO_HOST_FEATURES_SEL:
+    ret = disk->host_features_sel;
+    break;
+  case VIRTIO_MMIO_GUEST_FEATURES:
+    if (disk->guest_features_sel) {
+      ret = (unsigned)(disk->guest_features >> 32);
+    } else {
+      ret = (unsigned)disk->guest_features;
+    }
+    break;
+  case VIRTIO_MMIO_GUEST_FEATURES_SEL:
+    ret = disk->guest_features_sel;
     break;
   case VIRTIO_MMIO_QUEUE_NUM_MAX:
-    ret = (VIRTIO_MMIO_MAX_QUEUE >> (8 * offs)) & 0x000000FF;
+    ret = VIRTIO_MMIO_MAX_QUEUE;
     break;
   case VIRTIO_MMIO_INTERRUPT_STATUS:
-    // TODO
+    ret = disk->queue_notify;
     break;
   case VIRTIO_MMIO_STATUS:
-    ret = (disk->status >> 8 * offs) & 0x000000FF;
+    ret = disk->status;
     break;
   case VIRTIO_MMIO_QUEUE_PFN:
     ret = disk->queue_ppn;
     break;
+  case VIRTIO_MMIO_CAPACITY_0:
+    ret = (int)disk->capacity;
+    break;
+  case VIRTIO_MMIO_CAPACITY_1:
+    ret = (int)(disk->capacity >> 32);
+    break;
   default:
     ret = 0;
-#if 1
     fprintf(stderr, "virtio-mmio (disk): unknown addr read: %08x\n", addr);
-#endif
     break;
   }
-  return ret;
+#if 0
+  fprintf(stderr, "VTIO R %08x %02x\n", addr, ((ret >> (8 * offs)) & 0x000000FF));
+#endif
+  return ((ret >> (8 * offs)) & 0x000000FF);
 }
 
 typedef struct {
@@ -435,8 +502,8 @@ typedef struct {
   virtq_used_elem ring[VIRTIO_MMIO_MAX_QUEUE];
 } virtq_used;
 
-#define VIRTQ_DESC_F_NEXT 1 // exits next queue
-#define VIRTQ_DESC_F_WRITE 2 // the descriptor is writable by device
+#define VIRTQ_DESC_F_NEXT (1 << 0) // exits next queue
+#define VIRTQ_DESC_F_WRITE (1 << 1) // the descriptor is writable by device
 #define VIRTQ_DESC_F_AVAIL (1 << 7)
 #define VIRTQ_DESC_F_USED (1 << 15)
 
@@ -449,30 +516,37 @@ typedef struct {
 #define VIRTQ_STAGE_RW_SECTOR 1
 #define VIRTQ_STAGE_COMPLETE 2
 
-#define VIRTIO_DEBUG_DUMP 0
-
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
   unsigned desc_addr = disk->queue_ppn * disk->page_size;
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
+#if VIRTIO_DEBUG_DUMP
+  fprintf(stderr, "PAGESIZE %08x\n", disk->page_size);
+  fprintf(stderr, "DESC addr %08x len %08x flags %08x next %08x\n",
+          desc->addr, desc->len, desc->flags, desc->next);
+#endif
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
+#if VIRTIO_DEBUG_DUMP
+  fprintf(stderr, "AVAIL flag %08x idx %08x ring ", avail->flags, avail->idx);
+  for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
+    fprintf(stderr, "%d ", avail->ring[i]);
+  }
+  fprintf(stderr, "unused %08x\n", avail->unused);
+#endif
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
 #if VIRTIO_DEBUG_DUMP
-  fprintf(stderr, "avail flag: %d avail idx: %d used idx: %d ring:", avail->flags, avail->idx, used->idx);
+  fprintf(stderr, "USED flag %08x idx %08x\n", used->flags, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-    fprintf(stderr, " %d", avail->ring[i]);
+    fprintf(stderr, "\t CHAIN START %08x len %08x\n", used->ring[i].id, used->ring[i].len);
   }
-  fprintf(stderr, "\n");
-  fprintf(stderr, "init: -> %d\n", avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE]);
 #endif
   virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
+#if VIRTIO_DEBUG_DUMP
+  fprintf(stderr, "CURRENT DESC addr %08x len %08x flags %08x next %08x\n",
+          current_desc->addr, current_desc->len, current_desc->flags, current_desc->next);
+#endif
   virtio_blk_req *req = NULL;
   for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-#if VIRTIO_DEBUG_DUMP
-    fprintf(stderr, "Q%u: addr: %08x, len: %08x, flags: %04x, next: %04x\n",
-            i, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next
-            );
-#endif
     int is_write = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
     // read from descripted address
     if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write) {
@@ -539,15 +613,20 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
   unsigned mask = 0x000000FF << (8 * offs);
   switch (base) {
   case VIRTIO_MMIO_QUEUE_NOTIFY:
-    disk->current_queue =
-      (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
-    if (offs == 0) {
+    if ((disk->host_features & disk->guest_features) & (1LL << VIRTIO_F_NOTIFICATION_DATA)) {
+      disk->current_queue =
+        (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
+    }
+    if (offs == 3) {
       disk_process_queue(disk);
     }
     break;
   case VIRTIO_MMIO_QUEUE_PFN:
     disk->queue_ppn =
       (disk->queue_ppn & (~mask)) | ((unsigned char)value << (8 * offs));
+    if (offs == 3) {
+      printf("Q PPN %08x\n", disk->queue_ppn);
+    }
     break;
   case VIRTIO_MMIO_GUEST_PAGE_SIZE:
     disk->page_size =
@@ -555,29 +634,94 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
     // [TODO?] for non 2 power
     disk->page_size_mask = disk->page_size - 1;
     break;
-  case VIRTIO_MMIO_DRIVER_FEATURES:
-    // [TODO] feature negotiation
+  case VIRTIO_MMIO_HOST_FEATURES:
+    // read only
+    break;
+  case VIRTIO_MMIO_HOST_FEATURES_SEL:
+    disk->host_features_sel =
+      (disk->host_features_sel & (~mask)) | ((unsigned char)value << (8 * offs));
+    break;
+  case VIRTIO_MMIO_GUEST_FEATURES:
+    if (disk->guest_features_sel) {
+      disk->guest_features =
+        ((((disk->guest_features >> 32) & (~mask)) | ((unsigned char)value << (8 * offs))) << 32) |
+        (disk->guest_features & 0x00000000FFFFFFFF);
+    } else {
+      disk->guest_features =
+        (disk->guest_features & 0xFFFFFFFF00000000) |
+        ((disk->guest_features & (~mask)) | ((unsigned char)value << (8 * offs)));
+    }
+    break;
+  case VIRTIO_MMIO_GUEST_FEATURES_SEL:
+    disk->guest_features_sel =
+      (disk->guest_features_sel & (~mask)) | ((unsigned char)value << (8 * offs));
     break;
   case VIRTIO_MMIO_QUEUE_NUM:
     disk->queue_num =
       (disk->queue_num & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (offs == 3) {
+      printf("CURRENT Q Num: %08x\n", disk->queue_num);
+    }
+#endif
     break;
-  case VIRTIO_MMIO_SELECT_QUEUE:
+  case VIRTIO_MMIO_QUEUE_SEL:
     disk->current_queue =
       (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (offs == 3) {
+      printf("CURRENT QUEUE: %08x\n", disk->current_queue);
+    }
+#endif
+    break;
+  case VIRTIO_MMIO_QUEUE_ALIGN:
+    disk->queue_align =
+      (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (offs == 3) {
+      printf("CURRENT Q Align: %08x\n", disk->queue_align);
+    }
+#endif
     break;
   case VIRTIO_MMIO_STATUS:
-    // [TODO] we will finally be ready written by 0x0000000F to STATUS
     disk->status =
       (disk->status & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (disk->status & VIRTIO_MMIO_STATUS_ACKNOWLEDGE) {
+      fprintf(stderr, "VTIO STATUS ACK\n");
+    }
+    if (disk->status & VIRTIO_MMIO_STATUS_DRIVER) {
+      fprintf(stderr, "VTIO STATUS DRIVER\n");
+    }
+    if (disk->status & VIRTIO_MMIO_STATUS_FAILED) {
+      fprintf(stderr, "VTIO STATUS FAILED\n");
+    }
+    if (disk->status & VIRTIO_MMIO_STATUS_DRIVER_OK) {
+      fprintf(stderr, "VTIO STATUS Driver OK\n");
+    }
+    if (disk->status & VIRTIO_MMIO_STATUS_FEATURES_OK) {
+      fprintf(stderr, "VTIO STATUS Features OK\n");
+    }
+    if (disk->status & VIRTIO_MMIO_STATUS_DEVICE_NEEDS_RESET) {
+      fprintf(stderr, "VTIO STATUS Device Needs to Reset\n");
+    }
+#endif
     break;
   case VIRTIO_MMIO_INTERRUPT_ACK:
-    // TODO
+    if (value) {
+      disk->queue_notify = 0;
+#if VIRTIO_DEBUG_DUMP
+      fprintf(stderr, "VTIO queue ack\n");
+#endif
+    }
     break;
   default:
     fprintf(stderr, "mmio (disk): unknown addr write: %08x, %08x\n", addr, value);
     break;
   }
+#if 0
+  fprintf(stderr, "VTIO W %08x %02x\n", addr, value);
+#endif
   return;
 }
 
