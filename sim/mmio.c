@@ -385,10 +385,10 @@ int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
 #define VIRTIO_MMIO_CAPACITY_0 0x100
 #define VIRTIO_MMIO_CAPACITY_1 0x104
 
-const unsigned virtio_mmio_magic = 0x74726976;
-const unsigned virtio_mmio_vendor_id = 0x554d4551;
-const unsigned virtio_mmio_version_legacy = 0x1;
-const unsigned virtio_mmio_device_disk = 0x2;
+#define VIRTIO_MMIO_MAGIC 0x74726976
+#define VIRTIO_MMIO_VENDOR_ID_VAL 0x554d4551
+#define VIRTIO_MMIO_VERSION_LEGACY 0x1
+#define VIRTIO_MMIO_DEVICE_BLOCK 0x2
 
 #define VIRTIO_MMIO_STATUS_ACKNOWLEDGE 1
 #define VIRTIO_MMIO_STATUS_DRIVER 2
@@ -408,16 +408,16 @@ char disk_read(struct mmio_t *unit, unsigned addr) {
   struct disk_t *disk = (struct disk_t *)unit;
   switch (base) {
   case VIRTIO_MMIO_MAGIC_VALUE:
-    ret = virtio_mmio_magic;
+    ret = VIRTIO_MMIO_MAGIC;
     break;
   case VIRTIO_MMIO_VERSION:
-    ret = virtio_mmio_version_legacy;
+    ret = VIRTIO_MMIO_VERSION_LEGACY;
     break;
   case VIRTIO_MMIO_DEVICE_ID:
-    ret = virtio_mmio_device_disk;
+    ret = VIRTIO_MMIO_DEVICE_BLOCK;
     break;
   case VIRTIO_MMIO_VENDOR_ID:
-    ret = virtio_mmio_vendor_id;
+    ret = VIRTIO_MMIO_VENDOR_ID_VAL;
     break;
   case VIRTIO_MMIO_HOST_FEATURES:
     if (disk->host_features_sel) {
@@ -621,13 +621,6 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
       disk_process_queue(disk);
     }
     break;
-  case VIRTIO_MMIO_QUEUE_PFN:
-    disk->queue_ppn =
-      (disk->queue_ppn & (~mask)) | ((unsigned char)value << (8 * offs));
-    if (offs == 3) {
-      printf("Q PPN %08x\n", disk->queue_ppn);
-    }
-    break;
   case VIRTIO_MMIO_GUEST_PAGE_SIZE:
     disk->page_size =
       (disk->page_size & (~mask)) | ((unsigned char)value << (8 * offs));
@@ -656,15 +649,6 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
     disk->guest_features_sel =
       (disk->guest_features_sel & (~mask)) | ((unsigned char)value << (8 * offs));
     break;
-  case VIRTIO_MMIO_QUEUE_NUM:
-    disk->queue_num =
-      (disk->queue_num & (~mask)) | ((unsigned char)value << (8 * offs));
-#if 0
-    if (offs == 3) {
-      printf("CURRENT Q Num: %08x\n", disk->queue_num);
-    }
-#endif
-    break;
   case VIRTIO_MMIO_QUEUE_SEL:
     disk->current_queue =
       (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
@@ -674,12 +658,30 @@ void disk_write(struct mmio_t *unit, unsigned addr, char value) {
     }
 #endif
     break;
+  case VIRTIO_MMIO_QUEUE_NUM:
+    disk->queue_num =
+      (disk->queue_num & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (offs == 3) {
+      printf("CURRENT Q Num: %08x\n", disk->queue_num);
+    }
+#endif
+    break;
   case VIRTIO_MMIO_QUEUE_ALIGN:
     disk->queue_align =
       (disk->current_queue & (~mask)) | ((unsigned char)value << (8 * offs));
 #if 0
     if (offs == 3) {
       printf("CURRENT Q Align: %08x\n", disk->queue_align);
+    }
+#endif
+    break;
+  case VIRTIO_MMIO_QUEUE_PFN:
+    disk->queue_ppn =
+      (disk->queue_ppn & (~mask)) | ((unsigned char)value << (8 * offs));
+#if 0
+    if (offs == 3) {
+      printf("Q PPN %08x\n", disk->queue_ppn);
     }
 #endif
     break;
