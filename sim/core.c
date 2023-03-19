@@ -522,9 +522,6 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->pc_next = pc_next;
   if (result->flush) {
     core_window_flush(core);
-    memory_tlb_clear(core->mem);
-    memory_icache_invalidate(core->mem);
-    memory_dcache_invalidate(core->mem);
   }
 
 #ifdef REGISTER_ACCESS_STATS

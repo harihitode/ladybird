@@ -351,11 +351,15 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
   case CSR_ADDR_S_ATP:
+    memory_dcache_write_back(csr->mem);
     if (value & 0x80000000) {
       memory_atp_on(csr->mem, value & 0x000fffff);
     } else {
       memory_atp_off(csr->mem);
     }
+    memory_tlb_clear(csr->mem);
+    memory_icache_invalidate(csr->mem);
+    memory_dcache_invalidate(csr->mem);
     result->flush = 1;
 #if 0
     fprintf(stderr, "ATP (write) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
@@ -601,7 +605,7 @@ static void csr_enter_debug_mode(csr_t *csr, unsigned cause) {
   csr->mode = PRIVILEGE_MODE_D;
 }
 
-static void csr_trap(csr_t *csr, unsigned trap_code) {
+static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
   unsigned is_interrupt = ((trap_code >> 31) & 0x00000001);
   unsigned code = (trap_code & 0x7fffffff);
   // default: to Machine Mode
@@ -649,6 +653,7 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
       csr_enter_debug_mode(csr, CSR_DCSR_CAUSE_EBREAK);
     }
   } else if (to_mode == PRIVILEGE_MODE_M) {
+    csr->mtval = trap_value;
     csr->mcause = trap_code;
     // pc
     csr->mepc = csr->pc;
@@ -663,6 +668,7 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
     fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
 #endif
   } else if (to_mode == PRIVILEGE_MODE_S) {
+    csr->stval = trap_value;
     csr->scause = trap_code;
     // pc
     csr->sepc = csr->pc;
@@ -730,7 +736,14 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
     csr_restore_trap(csr);
   } else if (result->exception_code != 0 || csr->dcsr_step) {
     // catch exception
-    csr_trap(csr, result->exception_code);
+    if ((result->exception_code == TRAP_CODE_LOAD_PAGE_FAULT) ||
+        (result->exception_code == TRAP_CODE_LOAD_ACCESS_FAULT) ||
+        (result->exception_code == TRAP_CODE_STORE_PAGE_FAULT) ||
+        (result->exception_code == TRAP_CODE_STORE_ACCESS_FAULT)) {
+      csr_trap(csr, result->exception_code, result->m_vaddr);
+    } else {
+      csr_trap(csr, result->exception_code, 0);
+    }
   } else if ((csr->cycle % 10) == 0) {
     // catch interrupt
     unsigned interrupts_enable;
@@ -748,17 +761,17 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
     // Simultaneous interrupts destined for M-mode are handled in the following
     // decreasing priority order: MEI, MSI, MTI, SEI, SSI, STI
     if (interrupt & CSR_INT_MEI) {
-      csr_trap(csr, TRAP_CODE_M_EXTERNAL_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_M_EXTERNAL_INTERRUPT, 0);
     } else if (interrupt & CSR_INT_MSI) {
-      csr_trap(csr, TRAP_CODE_M_SOFTWARE_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_M_SOFTWARE_INTERRUPT, 0);
     } else if (interrupt & CSR_INT_MTI) {
-      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_M_TIMER_INTERRUPT, 0);
     } else if (interrupt & CSR_INT_SEI) {
-      csr_trap(csr, TRAP_CODE_S_EXTERNAL_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_S_EXTERNAL_INTERRUPT, 0);
     } else if (interrupt & CSR_INT_SSI) {
-      csr_trap(csr, TRAP_CODE_S_SOFTWARE_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_S_SOFTWARE_INTERRUPT, 0);
     } else if (interrupt & CSR_INT_STI) {
-      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT);
+      csr_trap(csr, TRAP_CODE_S_TIMER_INTERRUPT, 0);
     } else {
       // unknown
     }
