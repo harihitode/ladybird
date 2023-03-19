@@ -154,8 +154,7 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
   unsigned long long byte_offset = addr & 0x7;
   unsigned long long value64 = 0;
   if (addr >= ACLINT_MSWI_BASE && addr < ACLINT_MSWI_BASE + (HART_NUM * 4)) {
-    // [TODO] Software Interrupt
-    value64 = 0;
+    value64 = aclint->csr->software_interrupt_m;
   } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
     value64 = csr_get_timecmp(aclint->csr);
   } else if (addr >= ACLINT_MTIME_BASE && addr < ACLINT_MTIME_BASE + 8) {
@@ -170,8 +169,9 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
 void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
   aclint_t *aclint = (aclint_t *)unit;
   if (addr >= ACLINT_MSWI_BASE && addr < ACLINT_MSWI_BASE + (HART_NUM * 4)) {
-    // [TODO] Software Interrupt
-    fprintf(stderr, "Machine Software Interrupt %02x\n", (unsigned char)value);
+    if (addr == ACLINT_MSWI_BASE) {
+      aclint->csr->software_interrupt_m = value;
+    }
   } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
     // [TODO] currently hart0 only
     unsigned long long byte_offset = addr & 0x7;
