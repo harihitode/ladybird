@@ -5,7 +5,7 @@
   model="harihitode,ladybird";
 
   chosen {
-    bootargs = "console=ttyS0 rw root=/dev/vda";
+    bootargs = "console=ttyS0 ro root=/dev/vda";
     stdout-path = &serial0;
   };
 
