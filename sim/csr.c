@@ -20,6 +20,7 @@ void csr_init(csr_t *csr) {
   csr->status_spp = 0;
   csr->status_sie = 0;
   csr->status_spie = 0;
+  csr->status_sum = 0;
   // counters
   csr->cycle = 0;
   csr->time = 0;
@@ -98,6 +99,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_S_STATUS:
     {
       unsigned value = 0;
+      value |= (csr->status_sum << 18);
       value |= (csr->status_sie << 1);
       value |= (csr->status_spie << 5);
       value |= (csr->status_spp << 8);
@@ -331,6 +333,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->status_mpp = (value >> 11) & 0x00000003;
     // fall-through
   case CSR_ADDR_S_STATUS:
+    csr->status_sum = (value >> 18) & 0x00000001;
     csr->status_sie = (value >> 1) & 0x00000001;
     csr->status_spie = (value >> 5) & 0x00000001;
     csr->status_spp = (value >> 8) & 0x00000001;
@@ -741,6 +744,9 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
         (result->exception_code == TRAP_CODE_STORE_PAGE_FAULT) ||
         (result->exception_code == TRAP_CODE_STORE_ACCESS_FAULT)) {
       csr_trap(csr, result->exception_code, result->m_vaddr);
+    // } else if ((result->exception_code == TRAP_CODE_INSTRUCTION_PAGE_FAULT) ||
+    //            (result->exception_code == TRAP_CODE_INSTRUCTION_ACCESS_FAULT)) {
+    //   csr_trap(csr, result->exception_code, result->pc);
     } else {
       csr_trap(csr, result->exception_code, 0);
     }

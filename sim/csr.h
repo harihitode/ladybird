@@ -28,6 +28,7 @@ typedef struct csr_t {
   unsigned status_mie; // global interrupt enable
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
+  unsigned char status_sum; // supervisor-mode can access usermode memory
   unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;
