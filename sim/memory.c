@@ -36,6 +36,10 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
 
 char *memory_get_page(memory_t *mem, unsigned addr) {
   unsigned bid = (addr - mem->ram_base) / mem->ram_block_size;
+  if (bid >= RAM_SIZE / mem->ram_block_size) {
+    fprintf(stderr, "RAM Exceeds, %08x\n", addr);
+    return NULL;
+  }
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
@@ -498,7 +502,8 @@ static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsi
     }
     if (protect_fault) {
 #if 0
-      fprintf(stderr, "TLB privilege error (PTE_ADDR: %08x, PTE: %08x, current privilege: %u)\n", pte_addr, current_pte, prv);
+      fprintf(stderr, "TLB privilege error VADDR: %08x level: %d PTE_BASE: %08x ID: %u PTE: %08x current privilege: %u\n",
+              vaddr, level, pte_base, pte_id, current_pte, prv);
 #endif
       break;
     }
