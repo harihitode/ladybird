@@ -177,7 +177,9 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
           // get new line
           index = 0;
           exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-          line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+          if (exception == 0) {
+            line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+          }
         }
         if ((line[index] & 0x03) == 0x3) {
           if (index + 2 > core->mem->icache->line_mask) {
@@ -185,7 +187,9 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
             // get new line
             index = 0;
             exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-            line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+            if (exception == 0) {
+              line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+            }
             core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
             index = 2; // this 2 is ok, not a typo
           } else {
@@ -458,6 +462,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       case 0x102: // SRET
       case 0x302: // MRET
         result->trapret = 1;
+        result->flush = 1;
         break;
       case 0x105: // WFI
         break;

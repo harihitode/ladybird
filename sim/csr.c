@@ -700,6 +700,9 @@ void csr_set_timecmp(csr_t *csr, unsigned long long value) {
 
 static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
+  memory_tlb_clear(csr->mem);
+  memory_icache_invalidate(csr->mem);
+  memory_dcache_invalidate(csr->mem);
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
     csr->pc = csr->mepc;
@@ -744,9 +747,9 @@ void csr_cycle(csr_t *csr, struct core_step_result *result) {
         (result->exception_code == TRAP_CODE_STORE_PAGE_FAULT) ||
         (result->exception_code == TRAP_CODE_STORE_ACCESS_FAULT)) {
       csr_trap(csr, result->exception_code, result->m_vaddr);
-    // } else if ((result->exception_code == TRAP_CODE_INSTRUCTION_PAGE_FAULT) ||
-    //            (result->exception_code == TRAP_CODE_INSTRUCTION_ACCESS_FAULT)) {
-    //   csr_trap(csr, result->exception_code, result->pc);
+    } else if ((result->exception_code == TRAP_CODE_INSTRUCTION_PAGE_FAULT) ||
+               (result->exception_code == TRAP_CODE_INSTRUCTION_ACCESS_FAULT)) {
+      csr_trap(csr, result->exception_code, result->pc);
     } else {
       csr_trap(csr, result->exception_code, 0);
     }
