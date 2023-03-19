@@ -63,6 +63,7 @@
 #define REG_PC 32
 
 // SV32 page table
+#define PTE_SIZE 4
 #define PTE_V (1 << 0)
 #define PTE_R (1 << 1)
 #define PTE_W (1 << 2)
