@@ -137,10 +137,13 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
     return (unsigned)csr->instret;
+  case CSR_ADDR_M_CYCLEH:
   case CSR_ADDR_U_CYCLEH:
     return (unsigned)(csr->cycle >> 32);
+  case CSR_ADDR_M_TIMEH:
   case CSR_ADDR_U_TIMEH:
     return (unsigned)(csr->time >> 32);
+  case CSR_ADDR_M_INSTRETH:
   case CSR_ADDR_U_INSTRETH:
     return (unsigned)(csr->instret >> 32);
   case CSR_ADDR_M_IP:
@@ -394,19 +397,24 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_ISA:
     break;
   case CSR_ADDR_M_CYCLE:
-  case CSR_ADDR_U_CYCLE:
     csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_TIME:
-  case CSR_ADDR_U_TIME:
+    // case CSR_ADDR_U_TIME: // TIME EXTENSION
     csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
     break;
-  case CSR_ADDR_U_TIMEH:
+  case CSR_ADDR_M_INSTRET:
+    csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
+    break;
+  case CSR_ADDR_M_CYCLEH:
+    csr->cycle = (csr->cycle & 0x00000000ffffffff) | (unsigned long long)value << 32;
+    break;
+  case CSR_ADDR_M_TIMEH:
+    // case CSR_ADDR_U_TIMEH: // TIME EXTENSION
     csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
-  case CSR_ADDR_M_INSTRET:
-  case CSR_ADDR_U_INSTRET:
-    csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
+  case CSR_ADDR_M_INSTRETH:
+    csr->instret = (csr->instret & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_D_CSR:
     csr->dcsr_ebreakm = (value >> 15) & 0x1;
@@ -642,11 +650,6 @@ static void csr_trap(csr_t *csr, unsigned trap_code) {
     fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->pc);
 #endif
   }
-
-  // if (trap_code == TRAP_CODE_S_EXTERNAL_INTERRUPT) {
-  //   printf("to mode %08x to pc %08x\n", to_mode, csr->pc);
-  // }
-
   return;
 }
 
