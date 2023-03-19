@@ -66,18 +66,10 @@
     reg = <0x80000000 0x08000000>;
   };
 
-  mtimer0: mtimer@2000000 {
-    compatible = "riscv,aclint-mtimer";
-    interrupts-extended = <&cpu0_intc 7>;
-    reg = <0x02000000 0x8 0x02007ff8 0x8>;
-  };
-
-  mswi0: mswi@2008000 {
-    compatible = "riscv,aclint-mswi";
-    #interrupt-cells = <1>;
-    reg = <0x02008000 0x8>;
-    interrupts-extended = <&cpu0_intc 3>;
-    interrupt-controller;
+  clint0: clint@2000000 {
+    compatible = "riscv,clint0";
+    interrupts-extended = <&cpu0_intc 3 &cpu0_intc 7>;
+    reg = <0x2000000 0x10000>;
   };
 
   htif {
