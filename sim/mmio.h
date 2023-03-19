@@ -51,6 +51,7 @@ typedef struct disk_t {
   unsigned page_size_mask;
   unsigned current_queue;
   unsigned status;
+  unsigned short last_avail_idx;
 } disk_t;
 
 void disk_init(disk_t *disk);

@@ -310,6 +310,8 @@ void uart_fini(uart_t *uart) {
   return;
 }
 
+#define VIRTIO_BLK_DESC_CHAIN_LEN (3)
+
 #define VIRTIO_BLK_F_SIZE_MAX (1) // Maximum size of any single segment is in size_max.
 #define VIRTIO_BLK_F_SEG_MAX (2) // Maximum number of segments in a request is in seg_max.
 #define VIRTIO_BLK_F_GEOMETRY (4) // Disk-style geometry specified in geometry.
@@ -320,8 +322,8 @@ void uart_fini(uart_t *uart) {
 #define VIRTIO_BLK_F_CONFIG_WCE (11) // Device can toggle its cache between writeback and writethrough modes.
 #define VIRTIO_BLK_F_DISCARD (13) // Device can support discard command, maximum discard sectors size in max_discard_sectors and maximum discard segment number in max_discard_seg.
 #define VIRTIO_BLK_F_WRITE_ZEROES (14) // Device can support write zeroes command, maximum write zeroes sectors size in max_write_zeroes_sectors and maximum write zeroes segment number in max_write_zeroes_seg.
-#define VIRTIO_F_RING_INDIRECT_DESC (28)
-#define VIRTIO_F_RING_EVENT_IDX (29)
+#define VIRTIO_F_INDIRECT_DESC (28)
+#define VIRTIO_F_EVENT_IDX (29)
 #define VIRTIO_F_VERSION_1 (32)
 #define VIRTIO_F_ACCESS_PLATFORM (33)
 #define VIRTIO_F_RING_PACKED (34)
@@ -354,6 +356,7 @@ void disk_init(disk_t *disk) {
   disk->host_features_sel = 0;
   disk->guest_features = 0; // init value
   disk->guest_features_sel = 0;
+  disk->last_avail_idx = 0;
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
@@ -518,11 +521,13 @@ typedef struct {
 #define VIRTQ_STAGE_COMPLETE 2
 
 static void disk_process_queue(disk_t *disk) {
+  // write back for (avail & desc)
+  memory_dcache_write_back(disk->mem);
   // run the disk r/w
   unsigned desc_addr = disk->queue_ppn * disk->page_size;
   virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
 #if VIRTIO_DEBUG_DUMP
-  fprintf(stderr, "ADDR %08x PAGESIZE %d (%08x)\n", disk->queue_ppn, disk->page_size, disk->page_size);
+  fprintf(stderr, "ADDR %08x PAGESIZE %d (%08x) LAST_AVAIL_IDX %u\n", disk->queue_ppn, disk->page_size, disk->page_size, disk->last_avail_idx);
 #endif
   virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
 #if VIRTIO_DEBUG_DUMP
@@ -533,65 +538,66 @@ static void disk_process_queue(disk_t *disk) {
   fprintf(stderr, "used_event %u\n", avail->used_event);
 #endif
   virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
-  // used->idx is the newest entry in the RING queue (descriptor ID)
-  virtq_desc *current_desc = desc + avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
   virtio_blk_req *req = NULL;
   // process descriptors
-  for (unsigned i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
+  for (unsigned short idx = disk->last_avail_idx; idx < avail->idx; idx++, disk->last_avail_idx++) {
+    unsigned short current_desc_idx = avail->ring[idx % VIRTIO_MMIO_MAX_QUEUE];
+    for (unsigned i = 0; i < VIRTIO_BLK_DESC_CHAIN_LEN; i++) {
+      virtq_desc *current_desc = desc + current_desc_idx;
 #if VIRTIO_DEBUG_DUMP
-    fprintf(stderr, "CURRENT DESC addr %016llx len %08x flags %08x next %08x\n",
-            current_desc->addr, current_desc->len, current_desc->flags, current_desc->next);
+      fprintf(stderr, "CURRENT DESC [%u] addr %016llx len %08x flags %08x next %08x\n",
+              current_desc_idx, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next);
 #endif
-    int is_write_only = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
-    // read from descripted address
-    if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write_only) {
-      req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
+      int is_write_only = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
+      // read from descripted address
+      if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write_only) {
+        req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
 #if VIRTIO_DEBUG_DUMP
-      fprintf(stderr, "BLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req->type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req->reserved, req->sector);
+        fprintf(stderr, "\tBLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req->type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req->reserved, req->sector);
 #endif
-    } else if (i == VIRTQ_STAGE_RW_SECTOR) {
-      if (disk->rom->data == NULL) {
-        fprintf(stderr, "mmio disk (RW queue): no disk\n");
-      } else {
-        char *sector = disk->rom->data + (512 * req->sector);
-        unsigned dma_base = current_desc->addr;
-#if VIRTIO_DEBUG_DUMP
-        fprintf(stderr, "BLK CMD: sector %016llx <-> DMA %08x\n", req->sector, dma_base);
-#endif
-        if ((req->type == VIRTIO_BLK_T_IN)) {
-          // disk -> memory
-          for (unsigned j = 0; j < current_desc->len; j++) {
-            char *page = memory_get_page(disk->mem, dma_base + j);
-            page[(dma_base + j) & disk->page_size_mask] = sector[j];
-            // need to invalidate cache
-          }
-        } else if ((req->type == VIRTIO_BLK_T_OUT)) {
-          // memory -> disk
-          for (unsigned j = 0; j < current_desc->len; j++) {
-            // need to writeback cache
-            memory_dcache_write_back(disk->mem);
-            char *page = memory_get_page(disk->mem, dma_base + j);
-            sector[j] = page[(dma_base + j) & disk->page_size_mask];
-          }
+      } else if (i == VIRTQ_STAGE_RW_SECTOR) {
+        if (disk->rom->data == NULL) {
+          fprintf(stderr, "mmio disk (RW queue): no disk\n");
         } else {
-          fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
+          char *sector = disk->rom->data + (512 * req->sector);
+          unsigned dma_base = current_desc->addr;
+#if VIRTIO_DEBUG_DUMP
+          fprintf(stderr, "\tBLK CMD: sector %016llx <-> DMA %08x\n", req->sector, dma_base);
+#endif
+          if ((req->type == VIRTIO_BLK_T_IN)) {
+            // disk -> memory
+            for (unsigned j = 0; j < current_desc->len; j++) {
+              char *page = memory_get_page(disk->mem, dma_base + j);
+              page[(dma_base + j) & disk->page_size_mask] = sector[j];
+              // need to invalidate cache
+            }
+          } else if ((req->type == VIRTIO_BLK_T_OUT)) {
+            // memory -> disk
+            memory_dcache_write_back(disk->mem); // need to writeback cache
+            for (unsigned j = 0; j < current_desc->len; j++) {
+              char *page = memory_get_page(disk->mem, dma_base + j);
+              sector[j] = page[(dma_base + j) & disk->page_size_mask];
+            }
+          } else {
+            fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
+          }
         }
+      } else if (i == VIRTQ_STAGE_COMPLETE && is_write_only) {
+        // done
+        char *page = memory_get_page(disk->mem, current_desc->addr);
+        page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
+        memory_dcache_invalidate_line(disk->mem, current_desc->addr);
+        // complete
+        used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[idx % VIRTIO_MMIO_MAX_QUEUE];
+        used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
+        used->idx++; // increment when completed
       }
-    } else if (i == VIRTQ_STAGE_COMPLETE && is_write_only) {
-      // done
-      char *page = memory_get_page(disk->mem, current_desc->addr);
-      page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
-      memory_dcache_invalidate_line(disk->mem, current_desc->addr);
-      // complete
-      used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE];
-      used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
-      used->idx++; // increment when completed
+      // does next queue exist ?
+      if (!(current_desc->flags & VIRTQ_DESC_F_NEXT)) {
+        break;
+      };
+      current_desc_idx = current_desc->next;
     }
-    // does next queue exist ?
-    if (!(current_desc->flags & VIRTQ_DESC_F_NEXT)) {
-      break;
-    };
-    current_desc = desc + current_desc->next;
   }
   // invalidate whole cache
   memory_dcache_invalidate(disk->mem);
