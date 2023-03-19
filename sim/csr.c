@@ -400,7 +400,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_TIME:
-    // case CSR_ADDR_U_TIME: // TIME EXTENSION
+#if TIME_EXTENSION
+  case CSR_ADDR_U_TIME:
+#endif
     csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_INSTRET:
@@ -410,7 +412,9 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_TIMEH:
-    // case CSR_ADDR_U_TIMEH: // TIME EXTENSION
+#if TIME_EXTENSION
+  case CSR_ADDR_U_TIMEH:
+#endif
     csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_INSTRETH:

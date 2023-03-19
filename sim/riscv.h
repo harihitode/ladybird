@@ -13,6 +13,7 @@
 #define V_EXTENSION 0
 #define XLEN 32
 #define EXTENSION_STR "rv32imac"
+#define TIME_EXTENSION 0
 
 #define NUM_GPR 32
 #if F_EXTENSION
