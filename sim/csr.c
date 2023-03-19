@@ -44,6 +44,8 @@ void csr_init(csr_t *csr) {
   // SW interrupts
   csr->software_interrupt_m = 0;
   csr->software_interrupt_s = 0;
+  // Timer interrupts
+  csr->timer_interrupt_s = 0;
   // debug
   csr->dcsr_ebreakm = 0;
   csr->dcsr_ebreaks = 0;
@@ -62,7 +64,7 @@ static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
   unsigned extint = 0;
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
-  timerint = 0;
+  timerint = csr->timer_interrupt_s;
   swint = csr->software_interrupt_s;
   value =
     (swint << CSR_INT_SSI_FIELD) |
@@ -381,10 +383,23 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->scause = value;
     break;
   case CSR_ADDR_M_IP:
-    csr->software_interrupt_m = (value >> 3) & 0x00000001;
+    if (value & CSR_INT_MSI) {
+      csr->software_interrupt_m = 1;
+    } else {
+      csr->software_interrupt_m = 0;
+    }
     // fall-through
   case CSR_ADDR_S_IP:
-    csr->software_interrupt_s = (value >> 1) & 0x00000001;
+    if (value & CSR_INT_STI) {
+      csr->timer_interrupt_s = 1;
+    } else {
+      csr->timer_interrupt_s = 0;
+    }
+    if (value & CSR_INT_SSI) {
+      csr->software_interrupt_s = 1;
+    } else {
+      csr->software_interrupt_s = 0;
+    }
     break;
   case CSR_ADDR_S_TVAL:
     csr->stval = value;

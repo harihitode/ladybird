@@ -19,8 +19,9 @@ typedef struct csr_t {
   unsigned long long time;
   unsigned long long timecmp;
   unsigned long long instret;
-  unsigned software_interrupt_m;
-  unsigned software_interrupt_s;
+  unsigned char software_interrupt_m;
+  unsigned char software_interrupt_s;
+  unsigned char timer_interrupt_s;
   unsigned char status_spp; // previous privilege mode
   unsigned char status_mpp; // previous privilege mode
   unsigned status_sie; // global interrupt enable
