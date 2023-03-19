@@ -132,7 +132,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_U_CYCLE:
     return (unsigned)csr->cycle;
   case CSR_ADDR_M_TIME:
+#if TIME_EXTENSION
   case CSR_ADDR_U_TIME:
+#endif
     return (unsigned)csr->time;
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
@@ -141,7 +143,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_U_CYCLEH:
     return (unsigned)(csr->cycle >> 32);
   case CSR_ADDR_M_TIMEH:
+#if TIME_EXTENSION
   case CSR_ADDR_U_TIMEH:
+#endif
     return (unsigned)(csr->time >> 32);
   case CSR_ADDR_M_INSTRETH:
   case CSR_ADDR_U_INSTRETH:
@@ -400,9 +404,6 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_TIME:
-#if TIME_EXTENSION
-  case CSR_ADDR_U_TIME:
-#endif
     csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_INSTRET:
@@ -412,9 +413,6 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_TIMEH:
-#if TIME_EXTENSION
-  case CSR_ADDR_U_TIMEH:
-#endif
     csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_INSTRETH:
@@ -554,20 +552,30 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
 }
 
 unsigned csr_csrrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
-  unsigned csr_read_value = csr_csrr(csr, addr, result);
+  unsigned csr_read_value = 0;
+  if (result->rd_regno != 0) {
+    // if rd = x0, any CSR will not be read.
+    csr_read_value = csr_csrr(csr, addr, result);
+  }
   csr_csrw(csr, addr, value, result);
   return csr_read_value;
 }
 
 unsigned csr_csrrs(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
   unsigned csr_read_value = csr_csrr(csr, addr, result);
-  csr_csrw(csr, addr, value | csr_read_value, result);
+  if (!(result->rs1_regno == 0 && value == 0)) {
+    // if rs1_regno = x0 (CSRRS) "OR" value = 0 (CSRRSI), any CSR will be written.
+    csr_csrw(csr, addr, value | csr_read_value, result);
+  }
   return csr_read_value;
 }
 
 unsigned csr_csrrc(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
   unsigned csr_read_value = csr_csrr(csr, addr, result);
-  csr_csrw(csr, addr, (~value) & csr_read_value, result);
+  if (!(result->rs1_regno == 0 && value == 0)) {
+    // if rs1_regno = x0 (CSRRC) "OR" value = 0 (CSRRCI), any CSR will be written.
+    csr_csrw(csr, addr, (~value) & csr_read_value, result);
+  }
   return csr_read_value;
 }
 

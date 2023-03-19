@@ -429,12 +429,15 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
+      result->rs1_regno = 0;
       result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x6: // READ_SET (imm)
+      result->rs1_regno = 0;
       result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     case 0x7: // READ_CLEAR (imm)
+      result->rs1_regno = 0;
       result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
