@@ -2,7 +2,7 @@
 / {
   #address-cells = <1>;
   #size-cells = <1>;
-  model="harihitode,ladybird";
+  model="RISC-Vシミュレーターですの！,よろしくって？";
 
   chosen {
     bootargs = "console=ttyS0 ro root=/dev/vda";
