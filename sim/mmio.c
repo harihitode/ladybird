@@ -12,21 +12,25 @@
 #include <errno.h>
 
 // ns16650a (see `http://byterunner.com/16550.html`)
-#define UART_ADDR_RHR 0
-#define UART_ADDR_THR 0
-#define UART_ADDR_IER 1
+#define UART_ADDR_RHR 0 // Reciever
+#define UART_ADDR_THR 0 // Transmitter
+#define UART_ADDR_IER 1 // Interrupt Enable Register
 #define UART_IER_ENABLE 0x03
-#define UART_ADDR_FCR 2
+#define UART_ADDR_FCR 2 // FIFO Control Register
 #define UART_FCR_CLEAR (3 << 1)
-#define UART_ADDR_ISR 2
-#define UART_ADDR_LCR 3
-#define UART_LCR_DEFAULT_MODE 3
+#define UART_ADDR_ISR 2 // Interrupt Status Register
+#define UART_ISR_CAUSE_RECIEVER_READY 4
+#define UART_ISR_CAUSE_TRANSMITTER_EMPTY 2
+#define UART_ADDR_LCR 3 // Line Control Register
+#define UART_LCR_DEFAULT_WORD 3 // means 8 bit / word
 #define UART_LCR_SETBAUD_RATE_MODE (1 << 7)
-#define UART_ADDR_MCR 4
-#define UART_ADDR_LSR 5
-#define UART_ADDR_MSR 6
-#define UART_LSR_RX_READY (1 << 0)
-#define UART_LSR_TX_IDLE (1 << 5)
+#define UART_ADDR_MCR 4 // MODEM Control Register
+#define UART_ADDR_LSR 5 // Line Status Register
+#define UART_ADDR_MSR 6 // MODEM Status Register
+#define UART_LSR_RDR (1 << 0)  // Reciever Data Ready
+#define UART_LSR_THRE (1 << 5) // Transmitter Holding Recieve Empty
+#define UART_LSR_TE (1 << 6)   // Transmitter Empty
+#define UART_ADDR_SPR 7 // Scratch Pad Register
 
 #define UART_BUF_SIZE 512
 
@@ -148,7 +152,6 @@ void uart_init(uart_t *uart) {
   uart->base.writeb = uart_write;
   uart->base.get_irq = uart_irq;
   uart->base.ack_irq = uart_irq_ack;
-  uart->mode = UART_LCR_DEFAULT_MODE;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
   uart->intr_enable = 0;
   if (pipe(uart->i_pipe) == -1) {
@@ -158,6 +161,17 @@ void uart_init(uart_t *uart) {
   uart->fi = -1;
   uart->fo = -1;
   uart_set_io(uart, NULL, NULL);
+  uart->scratch_pad = 0;
+  uart->fcr_enable = 0;
+  uart->lcr_word = UART_LCR_DEFAULT_WORD;
+  uart->lcr_stop_bit = 1;
+  uart->lcr_parity_en = 0;
+  uart->lcr_eps = 0;
+  uart->lcr_sp = 0;
+  uart->lcr_sb = 0;
+  uart->lcr_dlab = 0;
+  uart->dlab = 0;
+  uart->tx_sent = 0;
 }
 
 static void uart_unset_io(uart_t *uart) {
@@ -208,38 +222,59 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
   addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
-  case UART_ADDR_RHR: {
-    // RX Register (uart input)
+  case UART_ADDR_RHR: { // 0
     char ret = 0;
-    mtx_lock(&uart->mutex);
-    ret = uart->buf[uart->buf_rd_index++];
-    if (uart->buf_rd_index == uart->buf_wr_index) {
-      uart->buf_rd_index = 0;
-      uart->buf_wr_index = 0;
+    if (uart->lcr_dlab) {
+      ret = uart->dlab;
+    } else {
+      // RX Register (uart input)
+      mtx_lock(&uart->mutex);
+      ret = uart->buf[uart->buf_rd_index++];
+      if (uart->buf_rd_index == uart->buf_wr_index) {
+        uart->buf_rd_index = 0;
+        uart->buf_wr_index = 0;
+      }
+      mtx_unlock(&uart->mutex);
     }
-    mtx_unlock(&uart->mutex);
     return ret;
   }
-  case UART_ADDR_ISR:
+  case UART_ADDR_ISR: { // 1
+    char ie = 1; // no interrupt
+    char cause = 0;
+    if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
+      ie = 0;
+      cause = UART_ISR_CAUSE_RECIEVER_READY;
+    } else if (uart->tx_sent == 1) {
+      ie = 0;
+      cause = UART_ISR_CAUSE_TRANSMITTER_EMPTY;
+    }
     return (
-            1 << 7 |
-            1 << 6 |
-            1
+            (uart->fcr_enable << 7) |
+            (uart->fcr_enable << 6) |
+            cause |
+            ie
             );
-  case UART_ADDR_IER:
+  }
+  case UART_ADDR_IER: // 2
     return uart->intr_enable;
-  case UART_ADDR_MCR: // Modem Control Register
+  case UART_ADDR_LCR: // 3
+    return (
+            UART_LCR_DEFAULT_WORD
+            );
+  case UART_ADDR_MCR: // 4
     return 0;
-  case UART_ADDR_MSR:
-    return 0;
-  case UART_ADDR_LSR: // Line Status Register
+  case UART_ADDR_LSR: // 5
     {
-      char ret = UART_LSR_TX_IDLE; // as default tx idle
+      char ret = UART_LSR_THRE | UART_LSR_TE; // as default tx idle
       if (uart->buf_wr_index > uart->buf_rd_index) {
-        ret |= UART_LSR_RX_READY;
+        ret |= UART_LSR_RDR;
       }
       return ret;
     }
+  case UART_ADDR_MSR: // 6
+    return -1;
+  case UART_ADDR_SPR: // 7
+    return uart->scratch_pad;
   default:
 #if 0
     fprintf(stderr, "uart unknown address read: %08x\n", addr);
@@ -252,30 +287,49 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
   addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
-  case UART_ADDR_IER:
+  case UART_ADDR_THR: // 0
+    // TX Register (uart output)
+    if (uart->lcr_dlab == 1) {
+      uart->dlab = value;
+    } else {
+      if (write(uart->fo, &value, 1) < 0) {
+        perror("uart output");
+      }
+      uart->tx_sent = 1;
+    }
+    break;
+  case UART_ADDR_IER: // 1
     uart->intr_enable = value;
     break;
-  case UART_ADDR_FCR:
+  case UART_ADDR_FCR: // 2
     if (value & UART_FCR_CLEAR) {
       mtx_lock(&uart->mutex);
       uart->buf_wr_index = 0;
       uart->buf_rd_index = 0;
       mtx_unlock(&uart->mutex);
     }
+    uart->fcr_enable = value & 0x1;
     break;
-  case UART_ADDR_THR:
-    // TX Register (uart output)
-    if (!(uart->mode & UART_LCR_SETBAUD_RATE_MODE)) {
-      if (write(uart->fo, &value, 1) < 0) {
-        perror("uart output");
-      }
-    }
+  case UART_ADDR_LCR: // 3
+    uart->lcr_dlab = (value >> 7) & 0x1;
+    uart->lcr_sb = (value >> 6) & 0x1;
+    uart->lcr_sp = (value >> 5) & 0x1;
+    uart->lcr_eps = (value >> 4) & 0x1;
+    uart->lcr_parity_en = (value >> 3) & 0x1;
+    uart->lcr_stop_bit = (value >> 2) & 0x1;
+    uart->lcr_word = value & 0x3;
     break;
-  case UART_ADDR_MCR:
+  case UART_ADDR_MCR: // 4
     // not implemented
     break;
-  case UART_ADDR_LCR: // Line Control Register
-    uart->mode = value;
+  case UART_ADDR_LSR: // 5
+    // not implemented
+    break;
+  case UART_ADDR_MSR: // 6
+    // not implemented
+    break;
+  case UART_ADDR_SPR: // 7
+    uart->scratch_pad = value;
     break;
   default:
 #if 0
@@ -290,12 +344,16 @@ unsigned uart_irq(const struct mmio_t *mmio) {
   const struct uart_t *uart = (const struct uart_t *)mmio;
   if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
     return 1;
+  } else if (uart->tx_sent) {
+    return 1;
   } else {
     return 0;
   }
 }
 
 void uart_irq_ack(struct mmio_t *mmio) {
+  struct uart_t *uart = (struct uart_t *)mmio;
+  uart->tx_sent = 0;
   return;
 }
 
