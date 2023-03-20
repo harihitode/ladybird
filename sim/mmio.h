@@ -16,7 +16,6 @@ typedef struct uart_t {
   struct mmio_t base;
   int fi;
   int fo;
-  unsigned mode;
   char *buf;
   unsigned buf_wr_index;
   unsigned buf_rd_index;
@@ -24,6 +23,17 @@ typedef struct uart_t {
   mtx_t mutex;
   int i_pipe[2];
   unsigned intr_enable;
+  unsigned char dlab;
+  unsigned char scratch_pad;
+  unsigned char fcr_enable;
+  unsigned char lcr_word;
+  unsigned char lcr_stop_bit;
+  unsigned char lcr_parity_en;
+  unsigned char lcr_eps;
+  unsigned char lcr_sp;
+  unsigned char lcr_sb;
+  unsigned char lcr_dlab; // divisor latch
+  unsigned char tx_sent;
 } uart_t;
 
 void uart_init(uart_t *uart);
@@ -38,13 +48,20 @@ typedef struct disk_t {
   struct mmio_t base;
   struct memory_t *mem;
   struct rom_t *rom;
+  unsigned long long host_features;
+  unsigned host_features_sel;
+  unsigned long long guest_features;
+  unsigned guest_features_sel;
+  unsigned long long capacity;
   unsigned queue_num;
   unsigned queue_notify;
   unsigned queue_ppn;
+  unsigned queue_align;
   unsigned page_size;
   unsigned page_size_mask;
   unsigned current_queue;
   unsigned status;
+  unsigned short last_avail_idx;
 } disk_t;
 
 void disk_init(disk_t *disk);

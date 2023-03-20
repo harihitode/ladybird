@@ -36,6 +36,10 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
 
 char *memory_get_page(memory_t *mem, unsigned addr) {
   unsigned bid = (addr - mem->ram_base) / mem->ram_block_size;
+  if (bid >= RAM_SIZE / mem->ram_block_size) {
+    fprintf(stderr, "RAM Exceeds, %08x\n", addr);
+    return NULL;
+  }
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
@@ -462,41 +466,25 @@ static int page_check_privilege(unsigned pte, unsigned access_type, unsigned prv
 #define PAGE_SUCCESS 0
 #define PAGE_ACCESS_ERROR 1
 #define PAGE_PRIVILEGE_ERROR 2
-#define PAGE_NOTMEGAPAGE 3
-
-#ifdef SUPPORT_MEGAPAGE
-static unsigned megapage_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
-  unsigned pte_offs = ((vaddr >> 22) & 0x000003ff) << 2; // word offset
-  unsigned pte_addr = pte_base + pte_offs;
-  unsigned entry = 0;
-  if (pte_addr >= mem->ram_base && (pte_addr < mem->ram_base + mem->ram_size)) {
-    entry = memory_ram_load(mem, pte_addr, 4, mem->dcache);
-  }
-  if (page_check_leaf(entry) && page_check_privilege(entry, access_type, prv)) {
-    *pte = entry;
-    return PAGE_SUCCESS;
-  } else {
-    return PAGE_NOTMEGAPAGE;
-  }
-}
-#endif
+#define PAGE_SUCCESS_MEGAPAGE 3
 
 static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
   unsigned access_fault = 0;
   unsigned protect_fault = 0;
   unsigned current_pte = 0;
-  for (int i = 1; i >= 0; i--) {
-    unsigned pte_offs = ((vaddr >> ((2 + (10 * (i + 1))) & 0x0000001f)) & 0x000003ff) << 2; // word offset
-    unsigned pte_addr = pte_base + pte_offs;
+  int level = 1;
+  for (level = 1; level >= 0; level--) {
+    unsigned pte_id = ((vaddr >> ((2 + (10 * (level + 1))) & 0x0000001f)) & 0x000003ff); // word offset
+    unsigned pte_addr = pte_base + (pte_id * PTE_SIZE);
     if (pte_addr < mem->ram_base || (pte_addr > mem->ram_base + mem->ram_size)) {
 #if 0
-      fprintf(stderr, "access fault pte%d: addr: %08x, offs: %08x\n", i, pte_addr, pte_offs);
+      fprintf(stderr, "access fault pte%d: addr: %08x base: %08x id: %08x\n", level, pte_addr, pte_base, pte_id);
 #endif
       access_fault = 1;
       break;
     }
-    current_pte = memory_ram_load(mem, pte_addr, 4, mem->dcache); // [TODO?] not to use dcache
-    if (i == 0) {
+    current_pte = ((unsigned *)memory_get_page(mem, pte_base))[pte_id];
+    if (level == 0) {
       if (page_check_leaf(current_pte) && page_check_privilege(current_pte, access_type, prv)) {
         protect_fault = 0;
       } else {
@@ -505,13 +493,17 @@ static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsi
     } else {
       if (page_check_privilege(current_pte, access_type, prv)) {
         protect_fault = 0;
+        if (page_check_leaf(current_pte)) {
+          break;
+        }
       } else {
         protect_fault = 1;
       }
     }
     if (protect_fault) {
 #if 0
-      fprintf(stderr, "TLB privilege error (PTE_ADDR: %08x, PTE: %08x, current privilege: %u)\n", pte_addr, current_pte, prv);
+      fprintf(stderr, "TLB privilege error VADDR: %08x level: %d PTE_BASE: %08x ID: %u PTE: %08x current privilege: %u\n",
+              vaddr, level, pte_base, pte_id, current_pte, prv);
 #endif
       break;
     }
@@ -523,7 +515,11 @@ static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsi
   } else if (protect_fault) {
     return PAGE_PRIVILEGE_ERROR;
   } else {
-    return PAGE_SUCCESS;
+    if (level == 1) {
+      return PAGE_SUCCESS_MEGAPAGE;
+    } else {
+      return PAGE_SUCCESS;
+    }
   }
 }
 
@@ -561,30 +557,28 @@ unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_ty
     // hardware page walking
     unsigned pte_base = tlb->mem->vmrppn;
     unsigned pw_result = PAGE_SUCCESS;
-    unsigned pw_megapage = 0;
 #if 0
     fprintf(stderr, "HW page walking for addr: %08x, pte_base: %08x\n", vaddr, pte_base);
 #endif
 
-#ifdef SUPPORT_MEGAPAGE
-    pw_result = megapage_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
-    if (pw_result == PAGE_SUCCESS) {
+    // Pagewalking
+    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
+    if (pw_result == PAGE_SUCCESS_MEGAPAGE) {
       *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
-      pw_megapage = 1;
     } else {
-      pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
       *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
     }
-#else
-    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
-    *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
-#endif
-    if (pw_result == PAGE_SUCCESS) {
+
+    if ((pw_result == PAGE_SUCCESS) || (pw_result == PAGE_SUCCESS_MEGAPAGE)) {
       // register to TLB
       tlb->line[index].valid = 1;
       tlb->line[index].tag = tag;
       tlb->line[index].value = pte;
-      tlb->line[index].megapage = pw_megapage;
+      if (pw_result == PAGE_SUCCESS_MEGAPAGE) {
+        tlb->line[index].megapage = 1;
+      } else {
+        tlb->line[index].megapage = 0;
+      }
     } else if (pw_result == PAGE_ACCESS_ERROR) {
       switch (access_type) {
       case ACCESS_TYPE_INSTRUCTION:

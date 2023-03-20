@@ -33,10 +33,10 @@ void sim_init(sim_t *sim) {
           "rtc { addr %08x; };\n"
           "ram { 0 { addr %08x; size %08x; }; };\n"
           "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
-          VENDOR_NAME, ARCH_NAME, ACLINT_MTIMER_MTIME_BASE,
+          VENDOR_NAME, ARCH_NAME, ACLINT_MTIME_BASE,
           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
           EXTENSION_STR,
-          ACLINT_MTIMER_MTIMECMP_BASE, ACLINT_SSWI_BASE); // [TODO?] MSWI_BASE?
+          ACLINT_MTIMECMP_BASE, ACLINT_MSWI_BASE);
   memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
   memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
   free(config_rom);

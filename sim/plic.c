@@ -149,17 +149,16 @@ void aclint_init(aclint_t *aclint) {
 }
 
 char aclint_read(struct mmio_t *unit, unsigned addr) {
-  addr -= unit->base;
   aclint_t *aclint = (aclint_t *)unit;
   char value;
-  uint64_t byte_offset = addr % 8;
-  uint64_t value64 = 0;
-  if (addr < 0x0000BFF8) {
+  unsigned long long byte_offset = addr & 0x7;
+  unsigned long long value64 = 0;
+  if (addr >= ACLINT_MSWI_BASE && addr < ACLINT_MSWI_BASE + (HART_NUM * 4)) {
+    value64 = aclint->csr->software_interrupt_m;
+  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
     value64 = csr_get_timecmp(aclint->csr);
-  } else if (addr <= 0x0000BFFF) {
-    value64 =
-      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIMEH, NULL) << 32) |
-      ((uint64_t)csr_csrr(aclint->csr, CSR_ADDR_U_TIME, NULL));
+  } else if (addr >= ACLINT_MTIME_BASE && addr < ACLINT_MTIME_BASE + 8) {
+    value64 = aclint->csr->time;
   } else {
     fprintf(stderr, "aclint read unimplemented region: %08x\n", addr);
   }
@@ -168,16 +167,19 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
 }
 
 void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
-  addr -= unit->base;
   aclint_t *aclint = (aclint_t *)unit;
-  if (addr < 0x0000BFF8) {
-    // hart 0 mtimecmp
-    uint64_t byte_offset = addr % 8;
-    uint64_t mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
-    uint64_t timecmp = csr_get_timecmp(aclint->csr);
-    timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0xFFL << (8 * byte_offset)));
+  if (addr >= ACLINT_MSWI_BASE && addr < ACLINT_MSWI_BASE + (HART_NUM * 4)) {
+    if (addr == ACLINT_MSWI_BASE) {
+      aclint->csr->software_interrupt_m = value;
+    }
+  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
+    // [TODO] currently hart0 only
+    unsigned long long byte_offset = addr & 0x7;
+    unsigned long long mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
+    unsigned long long timecmp = csr_get_timecmp(aclint->csr);
+    timecmp = (timecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0x0FFL << (8 * byte_offset)));
     csr_set_timecmp(aclint->csr, timecmp);
-  } else if (addr <= 0x0000BFFF) {
+  } else if (addr >= ACLINT_MTIME_BASE && addr < 8) {
     // mtime read only
   } else {
     fprintf(stderr, "aclint write unimplemented region: %08x\n", addr);

@@ -13,6 +13,7 @@
 #define V_EXTENSION 0
 #define XLEN 32
 #define EXTENSION_STR "rv32imac"
+#define TIME_EXTENSION 1
 
 #define NUM_GPR 32
 #if F_EXTENSION
@@ -62,6 +63,7 @@
 #define REG_PC 32
 
 // SV32 page table
+#define PTE_SIZE 4
 #define PTE_V (1 << 0)
 #define PTE_R (1 << 1)
 #define PTE_W (1 << 2)
@@ -162,6 +164,9 @@
 #define CSR_ADDR_T_DATA3 0x000007a3
 #define CSR_ADDR_T_INFO 0x000007a4
 /// linux
+#define CSR_ADDR_M_CYCLEH 0x00000b80
+#define CSR_ADDR_M_TIMEH 0x00000b81
+#define CSR_ADDR_M_INSTRETH 0x00000b82
 #define CSR_ADDR_M_COUNTEREN 0x00000306
 #define CSR_ADDR_S_COUNTEREN 0x00000106
 #define CSR_ADDR_M_HPMCOUNTER3 0x00000b03
