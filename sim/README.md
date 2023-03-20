@@ -21,7 +21,7 @@ You can get xv6 kernel and disk image from
 * Kernel: [Google Drive](https://drive.google.com/file/d/1puGVLrPvhocKS7GaNAFHNTrkyb2ep5cg/view?usp=sharing)
 * Disk Image: [Google Drive](https://drive.google.com/file/d/16-acP4p0-iX1lPEzncfZYNl0aEYHX6qk/view?usp=sharing)
 
-## RUN Linux (see [Embedded Linux from Scratch](http://mcu.cz/images_articles/4980-opdenacker-embedded-linux-45minutes-riscv.pdf) to build kernel)
+## Run Linux (see [Embedded Linux from Scratch](http://mcu.cz/images_articles/4980-opdenacker-embedded-linux-45minutes-riscv.pdf) to build kernel)
 
 `$ make linux`
 
