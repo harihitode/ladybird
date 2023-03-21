@@ -4,7 +4,6 @@
 #include <libgen.h>
 #include "sim.h"
 #include "htif.h"
-#include "memory.h"
 
 sim_t *sim;
 FILE *logfile = NULL;
@@ -14,16 +13,12 @@ int touch[32];
 long long regwrite_total = 0;
 long long regread_total = 0;
 
-void bye() {
-  fprintf(stderr, "===================\n");
-  fprintf(stderr, "Bye simulator z(--*\n");
-  fprintf(stderr, "===================\n");
-}
-
-void hello() {
-  fprintf(stderr, "===================\n");
-  fprintf(stderr, "Hi simulator  !(''*\n");
-  fprintf(stderr, "===================\n");
+void print_banner() {
+  fprintf(stderr, "=============================================\n");
+  fprintf(stderr, " Hi, folks!                             !(''*\n");
+  fprintf(stderr, " RISC-V ILS: %s\n", riscv_get_extension_string());
+  fprintf(stderr, " Thanks a lot for using this. Have fun! z(--*\n");
+  fprintf(stderr, "=============================================\n");
 }
 
 void dump_inst_callback(struct core_step_result *result) {
@@ -34,27 +29,28 @@ void debug_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned
   unsigned addr = tdata2;
   if (dcause == CSR_DCSR_CAUSE_TRIGGER && trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr != sim->htif_tohost) {
     unsigned access = tdata1 & 0x07;
-    printf("break at ");
+    fprintf(stderr, "[SIM MESSAGE] break at ");
     if (access == (CSR_MATCH6_STORE | CSR_MATCH6_LOAD)) {
-      printf("access ");
+      fprintf(stderr, "access ");
     } else if (access == CSR_MATCH6_STORE) {
-      printf("store ");
+      fprintf(stderr, "store ");
     } else if (access == CSR_MATCH6_LOAD) {
-      printf("load ");
+      fprintf(stderr, "load ");
     } else {
-      printf("exec ");
+      fprintf(stderr, "exec ");
     }
-    printf("%08x\n", addr);
+    fprintf(stderr, "%08x\n", addr);
     sim->state = quit;
   } else if (dcause == CSR_DCSR_CAUSE_EBREAK) {
-    printf("ebreak\n");
+    fprintf(stderr, "ebreak\n");
     sim->state = quit;
   }
 }
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "%s [ELF FILE]\n", argv[0]);
+    print_banner();
+    fprintf(stderr, "usage: %s [ELF FILE]\n", argv[0]);
     return 0;
   }
   sim = (sim_t *)malloc(sizeof(sim_t));
@@ -63,10 +59,12 @@ int main(int argc, char *argv[]) {
   char *uart_out_file_name = NULL;
   char *disk_file_name = NULL;
   int htif_enable = 0;
+  int stat_enable = 0;
   // initialization
   sim_init(sim);
   // callback for Debug Extension (for ex. lldb)
   sim_set_debug_callback(sim, debug_callback);
+
   for (int i = 2; i < argc; i++) {
     if (strcmp(argv[i], "--htif") == 0) {
       htif_enable = 1;
@@ -99,6 +97,8 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         sim->htif_fromhost = (unsigned)strtol(argv[i], NULL, 0);
       }
+    } else if (strcmp(argv[i], "--stat") == 0) {
+      stat_enable = 1;
     }
   }
 
@@ -116,25 +116,29 @@ int main(int argc, char *argv[]) {
   sim_virtio_disk(sim, disk_file_name, 0);
   sim_uart_io(sim, uart_in_file_name, uart_out_file_name);
 
-  regwrite_total = 0;
-  for (int i = 0; i < 32; i++) {
-    regwrite[i] = -1;
-    regalu[i] = 0;
+  if (stat_enable) {
+    regwrite_total = 0;
+    for (int i = 0; i < 32; i++) {
+      regwrite[i] = -1;
+      regalu[i] = 0;
+    }
+    sprintf(log_file_name, "%s.log", basename(argv[1]));
+    logfile = fopen(log_file_name, "w");
+    fprintf(logfile, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
   }
-  sprintf(log_file_name, "%s.log", basename(argv[1]));
-  logfile = fopen(log_file_name, "w");
-  fprintf(logfile, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
-  // hello();
   sim_write_register(sim, REG_A0, 0); // contains a unique per-hart ID.
   sim_write_register(sim, REG_A1, DEVTREE_ROM_ADDR); // contains device tree blob. address
   while (sim->state == running) {
     sim_resume(sim);
   }
-  // bye();
-  fprintf(logfile, "# total_regwrite %lld total_regread %lld\n", regwrite_total, regread_total);
+  if (stat_enable) {
+    fprintf(logfile, "# total_regwrite %lld total_regread %lld\n", regwrite_total, regread_total);
+  }
  cleanup:
   sim_fini(sim);
   free(sim);
-  fclose(logfile);
+  if (stat_enable) {
+    fclose(logfile);
+  }
   return 0;
 }
