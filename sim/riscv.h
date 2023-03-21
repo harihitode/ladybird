@@ -5,15 +5,20 @@
 #define C_EXTENSION 1
 #define D_EXTENSION 0
 #define F_EXTENSION 0
+#define E_EXTENSION 0 // reduced integer
 #define M_EXTENSION 1
-// supervisor mode
-#define S_EXTENSION 1
-// user mode
-#define U_EXTENSION 1
+#define S_EXTENSION 1 // supervisor mode
+#define U_EXTENSION 1 // user mode
 #define V_EXTENSION 0
+// additional
+#define Z_ICSR_EXTENSION  1
+#define Z_ICNTR_EXTENSION 1
+#define Z_IHPMR_EXTENSION 1
+#define Z_IFENCEI_EXTENSION 1
+#define Z_AM_EXTENSION      0
+#define Z_TSO_EXTENSION     0
+
 #define XLEN 32
-#define EXTENSION_STR "rv32imac"
-#define TIME_EXTENSION 1
 
 #define NUM_GPR 32
 #if F_EXTENSION
@@ -298,6 +303,7 @@
 #define CSR_MATCH6_STORE 0x2
 #define CSR_MATCH6_LOAD 0x1
 
+const char *riscv_get_extension_string();
 const char *riscv_get_mnemonic(unsigned inst);
 unsigned riscv_decompress(unsigned inst);
 

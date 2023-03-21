@@ -136,9 +136,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_U_CYCLE:
     return (unsigned)csr->cycle;
   case CSR_ADDR_M_TIME:
-#if TIME_EXTENSION
   case CSR_ADDR_U_TIME:
-#endif
     return (unsigned)csr->time;
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
@@ -147,9 +145,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_U_CYCLEH:
     return (unsigned)(csr->cycle >> 32);
   case CSR_ADDR_M_TIMEH:
-#if TIME_EXTENSION
   case CSR_ADDR_U_TIMEH:
-#endif
     return (unsigned)(csr->time >> 32);
   case CSR_ADDR_M_INSTRETH:
   case CSR_ADDR_U_INSTRETH:

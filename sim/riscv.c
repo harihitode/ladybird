@@ -1,5 +1,6 @@
 #include "riscv.h"
 #include <stdio.h>
+#include <string.h>
 
 #define ALT_INST 0x40000000
 
@@ -300,6 +301,42 @@ unsigned riscv_decompress(unsigned inst) {
     break;
   }
   return ret;
+}
+
+const char *riscv_get_extension_string() {
+  static char buf[256];
+  int z_seperate = 0;
+  sprintf(buf, "RV%dI", XLEN);
+  if (E_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "E");
+  }
+  if (M_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "M");
+  }
+  if (A_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "A");
+  }
+  if (F_EXTENSION && !D_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "F");
+  }
+  if (D_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "D");
+  }
+  if (C_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "C");
+  }
+  if (V_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "V");
+  }
+  if (Z_ICSR_EXTENSION) {
+    if (z_seperate++) sprintf(&buf[strlen(buf)], "_");
+    sprintf(&buf[strlen(buf)], "Zicsr");
+  }
+  if (Z_IFENCEI_EXTENSION) {
+    if (z_seperate++) sprintf(&buf[strlen(buf)], "_");
+    sprintf(&buf[strlen(buf)], "Zifencei");
+  }
+  return buf;
 }
 
 const char *riscv_get_mnemonic(unsigned inst) {
