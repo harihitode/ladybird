@@ -533,11 +533,40 @@ const char *riscv_get_mnemonic(unsigned inst) {
     default:
       break;
     }
+    if (inst & AMO_AQ) {
+      sprintf(&buf[strlen(buf)], ".AQ");
+    }
+    if (inst & AMO_RL) {
+      sprintf(&buf[strlen(buf)], ".RL");
+    }
     break;
   }
-  case OPCODE_MISC_MEM:
-    sprintf(buf, "FENCE");
+  case OPCODE_MISC_MEM: {
+    unsigned char fm = ((inst >> 28) & 0x0f);
+    unsigned rs1 = ((inst >> 15) & 0x1f);
+    unsigned rd = ((inst >> 7) & 0x1f);
+    unsigned pred = ((inst >> 24) & 0x0f);
+    unsigned succ = ((inst >> 20) & 0x0f);
+    if (funct3 == 0x0 && rs1 == 0 && rd == 0 && pred != 0 && succ != 0) {
+      if (fm == 0) {
+        sprintf(buf, "FENCE.");
+        if (inst & FENCE_PRED_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_PRED_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_PRED_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_PRED_W) sprintf(&buf[strlen(buf)], "W");
+        sprintf(&buf[strlen(buf)], ",");
+        if (inst & FENCE_SUCC_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_SUCC_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_SUCC_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_SUCC_W) sprintf(&buf[strlen(buf)], "W");
+      } else if (fm == 0x08 && pred == 0x3 && succ == 0x3) {
+        sprintf(buf, "FENCE.TSO");
+      }
+    } else if (funct3 == 0x1) {
+      sprintf(buf, "FENCE.I");
+    }
     break;
+  }
   case OPCODE_SYSTEM:
     switch (funct3) {
     case 0x1: // READ_WRITE
