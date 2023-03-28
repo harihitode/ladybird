@@ -118,6 +118,7 @@ int main(int argc, char *argv[]) {
       sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
     } else if (strcmp(argv[i], "--stat") == 0) {
       sim_set_step_callback(sim, step_handler);
+      stat_enable = 1;
     } else if (strcmp(argv[i], "--dump") == 0) {
       sim_set_step_callback(sim, dump_inst_callback);
     } else if (strcmp(argv[i], "--uart-in") == 0) {
@@ -145,8 +146,6 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         sim->htif_fromhost = (unsigned)strtol(argv[i], NULL, 0);
       }
-    } else if (strcmp(argv[i], "--stat") == 0) {
-      stat_enable = 1;
     }
   }
 
@@ -161,7 +160,9 @@ int main(int argc, char *argv[]) {
     goto cleanup;
   }
   // if you open disk file read only mode, set 1 to the last argument below
-  sim_virtio_disk(sim, disk_file_name, 0);
+  if (disk_file_name != NULL) {
+    sim_virtio_disk(sim, disk_file_name, 0);
+  }
   sim_uart_io(sim, uart_in_file_name, uart_out_file_name);
 
   if (stat_enable) {
