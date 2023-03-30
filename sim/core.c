@@ -1,4 +1,5 @@
 #include "core.h"
+#include "lsu.h"
 #include "memory.h"
 #include "csr.h"
 #include "riscv.h"
@@ -140,7 +141,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
     exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
     if (!exception) {
       unsigned index = 0;
-      line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+      line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
       index = paddr & core->mem->icache->line_mask;
       // update window
       for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
@@ -150,7 +151,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
           index = 0;
           exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
           if (exception == 0) {
-            line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+            line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
           }
         }
         if ((line[index] & 0x03) == 0x3) {
@@ -160,7 +161,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
             index = 0;
             exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
             if (exception == 0) {
-              line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+              line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
             }
             core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
             index = 2; // this 2 is ok, not a typo

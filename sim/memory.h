@@ -45,6 +45,7 @@ typedef struct memory_t {
   // CACHE for RAM
   struct cache_t *dcache;
   struct cache_t *icache;
+  struct cache_t *cache;
   // MMU
   // To support a physical address space larger than 4GiB,
   // RV32 stores a PPN in satp, ranther than a physical address.
@@ -56,47 +57,6 @@ typedef struct memory_t {
   // ROM
   struct rom_t *rom_list;
 } memory_t;
-
-typedef struct cache_line_t {
-  unsigned valid;
-  unsigned dirty;
-  unsigned tag;
-  char *data;
-} cache_line_t;
-
-typedef struct cache_t {
-  struct memory_t *mem;
-  unsigned line_len; // should be power of 2
-  unsigned line_size; // should be power of 2
-  cache_line_t *line;
-  // mask
-  unsigned index_mask;
-  unsigned tag_mask;
-  unsigned line_mask;
-  // performance counter
-  unsigned long access_count;
-  unsigned long hit_count;
-} cache_t;
-
-typedef struct tlb_line_t {
-  unsigned valid;
-  unsigned dirty;
-  unsigned tag;
-  unsigned value;
-  unsigned megapage;
-} tlb_line_t;
-
-typedef struct tlb_t {
-  struct memory_t *mem;
-  unsigned line_size; // should be power of 2
-  tlb_line_t *line;
-  // mask
-  unsigned index_mask;
-  unsigned tag_mask;
-  // performance counter
-  unsigned long access_count;
-  unsigned long hit_count;
-} tlb_t;
 
 void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
 unsigned memory_load(memory_t *, unsigned addr, unsigned *value, unsigned size, unsigned prv);
@@ -122,21 +82,6 @@ void memory_dcache_invalidate(memory_t *);
 void memory_dcache_invalidate_line(memory_t *, unsigned paddr);
 void memory_dcache_write_back(memory_t *);
 unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
-
-#define CACHE_WRITE 1
-#define CACHE_READ 0
-
-// cache (instruction or data)
-void cache_init(cache_t *, memory_t *, unsigned line_len, unsigned line_size);
-char *cache_get(cache_t *, unsigned addr, char write);
-int cache_write_back(cache_t *, unsigned line);
-void cache_fini(cache_t *);
-
-// translate lookaside buffer
-void tlb_init(tlb_t *, memory_t *, unsigned line_size);
-unsigned tlb_get(tlb_t *, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
-void tlb_clear(tlb_t *);
-void tlb_fini(tlb_t *);
 
 void rom_init(rom_t *rom);
 void rom_str(rom_t *rom, const char *data, unsigned size);
