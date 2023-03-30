@@ -15,7 +15,7 @@ void csr_init(csr_t *csr) {
   csr->plic = NULL;
   csr->aclint = NULL;
   csr->trig = NULL;
-  csr->hartid = 0;
+  csr->hart_id = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
   csr->status_mie = 0;
@@ -43,11 +43,8 @@ void csr_init(csr_t *csr) {
   csr->stvec = 0;
   csr->mcounteren = 0;
   csr->scounteren = 0;
-  // SW interrupts
-  csr->software_interrupt_m = 0;
-  csr->software_interrupt_s = 0;
   // Timer interrupts
-  csr->timer_interrupt_s = 0;
+  csr->stip = 0;
   // debug
   csr->dcsr_ebreakm = 0;
   csr->dcsr_ebreaks = 0;
@@ -71,8 +68,8 @@ static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
   unsigned extint = 0;
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
-  timerint = csr->timer_interrupt_s;
-  swint = csr->software_interrupt_s;
+  timerint = csr->stip;
+  swint = csr->aclint->ssip;
   value =
     (swint << CSR_INT_SSI_FIELD) |
     (extint << CSR_INT_SEI_FIELD) |
@@ -87,7 +84,7 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
   timerint = (csr->aclint->mtime >= csr->aclint->mtimecmp) ? 1 : 0;
-  swint = csr->software_interrupt_m;
+  swint = csr->aclint->msip;
   value |=
     (swint << CSR_INT_MSI_FIELD) |
     (extint << CSR_INT_MEI_FIELD) |
@@ -100,7 +97,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_EPC:
     return csr->mepc;
   case CSR_ADDR_M_HARTID:
-    return csr->hartid;
+    return csr->hart_id;
   case CSR_ADDR_M_STATUS:
   case CSR_ADDR_S_STATUS:
     {
@@ -395,21 +392,21 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     break;
   case CSR_ADDR_M_IP:
     if (value & CSR_INT_MSI) {
-      csr->software_interrupt_m = 1;
+      csr->aclint->msip = 1;
     } else {
-      csr->software_interrupt_m = 0;
+      csr->aclint->msip = 0;
     }
     // fall-through
   case CSR_ADDR_S_IP:
     if (value & CSR_INT_STI) {
-      csr->timer_interrupt_s = 1;
+      csr->stip = 1;
     } else {
-      csr->timer_interrupt_s = 0;
+      csr->stip = 0;
     }
     if (value & CSR_INT_SSI) {
-      csr->software_interrupt_s = 1;
+      csr->aclint->ssip = 1;
     } else {
-      csr->software_interrupt_s = 0;
+      csr->aclint->ssip = 0;
     }
     break;
   case CSR_ADDR_S_TVAL:
@@ -682,7 +679,8 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
     csr->status_mpp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
+    fprintf(stderr, "[to M] trap from %d to %u trap_code %08x epc %08x next_pc %08x\n", csr->status_mpp, to_mode, trap_code, csr->mepc, csr->pc);
+    fprintf(stderr, "MIDELEG %08x MEDELEG %08x\n", csr->mideleg, csr->medeleg);
 #endif
   } else if (to_mode == PRIVILEGE_MODE_S) {
     csr->stval = trap_value;
@@ -697,7 +695,8 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->pc);
+    fprintf(stderr, "[to S] trap from %d to %u trap_code %08x epc %08x next_pc %08x\n", csr->status_spp, to_mode, trap_code, csr->sepc, csr->pc);
+    fprintf(stderr, "MIDELEG %08x MEDELEG %08x\n", csr->mideleg, csr->medeleg);
 #endif
   }
   return;
