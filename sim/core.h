@@ -19,7 +19,7 @@ typedef struct core_t {
   window_t window; // instruction window
 } core_t;
 
-void core_init(core_t *core);
+void core_init(core_t *, int hart_id, struct memory_t *, struct plic_t *, struct aclint_t *, struct trigger_t *);
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv);
 void core_window_flush(core_t *core);
 void core_fini(core_t *core);

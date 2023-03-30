@@ -10,7 +10,7 @@
 #define CORE_MA_STORE (CSR_MATCH6_STORE)
 #define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
 
-void core_init(core_t *core) {
+void core_init(core_t *core, int hart_id, struct memory_t *mem, struct plic_t *plic, struct aclint_t *aclint, struct trigger_t *trigger) {
   // clear gpr
   for (unsigned i = 0; i < NUM_GPR; i++) {
     core->gpr[i] = 0;
@@ -21,6 +21,16 @@ void core_init(core_t *core) {
   }
   core->window.inst = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  // init csr
+  core->csr = (csr_t *)malloc(sizeof(csr_t));
+  csr_init(core->csr);
+  // weak reference to csr
+  core->mem = mem;
+  core->csr->mem = mem;
+  core->csr->plic = plic;
+  core->csr->aclint = aclint;
+  core->csr->trig = trigger;
+  core->csr->hart_id = hart_id;
 }
 
 static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
@@ -495,5 +505,7 @@ void core_fini(core_t *core) {
   free(core->window.pc);
   free(core->window.inst);
   free(core->window.exception);
+  csr_fini(core->csr);
+  free(core->csr);
   return;
 }

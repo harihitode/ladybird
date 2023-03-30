@@ -86,7 +86,6 @@ typedef struct sim_t {
   enum sim_state state;
   struct core_t *core;
   struct memory_t *mem;
-  struct csr_t *csr;
   struct elf_t *elf;
   struct trigger_t *trigger;
   struct uart_t *uart;
