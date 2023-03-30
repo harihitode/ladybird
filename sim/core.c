@@ -23,41 +23,6 @@ void core_init(core_t *core) {
   core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
 }
 
-static unsigned get_opcode(unsigned inst) { return inst & 0x0000007f; }
-static unsigned get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
-static unsigned get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
-static unsigned get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
-static unsigned get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
-static unsigned get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
-static unsigned get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
-static unsigned get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
-static unsigned get_branch_offset(unsigned inst) {
-  return ((((int)inst >> 19) & 0xfffff000) |
-          (((inst >> 25) << 5) & 0x000007e0) |
-          (((inst >> 7) & 0x00000001) << 11) | ((inst >> 7) & 0x0000001e));
-}
-static unsigned get_jalr_offset(unsigned inst) {
-  return ((int)inst >> 20);
-}
-static unsigned get_jal_offset(unsigned inst) {
-  return ((((int)inst >> 11) & 0xfff00000) | (inst & 0x000ff000) |
-          (((inst >> 20) & 0x00000001) << 11) |
-          ((inst >> 20) & 0x000007fe));
-}
-static unsigned get_store_offset(unsigned inst) {
-  return ((((int)inst >> 25) << 5) | ((inst >> 7) & 0x0000001f));
-}
-static unsigned get_load_offset(unsigned inst) {
-  return ((int)inst >> 20);
-}
-static unsigned get_csr_addr(unsigned inst) {
-  return ((inst >> 20) & 0x00000fff);
-}
-static unsigned get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
-static unsigned get_immediate(unsigned inst) {
-  return ((int)inst >> 20);
-}
-
 static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
   switch (funct) {
   case 0x0: // ADD, SUB, ADDI
@@ -233,11 +198,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   unsigned inst;
   unsigned pc_next;
   unsigned opcode;
-#ifdef REGISTER_ACCESS_STATS
-  int window_index = core_fetch_instruction(core, pc, result, prv);
-#else
   core_fetch_instruction(core, pc, result, prv);
-#endif
   if (result->exception_code != 0) {
     return;
   }
@@ -248,15 +209,15 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     pc_next = pc + 2;
     inst = riscv_decompress(result->inst);
   }
-  opcode = get_opcode(inst);
+  result->opcode = opcode = riscv_get_opcode(inst);
   // exec
   switch (opcode) {
   case OPCODE_OP_IMM: {
-    result->rd_regno = get_rd(inst);
-    result->rs1_regno = get_rs1(inst);
+    result->rd_regno = riscv_get_rd(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
     unsigned src1 = core->gpr[result->rs1_regno];
-    unsigned src2 = get_immediate(inst);
-    unsigned funct = get_funct3(inst);
+    unsigned src2 = riscv_get_immediate(inst);
+    unsigned funct = riscv_get_funct3(inst);
     if (funct == 0x0) { // SUBI does not exist
       process_alu(funct, src1, src2, 0, result);
     } else {
@@ -265,44 +226,44 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     break;
   }
   case OPCODE_OP: {
-    result->rd_regno = get_rd(inst);
-    result->rs1_regno = get_rs1(inst);
-    result->rs2_regno = get_rs2(inst);
+    result->rd_regno = riscv_get_rd(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
     unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = core->gpr[result->rs2_regno];
-    if (get_funct7(inst) == 0x01) {
-      process_muldiv(get_funct3(inst), src1, src2, result);
+    if (riscv_get_funct7(inst) == 0x01) {
+      process_muldiv(riscv_get_funct3(inst), src1, src2, result);
     } else {
-      process_alu(get_funct3(inst), src1, src2, (inst & 0x40000000), result);
+      process_alu(riscv_get_funct3(inst), src1, src2, (inst & 0x40000000), result);
     }
     break;
   }
   case OPCODE_AUIPC:
-    result->rd_regno = get_rd(inst);
+    result->rd_regno = riscv_get_rd(inst);
     result->rd_data = pc + (inst & 0xfffff000);
     break;
   case OPCODE_LUI:
-    result->rd_regno = get_rd(inst);
+    result->rd_regno = riscv_get_rd(inst);
     result->rd_data = (inst & 0xfffff000);
     break;
   case OPCODE_JALR:
-    result->rd_regno = get_rd(inst);
+    result->rd_regno = riscv_get_rd(inst);
     result->rd_data = pc_next;
-    result->rs1_regno = get_rs1(inst);
-    pc_next = core->gpr[result->rs1_regno] + get_jalr_offset(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    pc_next = core->gpr[result->rs1_regno] + riscv_get_jalr_offset(inst);
     break;
   case OPCODE_JAL:
-    result->rd_regno = get_rd(inst);
+    result->rd_regno = riscv_get_rd(inst);
     result->rd_data = pc_next;
-    pc_next = pc + get_jal_offset(inst);
+    pc_next = pc + riscv_get_jal_offset(inst);
     break;
   case OPCODE_STORE: {
     result->m_access = CORE_MA_STORE;
-    result->rs1_regno = get_rs1(inst);
-    result->rs2_regno = get_rs2(inst);
-    result->m_vaddr = core->gpr[result->rs1_regno] + get_store_offset(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
     result->m_data = core->gpr[result->rs2_regno];
-    switch (get_funct3(inst)) {
+    switch (riscv_get_funct3(inst)) {
     case 0x0:
       result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 1, prv);
       break;
@@ -320,10 +281,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   }
   case OPCODE_LOAD: {
     result->m_access = CORE_MA_LOAD;
-    result->rd_regno = get_rd(inst);
-    result->rs1_regno = get_rs1(inst);
-    result->m_vaddr = core->gpr[result->rs1_regno] + get_load_offset(inst);
-    switch (get_funct3(inst)) {
+    result->rd_regno = riscv_get_rd(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_load_offset(inst);
+    switch (riscv_get_funct3(inst)) {
     case 0x0: // singed ext byte
       result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
       result->rd_data = (int)((char)result->rd_data);
@@ -349,12 +310,12 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   }
   case OPCODE_AMO: {
     result->m_access = CORE_MA_ACCESS;
-    result->rd_regno = get_rd(inst);
-    result->rs1_regno = get_rs1(inst);
-    result->rs2_regno = get_rs2(inst);
+    result->rd_regno = riscv_get_rd(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
     result->m_vaddr = core->gpr[result->rs1_regno];
     unsigned src2 = core->gpr[result->rs2_regno];
-    switch (get_funct5(inst)) {
+    switch (riscv_get_funct5(inst)) {
     case 0x002: // Load Reserved
       result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
       break;
@@ -412,40 +373,40 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     memory_dcache_write_back(core->mem);
     break;
   case OPCODE_SYSTEM:
-    if (get_funct3(inst) & 0x03) {
-      result->rd_regno = get_rd(inst);
+    if (riscv_get_funct3(inst) & 0x03) {
+      result->rd_regno = riscv_get_rd(inst);
     }
     // CSR OPERATIONS
-    switch (get_funct3(inst)) {
+    switch (riscv_get_funct3(inst)) {
     case 0x1: // READ_WRITE
-      result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
+      result->rs1_regno = riscv_get_rs1(inst);
+      result->rd_data = csr_csrrw(core->csr, riscv_get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x2: // READ_SET
-      result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
+      result->rs1_regno = riscv_get_rs1(inst);
+      result->rd_data = csr_csrrs(core->csr, riscv_get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x3: // READ_CLEAR
-      result->rs1_regno = get_rs1(inst);
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), core->gpr[result->rs1_regno], result);
+      result->rs1_regno = riscv_get_rs1(inst);
+      result->rd_data = csr_csrrc(core->csr, riscv_get_csr_addr(inst), core->gpr[result->rs1_regno], result);
       break;
     case 0x4: // Hypervisor Extension
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     case 0x5: // READ_WRITE (imm)
       result->rs1_regno = 0;
-      result->rd_data = csr_csrrw(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
+      result->rd_data = csr_csrrw(core->csr, riscv_get_csr_addr(inst), riscv_get_csr_imm(inst), result);
       break;
     case 0x6: // READ_SET (imm)
       result->rs1_regno = 0;
-      result->rd_data = csr_csrrs(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
+      result->rd_data = csr_csrrs(core->csr, riscv_get_csr_addr(inst), riscv_get_csr_imm(inst), result);
       break;
     case 0x7: // READ_CLEAR (imm)
       result->rs1_regno = 0;
-      result->rd_data = csr_csrrc(core->csr, get_csr_addr(inst), get_csr_imm(inst), result);
+      result->rd_data = csr_csrrc(core->csr, riscv_get_csr_addr(inst), riscv_get_csr_imm(inst), result);
       break;
     default: // OTHER SYSTEM OPERATIONS (ECALL, EBREAK, MRET, etc.)
-      switch (get_funct12(inst)) {
+      switch (riscv_get_funct12(inst)) {
       case 0x000: // ECALL
         if (core->csr->mode == PRIVILEGE_MODE_M) {
           result->exception_code = TRAP_CODE_ENVIRONMENT_CALL_M;
@@ -467,7 +428,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       case 0x105: // WFI
         break;
       default:
-        if (get_funct7(inst) == 0x09) {
+        if (riscv_get_funct7(inst) == 0x09) {
           // SFENCE.VMA
           memory_icache_invalidate(core->mem);
           memory_dcache_write_back(core->mem);
@@ -481,12 +442,12 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     break;
   case OPCODE_BRANCH: {
     // read
-    result->rs1_regno = get_rs1(inst);
-    result->rs2_regno = get_rs2(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
     unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = core->gpr[result->rs2_regno];
     unsigned pred = 0;
-    switch (get_funct3(inst)) {
+    switch (riscv_get_funct3(inst)) {
     case 0x0:
       pred = (src1 == src2) ? 1 : 0;
       break;
@@ -510,7 +471,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       break;
     }
     if (pred == 1) {
-      pc_next = pc + get_branch_offset(inst);
+      pc_next = pc + riscv_get_branch_offset(inst);
     }
     break;
   }
@@ -528,50 +489,6 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   if (result->flush) {
     core_window_flush(core);
   }
-
-#ifdef REGISTER_ACCESS_STATS
-  result->rs1_read_skip = 0;
-  result->rs2_read_skip = 0;
-  result->rd_write_skip = 0;
-
-  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
-    unsigned r_break = 0;
-    unsigned w_break = 0;
-    for (int i = 1; i < 4; i++) {
-      // read skip search
-      int r_index = window_index - i;
-      if (!r_break && r_index < CORE_WINDOW_SIZE && core->window.pc[r_index] != 0xffffffff) {
-        unsigned r_inst = riscv_decompress(core->window.inst[r_index]);
-        unsigned r_opcode = get_opcode(r_inst);
-        if (r_opcode == OPCODE_OP || r_opcode == OPCODE_OP_IMM ||
-            r_opcode == OPCODE_LUI || r_opcode == OPCODE_AUIPC) {
-          if (result->rs1_regno != 0 && result->rs1_regno == get_rd(r_inst)) {
-            result->rs1_read_skip = 1;
-          }
-          if (opcode == OPCODE_OP && result->rs2_regno != 0 && result->rs2_regno == get_rd(r_inst)) {
-            result->rs2_read_skip = 1;
-          }
-        } else if (r_opcode == OPCODE_BRANCH || r_opcode == OPCODE_JAL || r_opcode == OPCODE_JALR) {
-          r_break = 1;
-        }
-      }
-      // write skip search
-      int w_index = window_index + i;
-      if (!w_break && w_index >= 0 && core->window.pc[w_index] != 0xffffffff) {
-        unsigned w_inst = riscv_decompress(core->window.inst[w_index]);
-        unsigned w_opcode = get_opcode(w_inst);
-        if (w_opcode == OPCODE_OP || w_opcode == OPCODE_OP_IMM ||
-            w_opcode == OPCODE_LUI || w_opcode == OPCODE_AUIPC || w_opcode == OPCODE_LOAD) {
-          if (opcode == OPCODE_OP && result->rd_regno != 0 && result->rd_regno == get_rd(w_inst)) {
-            result->rd_write_skip = 1;
-          }
-        } else if (w_opcode == OPCODE_BRANCH || w_opcode == OPCODE_JAL || w_opcode == OPCODE_JALR) {
-          w_break = 1;
-        }
-      }
-    }
-  }
-#endif
   return;
 }
 
