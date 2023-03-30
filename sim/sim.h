@@ -36,7 +36,6 @@
 #define PLIC_UART_IRQ_NO 10
 
 #define CORE_WINDOW_SIZE 16
-// #define REGISTER_ACCESS_STATS
 
 enum sim_state { running, quit };
 
@@ -44,22 +43,35 @@ struct core_step_result {
   unsigned char prv;
   unsigned long long cycle;
   unsigned pc;
-  unsigned inst;
-  unsigned flush;
-  unsigned rd_regno;
-  unsigned rd_write_skip;
-  unsigned rd_data;
-  unsigned rs1_regno;
-  unsigned rs1_read_skip;
-  unsigned rs2_regno;
-  unsigned rs2_read_skip;
   unsigned pc_next;
+  unsigned inst;
+  unsigned opcode;
+  unsigned char flush;
   unsigned exception_code;
   unsigned char m_access;
   unsigned m_vaddr;
   unsigned m_data;
   unsigned char trapret;
   unsigned char trigger;
+
+  unsigned char rd_regno;
+  unsigned char rd_write_skip;
+  unsigned rd_data;
+  unsigned char rs1_regno;
+  unsigned char rs1_read_skip;
+  unsigned char rs2_regno;
+  unsigned char rs2_read_skip;
+
+  unsigned inst_window_pos;
+  unsigned inst_window_pc[CORE_WINDOW_SIZE];
+  unsigned inst_window[CORE_WINDOW_SIZE];
+
+  unsigned char icache_access;
+  unsigned char icache_hit;
+  unsigned char dcache_access;
+  unsigned char dcache_hit;
+  unsigned char tlb_access;
+  unsigned char tlb_hit;
 };
 
 typedef struct sim_t {
@@ -80,7 +92,8 @@ typedef struct sim_t {
   char **reginfo;  // register information
   char triple[64]; // triple information
   void (**dbg_handler)(struct sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned);
-  void (*stp_handler)(struct core_step_result *);
+  void (*stp_handler)(struct core_step_result *, void *arg);
+  void *stp_arg;
 } sim_t;
 
 // simulator general interface
@@ -121,6 +134,8 @@ unsigned sim_icount(unsigned count);
 // set callback function on entering debug mode
 void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned));
 // set callback function on every step
-void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result));
+void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result, void *));
+void sim_set_step_callback_arg(sim_t *sim, void *arg);
+void sim_regstat_en(sim_t *sim);
 
 #endif

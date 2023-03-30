@@ -44,6 +44,9 @@ typedef struct csr_t {
   unsigned stval; // [S] trap value
   unsigned mcounteren;
   unsigned scounteren;
+  unsigned long long hpmcounter[29];
+  unsigned hpmevent[29];
+  unsigned char regstat_en; // for register access analysis
   // Sdext
   unsigned char dcsr_ebreakm;
   unsigned char dcsr_ebreaks;
@@ -55,7 +58,6 @@ typedef struct csr_t {
   unsigned dpc; // debugging PC
   // Sdtrig
   unsigned tselect;
-
 } csr_t;
 
 void csr_init(csr_t *);

@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define CSR_NUM_HPM 29
+
 void csr_init(csr_t *csr) {
   csr->mem = NULL;
   csr->plic = NULL;
@@ -56,6 +58,11 @@ void csr_init(csr_t *csr) {
   csr->dcsr_prv = PRIVILEGE_MODE_M;
   csr->dpc = 0;
   csr->tselect = 0;
+  for (int i = 0; i < CSR_NUM_HPM; i++) {
+    csr->hpmcounter[i] = 0;
+    csr->hpmevent[i] = 0;
+  }
+  csr->regstat_en = 0;
   return;
 }
 
@@ -250,6 +257,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_HPMCOUNTER29:
   case CSR_ADDR_M_HPMCOUNTER30:
   case CSR_ADDR_M_HPMCOUNTER31:
+    return (unsigned)csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3];
   case CSR_ADDR_M_HPMCOUNTER3H:
   case CSR_ADDR_M_HPMCOUNTER4H:
   case CSR_ADDR_M_HPMCOUNTER5H:
@@ -279,6 +287,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_HPMCOUNTER29H:
   case CSR_ADDR_M_HPMCOUNTER30H:
   case CSR_ADDR_M_HPMCOUNTER31H:
+    return (unsigned)(csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3H] >> 32);
   case CSR_ADDR_M_HPMEVENT3:
   case CSR_ADDR_M_HPMEVENT4:
   case CSR_ADDR_M_HPMEVENT5:
@@ -308,7 +317,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_HPMEVENT29:
   case CSR_ADDR_M_HPMEVENT30:
   case CSR_ADDR_M_HPMEVENT31:
-    return 0;
+    return csr->hpmevent[addr - CSR_ADDR_M_HPMEVENT3];
   default:
     if (result) result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
 #if 0
@@ -471,6 +480,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_VENDORID:
   case CSR_ADDR_M_ARCHID:
   case CSR_ADDR_M_IMPID:
+    break;
   case CSR_ADDR_M_HPMCOUNTER3:
   case CSR_ADDR_M_HPMCOUNTER4:
   case CSR_ADDR_M_HPMCOUNTER5:
@@ -500,6 +510,10 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_HPMCOUNTER29:
   case CSR_ADDR_M_HPMCOUNTER30:
   case CSR_ADDR_M_HPMCOUNTER31:
+    csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3] =
+      (csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3] & 0xffffffff00000000) |
+      (unsigned)value;
+    break;
   case CSR_ADDR_M_HPMCOUNTER3H:
   case CSR_ADDR_M_HPMCOUNTER4H:
   case CSR_ADDR_M_HPMCOUNTER5H:
@@ -529,6 +543,10 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_HPMCOUNTER29H:
   case CSR_ADDR_M_HPMCOUNTER30H:
   case CSR_ADDR_M_HPMCOUNTER31H:
+    csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3H] =
+      (csr->hpmcounter[addr - CSR_ADDR_M_HPMCOUNTER3H] & 0x00000000ffffffff) |
+      (unsigned long long)value << 32;
+    break;
   case CSR_ADDR_M_HPMEVENT3:
   case CSR_ADDR_M_HPMEVENT4:
   case CSR_ADDR_M_HPMEVENT5:
@@ -558,6 +576,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_HPMEVENT29:
   case CSR_ADDR_M_HPMEVENT30:
   case CSR_ADDR_M_HPMEVENT31:
+    csr->hpmevent[addr - CSR_ADDR_M_HPMEVENT3] = value;
     break;
   default:
     if (result) result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -722,14 +741,107 @@ static void csr_restore_trap(csr_t *csr) {
   }
 }
 
-void csr_cycle(csr_t *csr, struct core_step_result *result) {
-  // update counters
+static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   csr->cycle++; // assume 100 MHz
   csr->instret++;
   csr->pc = result->pc_next;
   if ((csr->cycle % 10) == 0) {
     csr->time++; // precision 0.1 us
   }
+
+  // TODO: variable counting
+  // HPM3 regread total
+  // HPM4 regread skip total
+  // HPM5 regwrite total
+  // HPM6 regwrite skip total
+  // HPM7 ICACHE access
+  // HPM8 ICACHE hit
+  // HPM9 DCACHE access
+  // HPM10 DCACHE hit
+  // HPM11 TLB access
+  // HPM12 TLB hit
+  // if (csr->regstat_en) {
+  //   if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
+  //     unsigned r_break = 0;
+  //     unsigned w_break = 0;
+  //     for (int i = 1; i < 4; i++) {
+  //       // read skip search
+  //       int r_index = result->inst_window_pos - i;
+  //       if (!r_break && r_index < CORE_WINDOW_SIZE && result->inst_window_pc[r_index] != 0xffffffff) {
+  //         unsigned r_inst = riscv_decompress(result->inst_window[r_index]);
+  //         unsigned r_opcode = riscv_get_opcode(r_inst);
+  //         if (r_opcode == OPCODE_OP || r_opcode == OPCODE_OP_IMM ||
+  //             r_opcode == OPCODE_LUI || r_opcode == OPCODE_AUIPC) {
+  //           if (result->rs1_regno != 0 && result->rs1_regno == riscv_get_rd(r_inst)) {
+  //             result->rs1_read_skip = 1;
+  //           }
+  //           if (result->opcode == OPCODE_OP && result->rs2_regno != 0 &&
+  //               result->rs2_regno == riscv_get_rd(r_inst)) {
+  //             result->rs2_read_skip = 1;
+  //           }
+  //         } else if (r_opcode == OPCODE_BRANCH || r_opcode == OPCODE_JAL || r_opcode == OPCODE_JALR) {
+  //           r_break = 1;
+  //         }
+  //       }
+  //       // write skip search
+  //       int w_index = result->inst_window_pos + i;
+  //       if (!w_break && w_index >= 0 && result->inst_window_pc[w_index] != 0xffffffff) {
+  //         unsigned w_inst = riscv_decompress(result->inst_window[w_index]);
+  //         unsigned w_opcode = riscv_get_opcode(w_inst);
+  //         if (w_opcode == OPCODE_OP || w_opcode == OPCODE_OP_IMM ||
+  //             w_opcode == OPCODE_LUI || w_opcode == OPCODE_AUIPC || w_opcode == OPCODE_LOAD) {
+  //           if (result->opcode == OPCODE_OP && result->rd_regno != 0 &&
+  //               result->rd_regno == riscv_get_rd(w_inst)) {
+  //             result->rd_write_skip = 1;
+  //           }
+  //         } else if (w_opcode == OPCODE_BRANCH || w_opcode == OPCODE_JAL || w_opcode == OPCODE_JALR) {
+  //           w_break = 1;
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
+  if (result->rs1_regno != 0) {
+    csr->hpmcounter[0]++;
+  }
+  if (result->rs1_read_skip != 0) {
+    csr->hpmcounter[1]++;
+  }
+  if (result->rs2_regno != 0) {
+    csr->hpmcounter[0]++;
+  }
+  if (result->rs2_read_skip != 0) {
+    csr->hpmcounter[1]++;
+  }
+  if (result->rd_regno != 0) {
+    csr->hpmcounter[2]++;
+  }
+  if (result->rd_write_skip != 0) {
+    csr->hpmcounter[3]++;
+  }
+  if (result->icache_access) {
+    csr->hpmcounter[4]++;
+  }
+  if (result->icache_hit) {
+    csr->hpmcounter[5]++;
+  }
+  if (result->dcache_access) {
+    csr->hpmcounter[6]++;
+  }
+  if (result->dcache_hit) {
+    csr->hpmcounter[7]++;
+  }
+  if (result->tlb_access) {
+    csr->hpmcounter[8]++;
+  }
+  if (result->tlb_hit) {
+    csr->hpmcounter[9]++;
+  }
+}
+
+void csr_cycle(csr_t *csr, struct core_step_result *result) {
+  // update counters
+  csr_update_counters(csr, result);
 
   if (result->trigger) {
     // [TODO] trigger timing control
