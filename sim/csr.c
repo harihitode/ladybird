@@ -13,6 +13,7 @@
 void csr_init(csr_t *csr) {
   csr->mem = NULL;
   csr->plic = NULL;
+  csr->aclint = NULL;
   csr->trig = NULL;
   csr->hartid = 0;
   csr->mode = PRIVILEGE_MODE_M;
@@ -25,8 +26,6 @@ void csr_init(csr_t *csr) {
   csr->status_sum = 0;
   // counters
   csr->cycle = 0;
-  csr->time = 0;
-  csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
   csr->interrupts_enable = 0;
@@ -87,7 +86,7 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned extint = 0;
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
-  timerint = (csr->time >= csr->timecmp) ? 1 : 0;
+  timerint = (csr->aclint->mtime >= csr->aclint->mtimecmp) ? 1 : 0;
   swint = csr->software_interrupt_m;
   value |=
     (swint << CSR_INT_MSI_FIELD) |
@@ -144,7 +143,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return (unsigned)csr->cycle;
   case CSR_ADDR_M_TIME:
   case CSR_ADDR_U_TIME:
-    return (unsigned)csr->time;
+    return (unsigned)csr->aclint->mtime;
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
     return (unsigned)csr->instret;
@@ -153,7 +152,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return (unsigned)(csr->cycle >> 32);
   case CSR_ADDR_M_TIMEH:
   case CSR_ADDR_U_TIMEH:
-    return (unsigned)(csr->time >> 32);
+    return (unsigned)(csr->aclint->mtime >> 32);
   case CSR_ADDR_M_INSTRETH:
   case CSR_ADDR_U_INSTRETH:
     return (unsigned)(csr->instret >> 32);
@@ -431,7 +430,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_TIME:
-    csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
+    csr->aclint->mtime = (csr->aclint->mtime & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_INSTRET:
     csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
@@ -440,7 +439,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_TIMEH:
-    csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
+    csr->aclint->mtime = (csr->aclint->mtime & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_INSTRETH:
     csr->instret = (csr->instret & 0x00000000ffffffff) | (unsigned long long)value << 32;
@@ -704,15 +703,6 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
   return;
 }
 
-unsigned long long csr_get_timecmp(csr_t *csr) {
-  return csr->timecmp;
-}
-
-void csr_set_timecmp(csr_t *csr, unsigned long long value) {
-  csr->timecmp = value;
-  return;
-}
-
 static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
   memory_tlb_clear(csr->mem);
@@ -745,10 +735,6 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   csr->cycle++; // assume 100 MHz
   csr->instret++;
   csr->pc = result->pc_next;
-  if ((csr->cycle % 10) == 0) {
-    csr->time++; // precision 0.1 us
-  }
-
   // TODO: variable counting
   // HPM3 regread total
   // HPM4 regread skip total
@@ -760,8 +746,6 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   // HPM10 DCACHE hit
   // HPM11 TLB access
   // HPM12 TLB hit
-
-
   if (csr->regstat_en) {
     if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
       unsigned r_break = 0;

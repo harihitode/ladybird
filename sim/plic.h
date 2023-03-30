@@ -38,12 +38,17 @@ void plic_fini(plic_t *);
 
 typedef struct aclint_t {
   struct mmio_t base;
-  struct csr_t *csr;
+  unsigned long long mtime;
+  unsigned long long mtimecmp;
+  unsigned char msip;
+  unsigned char ssip;
+  unsigned cycle_count;
 } aclint_t;
 
 void aclint_init(aclint_t *);
 char aclint_read(struct mmio_t *, unsigned addr);
 void aclint_write(struct mmio_t *, unsigned addr, char value);
+void aclint_cycle(aclint_t *);
 void aclint_fini(aclint_t *);
 
 #endif

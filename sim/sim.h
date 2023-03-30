@@ -15,6 +15,7 @@
 // 128MiB, 4KiB page RAM
 #define RAM_SIZE (128 * 1024 * 1024)
 #define RAM_PAGE_SIZE (4 * 1024)
+#define RAM_PAGE_OFFS_MASK (RAM_PAGE_SIZE - 1)
 
 // debug address
 #define DEVTREE_BLOB_FILE "./ladybird.dtb"
@@ -24,8 +25,9 @@
 #define CONFIG_ROM_SIZE 1024
 
 // advanced core local interrupt map
-#define ACLINT_MSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00000000)
+#define ACLINT_MSIP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00000000)
 #define ACLINT_MTIMECMP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00004000)
+#define ACLINT_SETSSIP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00008000)
 #define ACLINT_MTIME_BASE (MEMORY_BASE_ADDR_ACLINT + 0x0000Bff8)
 
 // IRQ
@@ -37,12 +39,15 @@
 
 #define CORE_WINDOW_SIZE 16
 
+#define DEVICE_ID_DMA -1
+
 enum sim_state { running, quit };
 
 struct core_step_result {
   unsigned char prv;
   unsigned long long cycle;
   unsigned pc;
+  unsigned pc_paddr;
   unsigned pc_next;
   unsigned inst;
   unsigned opcode;
@@ -50,6 +55,7 @@ struct core_step_result {
   unsigned exception_code;
   unsigned char m_access;
   unsigned m_vaddr;
+  unsigned m_paddr;
   unsigned m_data;
   unsigned char trapret;
   unsigned char trigger;

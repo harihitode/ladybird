@@ -28,7 +28,7 @@ void sim_config_on(sim_t *sim) {
           VENDOR_NAME, ARCH_NAME,
           ACLINT_MTIME_BASE,
           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
-          riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSWI_BASE);
+          riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSIP_BASE);
   memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
   free(config_rom);
 }
@@ -65,7 +65,6 @@ void sim_init(sim_t *sim) {
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
   aclint_init(sim->aclint);
-  sim->aclint->csr = sim->csr;
   memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT);
   /// trigger module
   sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
@@ -73,6 +72,7 @@ void sim_init(sim_t *sim) {
   // set weak reference to csr
   sim->csr->mem = sim->mem;
   sim->csr->plic = sim->plic;
+  sim->csr->aclint = sim->aclint;
   sim->csr->trig = sim->trigger;
   // init register
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
@@ -192,6 +192,7 @@ void sim_resume(sim_t *sim) {
     core_step(sim->core, pc, &result, sim->csr->mode);
     if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
     trig_cycle(sim->trigger, &result);
+    aclint_cycle(sim->aclint);
     csr_cycle(sim->csr, &result);
   }
 

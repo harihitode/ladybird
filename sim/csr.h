@@ -9,6 +9,7 @@ struct trigger_t;
 typedef struct csr_t {
   struct memory_t *mem;
   struct plic_t *plic;
+  struct aclint_t *aclint;
   struct trigger_t *trig;
   // shadow registers
   unsigned mode;
@@ -16,8 +17,6 @@ typedef struct csr_t {
   // status
   unsigned hartid;
   unsigned long long cycle;
-  unsigned long long time;
-  unsigned long long timecmp;
   unsigned long long instret;
   unsigned char software_interrupt_m;
   unsigned char software_interrupt_s;
