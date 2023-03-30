@@ -20,7 +20,7 @@
 #define DEVTREE_BLOB_FILE "./ladybird.dtb"
 #define DEVTREE_ROM_ADDR 0x00001020
 #define DEVTREE_ROM_SIZE 2048
-#define CONFIG_ROM_ADDR 0x00002000
+#define CONFIG_ROM_ADDR 0x00001000
 #define CONFIG_ROM_SIZE 1024
 
 // advanced core local interrupt map
@@ -85,6 +85,8 @@ typedef struct sim_t {
 
 // simulator general interface
 void sim_init(sim_t *);
+void sim_dtb_on(sim_t *);
+void sim_config_on(sim_t *);
 void sim_single_step(sim_t *);
 void sim_resume(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);

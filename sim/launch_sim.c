@@ -174,7 +174,11 @@ int main(int argc, char *argv[]) {
     sprintf(log_file_name, "%s.log", basename(argv[1]));
     logfile = fopen(log_file_name, "w");
     fprintf(logfile, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
+    sim_config_on(sim);
+  } else {
+    sim_dtb_on(sim);
   }
+
   sim_write_register(sim, REG_A0, 0); // contains a unique per-hart ID.
   sim_write_register(sim, REG_A1, DEVTREE_ROM_ADDR); // contains device tree blob. address
   while (sim->state == running) {

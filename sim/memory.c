@@ -60,7 +60,7 @@ void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned 
   new_rom->base = base;
   new_rom->size = size;
   if (type == MEMORY_ROM_TYPE_DEFAULT) {
-    rom_str(new_rom, rom_ptr);
+    rom_str(new_rom, rom_ptr, size);
   } else {
     rom_mmap(new_rom, rom_ptr, 1); // 1: read only
   }
@@ -613,10 +613,10 @@ void rom_init(rom_t *rom) {
   rom->data = NULL;
 }
 
-void rom_str(rom_t *rom, const char *str) {
+void rom_str(rom_t *rom, const char *str, unsigned size) {
   rom->rom_type = MEMORY_ROM_TYPE_DEFAULT;
-  rom->data = (char *)calloc(strlen(str) + 1, sizeof(char));
-  strcpy(rom->data, str);
+  rom->data = (char *)calloc(size, sizeof(char));
+  memcpy(rom->data, str, size);
 }
 
 void rom_mmap(rom_t *rom, const char *img_path, int rom_mode) {

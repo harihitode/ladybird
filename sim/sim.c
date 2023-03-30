@@ -12,19 +12,11 @@
 
 #define MAX_DBG_HANDLER 10
 
-void sim_init(sim_t *sim) {
-  // init memory
-  sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, RAM_SIZE, RAM_PAGE_SIZE);
-  // init csr
-  sim->csr = (csr_t *)malloc(sizeof(csr_t));
-  csr_init(sim->csr);
-  // init core
-  sim->core = (core_t *)malloc(sizeof(core_t));
-  core_init(sim->core);
-  // set weak references
-  sim->core->mem = sim->mem;
-  sim->core->csr = sim->csr;
+void sim_dtb_on(sim_t *sim) {
+  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+}
+
+void sim_config_on(sim_t *sim) {
   /// for riscv config string ROM
   char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
   *(unsigned *)(config_rom + 0x0c) = 0x00001020;
@@ -38,8 +30,22 @@ void sim_init(sim_t *sim) {
           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
           riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSWI_BASE);
   memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
-  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
   free(config_rom);
+}
+
+void sim_init(sim_t *sim) {
+  // init memory
+  sim->mem = (memory_t *)malloc(sizeof(memory_t));
+  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, RAM_SIZE, RAM_PAGE_SIZE);
+  // init csr
+  sim->csr = (csr_t *)malloc(sizeof(csr_t));
+  csr_init(sim->csr);
+  // init core
+  sim->core = (core_t *)malloc(sizeof(core_t));
+  core_init(sim->core);
+  // set weak references
+  sim->core->mem = sim->mem;
+  sim->core->csr = sim->csr;
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
