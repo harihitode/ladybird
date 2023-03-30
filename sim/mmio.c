@@ -1,3 +1,4 @@
+#include "sim.h"
 #include "riscv.h"
 #include "mmio.h"
 #include "memory.h"
@@ -579,15 +580,14 @@ typedef struct {
 #define VIRTQ_STAGE_COMPLETE 2
 
 static void disk_process_queue(disk_t *disk) {
-  // write back for (avail & desc)
-  memory_dcache_write_back(disk->mem);
   // run the disk r/w
   unsigned desc_addr = disk->queue_ppn * disk->page_size;
-  virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr);
+  virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr, 0, DEVICE_ID_DMA);
 #if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "ADDR %08x PAGESIZE %d (%08x) LAST_AVAIL_IDX %u\n", disk->queue_ppn, disk->page_size, disk->page_size, disk->last_avail_idx);
 #endif
-  virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr) + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
+  virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr, 0, DEVICE_ID_DMA) +
+                                       VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
 #if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "AVAIL (GUEST -> HOST) flag %08x idx %08x ring ", avail->flags, avail->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
@@ -595,7 +595,7 @@ static void disk_process_queue(disk_t *disk) {
   }
   fprintf(stderr, "used_event %u\n", avail->used_event);
 #endif
-  virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size);
+  virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size, 1, DEVICE_ID_DMA);
   virtio_blk_req *req = NULL;
   // process descriptors
   for (unsigned short idx = disk->last_avail_idx; idx < avail->idx; idx++, disk->last_avail_idx++) {
@@ -609,7 +609,8 @@ static void disk_process_queue(disk_t *disk) {
       int is_write_only = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
       // read from descripted address
       if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write_only) {
-        req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr) + (current_desc->addr & disk->page_size_mask));
+        req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr, 0, DEVICE_ID_DMA)
+                                 + (current_desc->addr & disk->page_size_mask));
 #if VIRTIO_DEBUG_DUMP
         fprintf(stderr, "\tBLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req->type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req->reserved, req->sector);
 #endif
@@ -625,15 +626,13 @@ static void disk_process_queue(disk_t *disk) {
           if ((req->type == VIRTIO_BLK_T_IN)) {
             // disk -> memory
             for (unsigned j = 0; j < current_desc->len; j++) {
-              char *page = memory_get_page(disk->mem, dma_base + j);
+              char *page = memory_get_page(disk->mem, dma_base + j, 1, DEVICE_ID_DMA);
               page[(dma_base + j) & disk->page_size_mask] = sector[j];
-              // need to invalidate cache
             }
           } else if ((req->type == VIRTIO_BLK_T_OUT)) {
             // memory -> disk
-            memory_dcache_write_back(disk->mem); // need to writeback cache
             for (unsigned j = 0; j < current_desc->len; j++) {
-              char *page = memory_get_page(disk->mem, dma_base + j);
+              char *page = memory_get_page(disk->mem, dma_base + j, 0, DEVICE_ID_DMA);
               sector[j] = page[(dma_base + j) & disk->page_size_mask];
             }
           } else {
@@ -642,9 +641,8 @@ static void disk_process_queue(disk_t *disk) {
         }
       } else if (i == VIRTQ_STAGE_COMPLETE && is_write_only) {
         // done
-        char *page = memory_get_page(disk->mem, current_desc->addr);
+        char *page = memory_get_page(disk->mem, current_desc->addr, 1, DEVICE_ID_DMA);
         page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
-        memory_dcache_invalidate_line(disk->mem, current_desc->addr);
         // complete
         used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[idx % VIRTIO_MMIO_MAX_QUEUE];
         used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
@@ -657,8 +655,6 @@ static void disk_process_queue(disk_t *disk) {
       current_desc_idx = current_desc->next;
     }
   }
-  // invalidate whole cache
-  memory_dcache_invalidate(disk->mem);
 #if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "UPDATE USED  (Host -> GUEST) flag %08x idx %08x ids", used->flags, used->idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {

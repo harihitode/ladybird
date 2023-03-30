@@ -104,7 +104,7 @@ unsigned memory_load_instruction(memory_t *, unsigned addr, unsigned *value, uns
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned prv);
 void memory_fini(memory_t *);
 // ram and rom
-char *memory_get_page(memory_t *, unsigned);
+char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_id);
 // [NOTE] memory does not free rom_ptr on fini
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);

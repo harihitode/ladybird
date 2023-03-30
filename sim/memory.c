@@ -34,7 +34,7 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
 }
 
-char *memory_get_page(memory_t *mem, unsigned addr) {
+char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int device_id) {
   unsigned bid = (addr - mem->ram_base) / mem->ram_block_size;
   if (bid >= RAM_SIZE / mem->ram_block_size) {
     fprintf(stderr, "RAM Exceeds, %08x\n", addr);
@@ -44,6 +44,10 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
   mem->ram_reserve[bid] = 0; // expire
+  if (is_write && device_id == DEVICE_ID_DMA) {
+    // invalidate core's cache line
+    memory_dcache_invalidate(mem); // TODO address base
+  }
   return mem->ram_block[bid];
 }
 
@@ -379,7 +383,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
       // write back
       cache_write_back(cache, index);
       // read memory
-      char *page = memory_get_page(cache->mem, addr);
+      char *page = memory_get_page(cache->mem, addr, write, 0);
       memcpy(cache->line[index].data, &page[block_base], cache->line_len);
       cache->line[index].valid = 1;
       cache->line[index].tag = tag;
@@ -388,7 +392,7 @@ char *cache_get(cache_t *cache, unsigned addr, char write) {
   } else {
     unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
     // read memory
-    char *page = memory_get_page(cache->mem, addr);
+    char *page = memory_get_page(cache->mem, addr, write, 0);
     memcpy(cache->line[index].data, &page[block_base], cache->line_len);
     cache->line[index].valid = 1;
     cache->line[index].tag = tag;
@@ -483,7 +487,7 @@ static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsi
       access_fault = 1;
       break;
     }
-    current_pte = ((unsigned *)memory_get_page(mem, pte_base))[pte_id];
+    current_pte = ((unsigned *)memory_get_page(mem, pte_base, 0, DEVICE_ID_DMA))[pte_id];
     if (level == 0) {
       if (page_check_leaf(current_pte) && page_check_privilege(current_pte, access_type, prv)) {
         protect_fault = 0;
