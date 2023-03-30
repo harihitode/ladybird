@@ -302,6 +302,74 @@ void memory_tlb_clear(memory_t *mem) {
   tlb_clear(mem->tlb);
 }
 
+unsigned memory_dma_send(memory_t *mem, unsigned pbase, int len, char *data) {
+  if (len <= 0) {
+    return 0;
+  }
+#if 0
+  printf("DMA pbase %08x len %08x\n", pbase, len);
+#endif
+  int len_remain = len;
+
+  unsigned dest_base;
+  unsigned src_base;
+  unsigned burst_len;
+  char *page;
+
+  dest_base = pbase;
+  src_base = 0;
+  burst_len = (((dest_base & RAM_PAGE_OFFS_MASK) + len) < RAM_PAGE_SIZE) ? len : RAM_PAGE_SIZE - (dest_base & RAM_PAGE_OFFS_MASK);
+
+  while (len_remain > 0) {
+    page = memory_get_page(mem, dest_base, BUS_ACCESS_WRITE, DEVICE_ID_DMA);
+    memcpy(&page[dest_base & RAM_PAGE_OFFS_MASK], &data[src_base], burst_len);
+#if 0
+    printf("DMA page %08x doffs %08x soffs %08x len %08x\n",
+           dest_base & (~RAM_PAGE_OFFS_MASK), dest_base & RAM_PAGE_OFFS_MASK,
+           src_base, burst_len);
+#endif
+    len_remain -= burst_len;
+    dest_base += burst_len;
+    src_base += burst_len;
+    burst_len = (len_remain >= RAM_PAGE_SIZE) ? RAM_PAGE_SIZE : len_remain;
+  }
+  return 0;
+}
+
+unsigned memory_dma_send_c(memory_t *mem, unsigned pbase, int len, char data) {
+  if (len <= 0) {
+    return 0;
+  }
+#if 0
+  printf("DMA (char) pbase %08x len %08x\n", pbase, len);
+#endif
+  int len_remain = len;
+
+  unsigned dest_base;
+  unsigned src_base;
+  unsigned burst_len;
+  char *page;
+
+  dest_base = pbase;
+  src_base = 0;
+  burst_len = (((dest_base & RAM_PAGE_OFFS_MASK) + len) < RAM_PAGE_SIZE) ? len : RAM_PAGE_SIZE - (dest_base & RAM_PAGE_OFFS_MASK);
+
+  while (len_remain > 0) {
+    page = memory_get_page(mem, dest_base, BUS_ACCESS_WRITE, DEVICE_ID_DMA);
+    memset(&page[dest_base & RAM_PAGE_OFFS_MASK], data, burst_len);
+#if 0
+    printf("DMA page %08x doffs %08x soffs %08x len %08x\n",
+           dest_base & (~RAM_PAGE_OFFS_MASK), dest_base & RAM_PAGE_OFFS_MASK,
+           src_base, burst_len);
+#endif
+    len_remain -= burst_len;
+    dest_base += burst_len;
+    src_base += burst_len;
+    burst_len = (len_remain >= RAM_PAGE_SIZE) ? RAM_PAGE_SIZE : len_remain;
+  }
+  return 0;
+}
+
 void memory_fini(memory_t *mem) {
   for (unsigned i = 0; i < mem->ram_blocks; i++) {
     free(mem->ram_block[i]);

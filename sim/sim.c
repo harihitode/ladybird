@@ -113,14 +113,12 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
   }
   // program load to memory
   for (unsigned i = 0; i < sim->elf->programs; i++) {
-    for (unsigned j = 0; j < sim->elf->program_mem_size[i]; j++) {
-      if (j < sim->elf->program_file_size[i]) {
-        memory_store(sim->mem, sim->elf->program_base[i] + j, sim->elf->program[i][j], 1, 0);
-      } else {
-        // zero clear for BSS
-        memory_store(sim->mem, sim->elf->program_base[i] + j, 0x00, 1, 0);
-      }
-    }
+#if 0
+    printf("ELF LOAD paddr %08x len %08x filesz %08x\n", sim->elf->program_base[i], sim->elf->program_mem_size[i], sim->elf->program_file_size[i]);
+#endif
+    memory_dma_send(sim->mem, sim->elf->program_base[i], sim->elf->program_file_size[i], sim->elf->program[i]);
+    memory_dma_send_c(sim->mem, sim->elf->program_base[i] + sim->elf->program_file_size[i],
+                      sim->elf->program_mem_size[i] - sim->elf->program_file_size[i], 0);
   }
   memory_dcache_write_back(sim->mem);
   // set entry program counter

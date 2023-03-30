@@ -39,6 +39,8 @@
 
 #define CORE_WINDOW_SIZE 16
 
+#define BUS_ACCESS_READ 0
+#define BUS_ACCESS_WRITE 1
 #define DEVICE_ID_DMA -1
 
 enum sim_state { running, quit };

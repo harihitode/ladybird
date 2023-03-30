@@ -102,6 +102,8 @@ void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_
 unsigned memory_load(memory_t *, unsigned addr, unsigned *value, unsigned size, unsigned prv);
 unsigned memory_load_instruction(memory_t *, unsigned addr, unsigned *value, unsigned prv);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned prv);
+unsigned memory_dma_send(memory_t *, unsigned pbase, int len, char *data);
+unsigned memory_dma_send_c(memory_t *, unsigned pbase, int len, char data);
 void memory_fini(memory_t *);
 // ram and rom
 char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_id);
