@@ -647,3 +647,38 @@ const char *riscv_get_mnemonic(unsigned inst) {
   }
   return buf;
 }
+
+unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
+unsigned riscv_get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
+unsigned riscv_get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
+unsigned riscv_get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
+unsigned riscv_get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
+unsigned riscv_get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
+unsigned riscv_get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
+unsigned riscv_get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
+unsigned riscv_get_branch_offset(unsigned inst) {
+  return ((((int)inst >> 19) & 0xfffff000) |
+          (((inst >> 25) << 5) & 0x000007e0) |
+          (((inst >> 7) & 0x00000001) << 11) | ((inst >> 7) & 0x0000001e));
+}
+unsigned riscv_get_jalr_offset(unsigned inst) {
+  return ((int)inst >> 20);
+}
+unsigned riscv_get_jal_offset(unsigned inst) {
+  return ((((int)inst >> 11) & 0xfff00000) | (inst & 0x000ff000) |
+          (((inst >> 20) & 0x00000001) << 11) |
+          ((inst >> 20) & 0x000007fe));
+}
+unsigned riscv_get_store_offset(unsigned inst) {
+  return ((((int)inst >> 25) << 5) | ((inst >> 7) & 0x0000001f));
+}
+unsigned riscv_get_load_offset(unsigned inst) {
+  return ((int)inst >> 20);
+}
+unsigned riscv_get_csr_addr(unsigned inst) {
+  return ((inst >> 20) & 0x00000fff);
+}
+unsigned riscv_get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
+unsigned riscv_get_immediate(unsigned inst) {
+  return ((int)inst >> 20);
+}

@@ -318,5 +318,21 @@
 const char *riscv_get_extension_string();
 const char *riscv_get_mnemonic(unsigned inst);
 unsigned riscv_decompress(unsigned inst);
+unsigned riscv_get_opcode(unsigned inst);
+unsigned riscv_get_rs1(unsigned inst);
+unsigned riscv_get_rs2(unsigned inst);
+unsigned riscv_get_rd(unsigned inst);
+unsigned riscv_get_funct3(unsigned inst);
+unsigned riscv_get_funct5(unsigned inst);
+unsigned riscv_get_funct7(unsigned inst);
+unsigned riscv_get_funct12(unsigned inst);
+unsigned riscv_get_branch_offset(unsigned inst);
+unsigned riscv_get_jalr_offset(unsigned inst);
+unsigned riscv_get_jal_offset(unsigned inst);
+unsigned riscv_get_store_offset(unsigned inst);
+unsigned riscv_get_load_offset(unsigned inst);
+unsigned riscv_get_csr_addr(unsigned inst);
+unsigned riscv_get_csr_imm(unsigned inst);
+unsigned riscv_get_immediate(unsigned inst);
 
 #endif
