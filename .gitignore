@@ -6,3 +6,7 @@ sim/rspsim
 *.log
 kernel/*
 tb/obj_dir/*
+sim/eval/*.read
+sim/eval/*.write
+sim/eval/*.log
+sim/eval/*.dat

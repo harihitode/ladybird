@@ -1,5 +1,6 @@
 #include "riscv.h"
 #include <stdio.h>
+#include <string.h>
 
 #define ALT_INST 0x40000000
 
@@ -302,6 +303,42 @@ unsigned riscv_decompress(unsigned inst) {
   return ret;
 }
 
+const char *riscv_get_extension_string() {
+  static char buf[256];
+  int z_seperate = 0;
+  sprintf(buf, "RV%dI", XLEN);
+  if (E_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "E");
+  }
+  if (M_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "M");
+  }
+  if (A_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "A");
+  }
+  if (F_EXTENSION && !D_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "F");
+  }
+  if (D_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "D");
+  }
+  if (C_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "C");
+  }
+  if (V_EXTENSION) {
+    sprintf(&buf[strlen(buf)], "V");
+  }
+  if (Z_ICSR_EXTENSION) {
+    if (z_seperate++) sprintf(&buf[strlen(buf)], "_");
+    sprintf(&buf[strlen(buf)], "Zicsr");
+  }
+  if (Z_IFENCEI_EXTENSION) {
+    if (z_seperate++) sprintf(&buf[strlen(buf)], "_");
+    sprintf(&buf[strlen(buf)], "Zifencei");
+  }
+  return buf;
+}
+
 const char *riscv_get_mnemonic(unsigned inst) {
   static char buf[128];
   sprintf(buf, "ILLEGAL");
@@ -496,11 +533,40 @@ const char *riscv_get_mnemonic(unsigned inst) {
     default:
       break;
     }
+    if (inst & AMO_AQ) {
+      sprintf(&buf[strlen(buf)], ".AQ");
+    }
+    if (inst & AMO_RL) {
+      sprintf(&buf[strlen(buf)], ".RL");
+    }
     break;
   }
-  case OPCODE_MISC_MEM:
-    sprintf(buf, "FENCE");
+  case OPCODE_MISC_MEM: {
+    unsigned char fm = ((inst >> 28) & 0x0f);
+    unsigned rs1 = ((inst >> 15) & 0x1f);
+    unsigned rd = ((inst >> 7) & 0x1f);
+    unsigned pred = ((inst >> 24) & 0x0f);
+    unsigned succ = ((inst >> 20) & 0x0f);
+    if (funct3 == 0x0 && rs1 == 0 && rd == 0 && pred != 0 && succ != 0) {
+      if (fm == 0) {
+        sprintf(buf, "FENCE.");
+        if (inst & FENCE_PRED_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_PRED_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_PRED_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_PRED_W) sprintf(&buf[strlen(buf)], "W");
+        sprintf(&buf[strlen(buf)], ",");
+        if (inst & FENCE_SUCC_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_SUCC_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_SUCC_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_SUCC_W) sprintf(&buf[strlen(buf)], "W");
+      } else if (fm == 0x08 && pred == 0x3 && succ == 0x3) {
+        sprintf(buf, "FENCE.TSO");
+      }
+    } else if (funct3 == 0x1) {
+      sprintf(buf, "FENCE.I");
+    }
     break;
+  }
   case OPCODE_SYSTEM:
     switch (funct3) {
     case 0x1: // READ_WRITE
@@ -580,4 +646,39 @@ const char *riscv_get_mnemonic(unsigned inst) {
     break;
   }
   return buf;
+}
+
+unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
+unsigned riscv_get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
+unsigned riscv_get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
+unsigned riscv_get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
+unsigned riscv_get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
+unsigned riscv_get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }
+unsigned riscv_get_funct7(unsigned inst) { return (inst >> 25) & 0x0000007f; }
+unsigned riscv_get_funct12(unsigned inst) { return (inst >> 20) & 0x00000fff; }
+unsigned riscv_get_branch_offset(unsigned inst) {
+  return ((((int)inst >> 19) & 0xfffff000) |
+          (((inst >> 25) << 5) & 0x000007e0) |
+          (((inst >> 7) & 0x00000001) << 11) | ((inst >> 7) & 0x0000001e));
+}
+unsigned riscv_get_jalr_offset(unsigned inst) {
+  return ((int)inst >> 20);
+}
+unsigned riscv_get_jal_offset(unsigned inst) {
+  return ((((int)inst >> 11) & 0xfff00000) | (inst & 0x000ff000) |
+          (((inst >> 20) & 0x00000001) << 11) |
+          ((inst >> 20) & 0x000007fe));
+}
+unsigned riscv_get_store_offset(unsigned inst) {
+  return ((((int)inst >> 25) << 5) | ((inst >> 7) & 0x0000001f));
+}
+unsigned riscv_get_load_offset(unsigned inst) {
+  return ((int)inst >> 20);
+}
+unsigned riscv_get_csr_addr(unsigned inst) {
+  return ((inst >> 20) & 0x00000fff);
+}
+unsigned riscv_get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
+unsigned riscv_get_immediate(unsigned inst) {
+  return ((int)inst >> 20);
 }

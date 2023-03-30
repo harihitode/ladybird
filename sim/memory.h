@@ -137,7 +137,7 @@ void tlb_clear(tlb_t *);
 void tlb_fini(tlb_t *);
 
 void rom_init(rom_t *rom);
-void rom_str(rom_t *rom, const char *data);
+void rom_str(rom_t *rom, const char *data, unsigned size);
 void rom_mmap(rom_t *rom, const char *img_path, int rom_mode);
 void rom_fini(rom_t *rom);
 

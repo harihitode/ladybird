@@ -1,0 +1,13 @@
+median
+qsort
+rsort
+towers
+vvadd
+multiply
+mm
+dhrystone
+mt-vvadd
+mt-mm
+mt-mask-sfilter
+mt-csaxpy
+mt-histo

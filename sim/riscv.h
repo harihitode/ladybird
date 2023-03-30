@@ -5,15 +5,20 @@
 #define C_EXTENSION 1
 #define D_EXTENSION 0
 #define F_EXTENSION 0
+#define E_EXTENSION 0 // reduced integer
 #define M_EXTENSION 1
-// supervisor mode
-#define S_EXTENSION 1
-// user mode
-#define U_EXTENSION 1
+#define S_EXTENSION 1 // supervisor mode
+#define U_EXTENSION 1 // user mode
 #define V_EXTENSION 0
+// additional
+#define Z_ICSR_EXTENSION  1
+#define Z_ICNTR_EXTENSION 1
+#define Z_IHPMR_EXTENSION 1
+#define Z_IFENCEI_EXTENSION 1
+#define Z_AM_EXTENSION      0
+#define Z_TSO_EXTENSION     0
+
 #define XLEN 32
-#define EXTENSION_STR "rv32imac"
-#define TIME_EXTENSION 1
 
 #define NUM_GPR 32
 #if F_EXTENSION
@@ -274,6 +279,18 @@
 #define OPCODE_JAL 0x0000006f
 #define OPCODE_SYSTEM 0x00000073
 
+#define FENCE_PRED_I 0x08000000
+#define FENCE_PRED_O 0x04000000
+#define FENCE_PRED_R 0x02000000
+#define FENCE_PRED_W 0x01000000
+#define FENCE_SUCC_I 0x00800000
+#define FENCE_SUCC_O 0x00400000
+#define FENCE_SUCC_R 0x00200000
+#define FENCE_SUCC_W 0x00100000
+
+#define AMO_AQ 0x04000000
+#define AMO_RL 0x02000000
+
 #define CSR_D_VERSION 0x0f
 // debug cause
 #define CSR_DCSR_EBREAK_M 0x00008000
@@ -298,7 +315,24 @@
 #define CSR_MATCH6_STORE 0x2
 #define CSR_MATCH6_LOAD 0x1
 
+const char *riscv_get_extension_string();
 const char *riscv_get_mnemonic(unsigned inst);
 unsigned riscv_decompress(unsigned inst);
+unsigned riscv_get_opcode(unsigned inst);
+unsigned riscv_get_rs1(unsigned inst);
+unsigned riscv_get_rs2(unsigned inst);
+unsigned riscv_get_rd(unsigned inst);
+unsigned riscv_get_funct3(unsigned inst);
+unsigned riscv_get_funct5(unsigned inst);
+unsigned riscv_get_funct7(unsigned inst);
+unsigned riscv_get_funct12(unsigned inst);
+unsigned riscv_get_branch_offset(unsigned inst);
+unsigned riscv_get_jalr_offset(unsigned inst);
+unsigned riscv_get_jal_offset(unsigned inst);
+unsigned riscv_get_store_offset(unsigned inst);
+unsigned riscv_get_load_offset(unsigned inst);
+unsigned riscv_get_csr_addr(unsigned inst);
+unsigned riscv_get_csr_imm(unsigned inst);
+unsigned riscv_get_immediate(unsigned inst);
 
 #endif

@@ -12,6 +12,27 @@
 
 #define MAX_DBG_HANDLER 10
 
+void sim_dtb_on(sim_t *sim) {
+  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+}
+
+void sim_config_on(sim_t *sim) {
+  /// for riscv config string ROM
+  char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
+  *(unsigned *)(config_rom + 0x0c) = 0x00001020;
+  sprintf(&config_rom[32],
+          "platform { vendor %s; arch %s; };\n"
+          "rtc { addr %08x; };\n"
+          "ram { 0 { addr %08x; size %08x; }; };\n"
+          "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
+          VENDOR_NAME, ARCH_NAME,
+          ACLINT_MTIME_BASE,
+          MEMORY_BASE_ADDR_RAM, RAM_SIZE,
+          riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSWI_BASE);
+  memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
+  free(config_rom);
+}
+
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
@@ -25,21 +46,6 @@ void sim_init(sim_t *sim) {
   // set weak references
   sim->core->mem = sim->mem;
   sim->core->csr = sim->csr;
-  /// for riscv config string ROM
-  char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
-  *(unsigned *)(config_rom + 0x0c) = 0x00001020;
-  sprintf(&config_rom[32],
-          "platform { vendor %s; arch %s; };\n"
-          "rtc { addr %08x; };\n"
-          "ram { 0 { addr %08x; size %08x; }; };\n"
-          "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
-          VENDOR_NAME, ARCH_NAME, ACLINT_MTIME_BASE,
-          MEMORY_BASE_ADDR_RAM, RAM_SIZE,
-          EXTENSION_STR,
-          ACLINT_MTIMECMP_BASE, ACLINT_MSWI_BASE);
-  memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
-  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
-  free(config_rom);
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
@@ -89,6 +95,7 @@ void sim_init(sim_t *sim) {
   sprintf(sim->triple, "%s", TARGET_TRIPLE);
   sim->dbg_handler = (void (**)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned))calloc(MAX_DBG_HANDLER, sizeof(void (*)(sim_t *sim, unsigned, unsigned, unsigned, unsigned, unsigned)));
   sim->stp_handler = NULL;
+  sim->stp_arg = NULL;
   sim->state = running;
   sim->htif_tohost = 0;
   sim->htif_fromhost = 0;
@@ -128,6 +135,10 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
   return ret;
 }
 
+void sim_regstat_en(sim_t *sim) {
+  sim->core->csr->regstat_en = 1;
+}
+
 void sim_fini(sim_t *sim) {
   core_fini(sim->core);
   free(sim->core);
@@ -162,9 +173,13 @@ void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsi
   return;
 }
 
-void sim_set_step_callback(sim_t *sim, void (*callback)(struct core_step_result *)) {
+void sim_set_step_callback(sim_t *sim, void (*callback)(struct core_step_result *, void *)) {
   sim->stp_handler = callback;
   return;
+}
+
+void sim_set_step_callback_arg(sim_t *sim, void *arg) {
+  sim->stp_arg = arg;
 }
 
 void sim_resume(sim_t *sim) {
@@ -175,7 +190,7 @@ void sim_resume(sim_t *sim) {
     memset(&result, 0, sizeof(struct core_step_result));
     unsigned pc = sim->csr->pc;
     core_step(sim->core, pc, &result, sim->csr->mode);
-    if (sim->stp_handler) sim->stp_handler(&result);
+    if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
     trig_cycle(sim->trigger, &result);
     csr_cycle(sim->csr, &result);
   }
@@ -324,36 +339,6 @@ unsigned sim_read_csr(sim_t *sim, unsigned addr) {
 
 void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
   csr_csrw(sim->csr, addr, value, NULL);
-}
-
-void sim_debug_dump_status(sim_t *sim) {
-  fprintf(stderr, "MODE: ");
-  switch (sim->csr->mode) {
-  case PRIVILEGE_MODE_M:
-    fprintf(stderr, "Machine\n");
-    break;
-  case PRIVILEGE_MODE_S:
-    fprintf(stderr, "Supervisor\n");
-    break;
-  case PRIVILEGE_MODE_U:
-    fprintf(stderr, "User\n");
-    break;
-  case PRIVILEGE_MODE_D:
-    fprintf(stderr, "Debug\n");
-    break;
-  default:
-    fprintf(stderr, "unknown: %d\n", sim->csr->mode);
-    break;
-  }
-  fprintf(stderr, "STATUS: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_STATUS, NULL));
-  fprintf(stderr, "MIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IP, NULL));
-  fprintf(stderr, "MIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_M_IE, NULL));
-  fprintf(stderr, "SIP: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IP, NULL));
-  fprintf(stderr, "SIE: %08x\n", csr_csrr(sim->csr, CSR_ADDR_S_IE, NULL));
-  fprintf(stderr, "Instruction Count: %llu\n", sim->csr->instret);
-  fprintf(stderr, "ICACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->icache->hit_count / sim->mem->icache->access_count, sim->mem->icache->hit_count, sim->mem->icache->access_count);
-  fprintf(stderr, "DCACHE: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->dcache->hit_count / sim->mem->dcache->access_count, sim->mem->dcache->hit_count, sim->mem->dcache->access_count);
-  fprintf(stderr, "TLB: hit: %f%%, [%lu/%lu]\n", (double)sim->mem->tlb->hit_count / sim->mem->tlb->access_count, sim->mem->tlb->hit_count, sim->mem->tlb->access_count);
 }
 
 int sim_get_trigger_fired(const sim_t *sim) {
