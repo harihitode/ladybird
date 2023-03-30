@@ -120,9 +120,6 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     if (core->window.pc[i] == pc) {
       found = 1;
-      inst = core->window.inst[i];
-      exception = core->window.exception[i];
-      w_index = i;
       break;
     }
   }
@@ -130,9 +127,9 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
     unsigned window_pc = pc;
     unsigned paddr;
     unsigned char *line = NULL;
-    unsigned index = 0;
     exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
     if (!exception) {
+      unsigned index = 0;
       line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
       index = paddr & core->mem->icache->line_mask;
       // update window
@@ -171,19 +168,21 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
         }
         core->window.exception[i] = exception;
       }
-      // re-search in window
-      for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
-        if (core->window.pc[i] == pc) {
-          inst = core->window.inst[i];
-          w_index = i;
-          exception = core->window.exception[i];
-          break;
-        }
-      }
+    }
+  }
+  // re-search in window
+  for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
+    result->inst_window_pc[i] = core->window.pc[i];
+    result->inst_window[i] = core->window.inst[i];
+    if (core->window.pc[i] == pc) {
+      inst = core->window.inst[i];
+      w_index = i;
+      exception = core->window.exception[i];
     }
   }
   result->inst = inst;
   result->exception_code = exception;
+  result->inst_window_pos = w_index;
   return w_index;
 }
 
