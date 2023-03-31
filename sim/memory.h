@@ -15,6 +15,7 @@
 struct mmio_t;
 struct cache_t;
 struct tlb_t;
+struct core_step_result;
 
 struct mmio_t {
   unsigned base;
@@ -62,6 +63,9 @@ void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_
 unsigned memory_load(memory_t *, unsigned addr, unsigned *value, unsigned size, unsigned prv);
 unsigned memory_load_instruction(memory_t *, unsigned addr, unsigned *value, unsigned prv);
 unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned prv);
+unsigned memory_atomic_operation(memory_t *t, unsigned aquire, unsigned release,
+                                 unsigned (*op)(unsigned, unsigned),
+                                 struct core_step_result *result);
 unsigned memory_dma_send(memory_t *, unsigned pbase, int len, char *data);
 unsigned memory_dma_send_c(memory_t *, unsigned pbase, int len, char data);
 void memory_fini(memory_t *);

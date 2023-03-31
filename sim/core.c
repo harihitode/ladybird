@@ -197,6 +197,17 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   return w_index;
 }
 
+// atomic operations
+static unsigned op_add(unsigned src1, unsigned src2) { return src1 + src2; }
+static unsigned op_swap(unsigned src1, unsigned src2) { return src2; }
+static unsigned op_xor(unsigned src1, unsigned src2) { return src1 ^ src2; }
+static unsigned op_or(unsigned src1, unsigned src2) { return src1 | src2; }
+static unsigned op_and(unsigned src1, unsigned src2) { return src1 & src2; }
+static unsigned op_min(unsigned src1, unsigned src2) { return ((int)src1 < (int)src2) ? src1 : src2; }
+static unsigned op_max(unsigned src1, unsigned src2) { return ((int)src1 < (int)src2) ? src2 : src1; }
+static unsigned op_minu(unsigned src1, unsigned src2) { return (src1 < src2) ? src1 : src2; }
+static unsigned op_maxu(unsigned src1, unsigned src2) { return (src1 < src2) ? src2 : src1; }
+
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
   result->pc = pc;
@@ -324,53 +335,40 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->rs1_regno = riscv_get_rs1(inst);
     result->rs2_regno = riscv_get_rs2(inst);
     result->m_vaddr = core->gpr[result->rs1_regno];
-    unsigned src2 = core->gpr[result->rs2_regno];
+    result->m_data = core->gpr[result->rs2_regno];
     switch (riscv_get_funct5(inst)) {
     case 0x002: // Load Reserved
       result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
       break;
     case 0x003: // Store Conditional
-      result->exception_code = memory_store_conditional(core->mem, result->m_vaddr, src2, &result->rd_data, prv);
+      result->exception_code = memory_store_conditional(core->mem, result->m_vaddr, result->m_data, &result->rd_data, prv);
       break;
     case 0x000: // AMOADD
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data + src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_add, result);
       break;
     case 0x001: // AMOSWAP
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_swap, result);
       break;
     case 0x004: // AMOXOR
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data ^ src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_xor, result);
       break;
     case 0x008: // AMOOR
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data | src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_or, result);
       break;
     case 0x00c: // AMOAND
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data & src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_and, result);
       break;
     case 0x010: // AMOMIN
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_min, result);
       break;
     case 0x014: // AMOMAX
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            ((int)result->rd_data > (int)src2) ? result->rd_data : src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_max, result);
       break;
     case 0x018: // AMOMINU
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            (result->rd_data < src2) ? result->rd_data : src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_minu, result);
       break;
     case 0x01c: // AMOMAXU
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            (result->rd_data > src2) ? result->rd_data : src2, 4, prv);
+      memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_maxu, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
