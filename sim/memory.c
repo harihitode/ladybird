@@ -77,10 +77,26 @@ unsigned memory_atomic_operation(memory_t *mem, unsigned aquire, unsigned releas
                                  unsigned (*op)(unsigned, unsigned),
                                  struct core_step_result *result) {
   if (aquire) memory_dcache_write_back(mem);
-  result->exception_code = memory_load(mem, result->m_vaddr, &result->rd_data, 4, result->prv);
+  result->exception_code = memory_load(mem, 4, result);
   result->m_data = op(result->rd_data, result->m_data);
-  result->exception_code = memory_store(mem, result->m_vaddr, result->m_data, 4, result->prv);
+  result->exception_code = memory_store(mem, 4, result);
   if (release) memory_dcache_write_back(mem);
+  return result->exception_code;
+}
+
+unsigned memory_fence_instruction(memory_t *mem) {
+  memory_icache_invalidate(mem);
+  memory_dcache_invalidate(mem);
+  return 0;
+}
+
+unsigned memory_fence(memory_t *mem, unsigned char predecessor, unsigned char succussor) {
+  memory_dcache_write_back(mem);
+  return 0;
+}
+
+unsigned memory_fence_tso(memory_t *mem) {
+  memory_dcache_write_back(mem);
   return 0;
 }
 
@@ -149,27 +165,25 @@ unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *pad
   }
 }
 
-unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned size, unsigned prv) {
-  *value = 0;
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_LOAD, prv);
-  if (exception) {
-    return exception;
+unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *result) {
+  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
+  if (result->exception_code) {
+    return result->exception_code;
   }
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
   unsigned found = 0;
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
+  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
     // RAM
-    *value = memory_ram_load(mem, paddr, size, mem->dcache);
+    result->rd_data = memory_ram_load(mem, result->m_paddr, len, mem->dcache);
     found = 1;
   } else {
     // search MMIO
     for (unsigned u = 0; u < MAX_MMIO; u++) {
       struct mmio_t *unit = mem->mmio_list[u];
       if (unit == NULL) continue;
-      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & unit->readb(unit, paddr + i)) << (8 * i));
+      if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+        for (unsigned i = 0; i < len; i++) {
+          result->rd_data |= ((0x000000ff & unit->readb(unit, result->m_paddr + i)) << (8 * i));
         }
         found = 1;
         break;
@@ -180,49 +194,49 @@ unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned siz
       struct rom_t *rom = NULL;
       // search ROM
       for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
-        if (paddr >= p->base && (paddr + size) < p->base + p->size) {
+        if (result->m_paddr >= p->base && (result->m_paddr + len) < p->base + p->size) {
           rom = p;
           break;
         }
       }
       if (rom) {
-        for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & rom->data[paddr + i - rom->base]) << (8 * i));
+        for (unsigned i = 0; i < len; i++) {
+          result->rd_data |= ((0x000000ff & rom->data[result->m_paddr + i - rom->base]) << (8 * i));
         }
         found = 1;
       }
     }
   }
   if (found == 0) {
-    exception = TRAP_CODE_LOAD_ACCESS_FAULT;
+    result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
-  return exception;
+  return result->exception_code;
 }
 
-unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_STORE, prv);
-  if (exception != 0) {
-    return exception;
+unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *result) {
+  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
+
+  if (result->exception_code != 0) {
+    return result->exception_code;
   }
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
+  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
     // RAM
-    memory_ram_store(mem, paddr, value, size, mem->dcache);
+    memory_ram_store(mem, result->m_paddr, result->m_data, len, mem->dcache);
   } else {
     // search MMIO
     for (unsigned u = 0; u < MAX_MMIO; u++) {
       struct mmio_t *unit = mem->mmio_list[u];
       if (unit == NULL) continue;
-      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < size; i++) {
-          unit->writeb(unit, paddr + i, (char)(value >> (i * 8)));
+      if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+        for (unsigned i = 0; i < len; i++) {
+          unit->writeb(unit, result->m_paddr + i, (char)(result->m_data >> (i * 8)));
         }
         break;
       }
     }
   }
-  return exception;
+  return result->exception_code;
 }
 
 static void memory_ram_set_reserve(memory_t *mem, unsigned addr) {
@@ -237,65 +251,40 @@ static char memory_ram_get_reserve(memory_t *mem, unsigned addr) {
   return mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size];
 }
 
-unsigned memory_load_reserved(memory_t *mem, unsigned addr, unsigned *value, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_LOAD, prv);
+unsigned memory_load_reserved(memory_t *mem, unsigned aquire, struct core_step_result *result) {
+  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (exception) {
-    return exception;
+  if (result->exception_code) {
+    return result->exception_code;
   }
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
+  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
     // RAM
-    *value = memory_ram_load(mem, paddr, 4, mem->dcache);
-    memory_ram_set_reserve(mem, paddr);
-    return 0;
+    result->rd_data = memory_ram_load(mem, result->m_paddr, 4, mem->dcache);
+    memory_ram_set_reserve(mem, result->m_paddr);
   } else {
-    return TRAP_CODE_LOAD_ACCESS_FAULT;
+    result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
+  return result->exception_code;
 }
 
-unsigned memory_load_instruction(memory_t *mem, unsigned addr, unsigned *inst, unsigned prv) {
-  unsigned paddr;
-  unsigned exception = 0;
-  char *inst_line;
-  exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-  // pmp check
-  if (exception == 0) {
-    if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
-      inst_line = cache_get_line_ptr(mem->icache, paddr & ~(mem->icache->line_mask), 0);
-      *inst = ((unsigned short *)(&inst_line[paddr & mem->icache->line_mask]))[0];
-      if ((*inst & 0x03) == 3) {
-        if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
-          inst_line = cache_get_line_ptr(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
-        }
-        *inst |= (((unsigned short *)(&inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
-      }
-    } else {
-      exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
-    }
-  }
-  return exception;
-}
-
-unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value, unsigned *success, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_STORE, prv);
+unsigned memory_store_conditional(memory_t *mem, unsigned release, struct core_step_result *result) {
+  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (exception) {
-    return exception;
+  if (result->exception_code) {
+    return result->exception_code;
   }
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    if (memory_ram_get_reserve(mem, paddr)) {
-      memory_ram_store(mem, paddr, value, 4, mem->dcache);
-      memory_ram_rst_reserve(mem, paddr);
-      *success = MEMORY_STORE_SUCCESS;
+  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
+    if (memory_ram_get_reserve(mem, result->m_paddr)) {
+      memory_ram_store(mem, result->m_paddr, result->m_data, 4, mem->dcache);
+      memory_ram_rst_reserve(mem, result->m_paddr);
+      result->rd_data = MEMORY_STORE_SUCCESS;
     } else {
-      *success = MEMORY_STORE_FAILURE;
+      result->rd_data = MEMORY_STORE_FAILURE;
     }
   } else {
-    exception = TRAP_CODE_STORE_ACCESS_FAULT;
+    result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
   }
-  return exception;
+  return result->exception_code;
 }
 
 void memory_atp_on(memory_t *mem, unsigned ppn) {

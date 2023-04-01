@@ -67,7 +67,7 @@ unsigned lsu_load(lsu_t *lsu, unsigned len, struct core_step_result *result) {
       exception = TRAP_CODE_LOAD_ACCESS_FAULT;
     }
   } else {
-    exception = memory_load(lsu->mem, result->m_paddr, &result->rd_data, len, result->prv);
+    exception = memory_load(lsu->mem, len, result);
   }
   result->exception_code = exception;
   return exception;
@@ -98,7 +98,7 @@ unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
       exception = TRAP_CODE_STORE_ACCESS_FAULT;
     }
   } else {
-    exception = memory_store(lsu->mem, result->m_paddr, result->m_data, len, result->prv);
+    exception = memory_store(lsu->mem, len, result);
   }
   result->exception_code = exception;
   return exception;

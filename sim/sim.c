@@ -245,15 +245,19 @@ void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
 }
 
 char sim_read_memory(sim_t *sim, unsigned addr) {
-  unsigned prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
-  unsigned value;
-  memory_load(sim->mem, addr, &value, 1, prv);
-  return (char)value;
+  struct core_step_result r;
+  r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
+  r.m_vaddr = addr;
+  memory_load(sim->mem, 1, &r);
+  return (char)r.rd_data;
 }
 
 void sim_write_memory(sim_t *sim, unsigned addr, char value) {
-  unsigned prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
-  memory_store(sim->mem, addr, value, 1, prv);
+  struct core_step_result r;
+  r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
+  r.m_vaddr = addr;
+  r.m_data = value;
+  memory_store(sim->mem, 1, &r);
   // flush
   sim_cache_flush(sim);
   return;

@@ -286,13 +286,13 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->m_data = core->gpr[result->rs2_regno];
     switch (riscv_get_funct3(inst)) {
     case 0x0:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 1, prv);
+      memory_store(core->mem, 1, result);
       break;
     case 0x1:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 2, prv);
+      memory_store(core->mem, 2, result);
       break;
     case 0x2:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 4, prv);
+      memory_store(core->mem, 4, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -307,21 +307,21 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_load_offset(inst);
     switch (riscv_get_funct3(inst)) {
     case 0x0: // singed ext byte
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
+      memory_load(core->mem, 1, result);
       result->rd_data = (int)((char)result->rd_data);
       break;
     case 0x1: // signed ext half
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
+      memory_load(core->mem, 2, result);
       result->rd_data = (int)((short)result->rd_data);
       break;
     case 0x2:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      memory_load(core->mem, 4, result);
       break;
     case 0x4:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
+      memory_load(core->mem, 1, result);
       break;
     case 0x5:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
+      memory_load(core->mem, 2, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -338,10 +338,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->m_data = core->gpr[result->rs2_regno];
     switch (riscv_get_funct5(inst)) {
     case 0x002: // Load Reserved
-      result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
+      memory_load_reserved(core->mem, inst & AMO_AQ, result);
       break;
     case 0x003: // Store Conditional
-      result->exception_code = memory_store_conditional(core->mem, result->m_vaddr, result->m_data, &result->rd_data, prv);
+      memory_store_conditional(core->mem, inst & AMO_RL, result);
       break;
     case 0x000: // AMOADD
       memory_atomic_operation(core->mem, inst & AMO_AQ, inst & AMO_RL, op_add, result);

@@ -60,12 +60,16 @@ typedef struct memory_t {
 } memory_t;
 
 void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
-unsigned memory_load(memory_t *, unsigned addr, unsigned *value, unsigned size, unsigned prv);
-unsigned memory_load_instruction(memory_t *, unsigned addr, unsigned *value, unsigned prv);
-unsigned memory_store(memory_t *,unsigned addr, unsigned value, unsigned size, unsigned prv);
+unsigned memory_load(memory_t *, unsigned len, struct core_step_result *result);
+unsigned memory_store(memory_t *, unsigned len, struct core_step_result *result);
+unsigned memory_load_reserved(memory_t *, unsigned aquire, struct core_step_result *result);
+unsigned memory_store_conditional(memory_t *, unsigned aquire, struct core_step_result *result);
 unsigned memory_atomic_operation(memory_t *t, unsigned aquire, unsigned release,
                                  unsigned (*op)(unsigned, unsigned),
                                  struct core_step_result *result);
+unsigned memory_fence_instruction(memory_t *t);
+unsigned memory_fence(memory_t *t, unsigned char predecessor, unsigned char successor);
+unsigned memory_fence_tso(memory_t *t);
 unsigned memory_dma_send(memory_t *, unsigned pbase, int len, char *data);
 unsigned memory_dma_send_c(memory_t *, unsigned pbase, int len, char data);
 void memory_fini(memory_t *);
@@ -74,9 +78,6 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 // [NOTE] memory does not free rom_ptr on fini
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
-// atomic
-unsigned memory_load_reserved(memory_t *, unsigned addr, unsigned *value, unsigned prv);
-unsigned memory_store_conditional(memory_t *, unsigned addr, unsigned value, unsigned *success, unsigned prv);
 // mmu function
 void memory_atp_on(memory_t *, unsigned ppn);
 void memory_atp_off(memory_t *);
