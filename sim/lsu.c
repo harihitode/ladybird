@@ -52,18 +52,83 @@ unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
   return memory_store(lsu->mem, len, result);
 }
 
+static unsigned lsu_ram_load(lsu_t *lsu, unsigned addr, unsigned size, cache_t *cache) {
+  unsigned value = 0;
+  char *line = cache_get_line_ptr(cache, addr, 0);
+  switch (size) {
+  case 1:
+    value = (unsigned char)(line[0]);
+    break;
+  case 2:
+    value = (unsigned short)(((unsigned short *)line)[0]);
+    break;
+  case 4:
+    value = (unsigned)(((unsigned *)line)[0]);
+    break;
+  default:
+    break;
+  }
+  return value;
+}
+
+static void lsu_ram_store(lsu_t *lsu, unsigned addr, unsigned value, unsigned size, cache_t *cache) {
+  char *line = cache_get_line_ptr(cache, addr, 1);
+  switch (size) {
+  case 1:
+    line[0] = (unsigned char)value;
+    break;
+  case 2:
+    ((unsigned short *)line)[0] = (unsigned short)value;
+    break;
+  case 4:
+    ((unsigned *)line)[0] = value;
+    break;
+  default:
+    break;
+  }
+  return;
+}
+
 unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result *result) {
-  return memory_load_reserved(lsu->mem, aquire, result);
+  result->exception_code = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
+  if (result->exception_code) {
+    return result->exception_code;
+  }
+  if (!result->exception_code) {
+    result->rd_data = lsu_ram_load(lsu, result->m_paddr, 4, lsu->dcache);
+    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
+    cline->reserved = 1;
+  }
+  return result->exception_code;
 }
 
 unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_result *result) {
-  return memory_store_conditional(lsu->mem, release, result);
+  result->exception_code = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
+  if (result->exception_code) {
+    return result->exception_code;
+  }
+  cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+  if (cline->reserved == 1) {
+    lsu_ram_store(lsu, result->m_paddr, result->m_data, 4, lsu->dcache);
+    if (!result->exception_code) {
+      cline->reserved = 0;
+      result->rd_data = MEMORY_STORE_SUCCESS;
+    }
+  } else {
+    result->rd_data = MEMORY_STORE_FAILURE;
+  }
+  return result->exception_code;
 }
 
 unsigned lsu_atomic_operation(lsu_t *lsu, unsigned aquire, unsigned release,
                               unsigned (*op)(unsigned, unsigned),
                               struct core_step_result *result) {
-  return memory_atomic_operation(lsu->mem, aquire, release, op, result);
+  if (aquire) lsu_dcache_write_back(lsu);
+  result->exception_code = lsu_load(lsu, 4, result);
+  result->m_data = op(result->rd_data, result->m_data);
+  result->exception_code = lsu_store(lsu, 4, result);
+  if (release) lsu_dcache_write_back(lsu);
+  return result->exception_code;
 }
 
 unsigned lsu_fence_instruction(lsu_t *lsu) {
