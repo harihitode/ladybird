@@ -22,6 +22,7 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
+  mem->cache = NULL;
   mem->dcache = NULL;
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
@@ -38,7 +39,7 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
   }
   if (is_write && device_id == DEVICE_ID_DMA) {
     // invalidate core's cache line
-    memory_dcache_invalidate(mem); // TODO address base
+    lsu_dcache_invalidate(mem->lsu); // TODO address base
   }
   return mem->ram_block[bid];
 }
@@ -67,28 +68,12 @@ void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned 
 unsigned memory_atomic_operation(memory_t *mem, unsigned aquire, unsigned release,
                                  unsigned (*op)(unsigned, unsigned),
                                  struct core_step_result *result) {
-  if (aquire) memory_dcache_write_back(mem);
+  if (aquire) lsu_dcache_write_back(mem->lsu);
   result->exception_code = memory_load(mem, 4, result);
   result->m_data = op(result->rd_data, result->m_data);
   result->exception_code = memory_store(mem, 4, result);
-  if (release) memory_dcache_write_back(mem);
+  if (release) lsu_dcache_write_back(mem->lsu);
   return result->exception_code;
-}
-
-unsigned memory_fence_instruction(memory_t *mem) {
-  lsu_icache_invalidate(mem->lsu);
-  memory_dcache_invalidate(mem);
-  return 0;
-}
-
-unsigned memory_fence(memory_t *mem, unsigned char predecessor, unsigned char succussor) {
-  memory_dcache_write_back(mem);
-  return 0;
-}
-
-unsigned memory_fence_tso(memory_t *mem) {
-  memory_dcache_write_back(mem);
-  return 0;
 }
 
 void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base) {
@@ -141,12 +126,8 @@ static void memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsig
   return;
 }
 
-unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  return lsu_address_translation(mem->lsu, vaddr, paddr, access_type, prv);
-}
-
 unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *result) {
-  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
+  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
   if (result->exception_code) {
     return result->exception_code;
   }
@@ -194,7 +175,7 @@ unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *resul
 }
 
 unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *result) {
-  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
+  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
 
   if (result->exception_code != 0) {
     return result->exception_code;
@@ -220,7 +201,7 @@ unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *resu
 }
 
 unsigned memory_load_reserved(memory_t *mem, unsigned aquire, struct core_step_result *result) {
-  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
+  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
   if (result->exception_code) {
     return result->exception_code;
@@ -239,7 +220,7 @@ unsigned memory_load_reserved(memory_t *mem, unsigned aquire, struct core_step_r
 }
 
 unsigned memory_store_conditional(memory_t *mem, unsigned release, struct core_step_result *result) {
-  result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
+  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
   if (result->exception_code) {
     return result->exception_code;
@@ -345,27 +326,6 @@ void memory_fini(memory_t *mem) {
   }
   free(mem->mmio_list);
   return;
-}
-
-void memory_dcache_invalidate(memory_t *mem) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    cache_write_back(mem->dcache, i);
-    mem->dcache->line[i].state = CACHE_INVALID;
-  }
-}
-
-void memory_dcache_invalidate_line(memory_t *mem, unsigned paddr) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    if (mem->dcache->line[i].state != CACHE_INVALID && mem->dcache->line[i].tag == (paddr & mem->dcache->tag_mask)) {
-      mem->dcache->line[i].state = CACHE_INVALID;
-    }
-  }
-}
-
-void memory_dcache_write_back(memory_t *mem) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    cache_write_back(mem->dcache, i);
-  }
 }
 
 void rom_init(rom_t *rom) {

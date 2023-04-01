@@ -67,15 +67,19 @@ unsigned lsu_atomic_operation(lsu_t *lsu, unsigned aquire, unsigned release,
 }
 
 unsigned lsu_fence_instruction(lsu_t *lsu) {
-  return memory_fence_instruction(lsu->mem);
+  lsu_icache_invalidate(lsu);
+  lsu_dcache_invalidate(lsu);
+  return 0;
 }
 
 unsigned lsu_fence(lsu_t *lsu, unsigned char predecessor, unsigned char successor) {
-  return memory_fence(lsu->mem, predecessor, successor);
+  lsu_dcache_write_back(lsu);
+  return 0;
 }
 
 unsigned lsu_fence_tso(lsu_t *lsu) {
-  return memory_fence_tso(lsu->mem);
+  lsu_dcache_write_back(lsu);
+  return 0;
 }
 
 void lsu_icache_invalidate(lsu_t *lsu) {
@@ -85,15 +89,24 @@ void lsu_icache_invalidate(lsu_t *lsu) {
 }
 
 void lsu_dcache_invalidate(lsu_t *lsu) {
-  memory_dcache_invalidate(lsu->mem);
+  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
+    cache_write_back(lsu->dcache, i);
+    lsu->dcache->line[i].state = CACHE_INVALID;
+  }
 }
 
 void lsu_dcache_invalidate_line(lsu_t *lsu, unsigned paddr) {
-  memory_dcache_invalidate_line(lsu->mem, paddr);
+  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
+    if (lsu->dcache->line[i].state != CACHE_INVALID && lsu->dcache->line[i].tag == (paddr & lsu->dcache->tag_mask)) {
+      lsu->dcache->line[i].state = CACHE_INVALID;
+    }
+  }
 }
 
 void lsu_dcache_write_back(lsu_t *lsu) {
-  memory_dcache_write_back(lsu->mem);
+  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
+    cache_write_back(lsu->dcache, i);
+  }
 }
 
 void lsu_atp_on(lsu_t *lsu, unsigned ppn) {

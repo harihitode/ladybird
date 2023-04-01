@@ -61,9 +61,6 @@ unsigned memory_store_conditional(memory_t *, unsigned aquire, struct core_step_
 unsigned memory_atomic_operation(memory_t *t, unsigned aquire, unsigned release,
                                  unsigned (*op)(unsigned, unsigned),
                                  struct core_step_result *result);
-unsigned memory_fence_instruction(memory_t *t);
-unsigned memory_fence(memory_t *t, unsigned char predecessor, unsigned char successor);
-unsigned memory_fence_tso(memory_t *t);
 unsigned memory_dma_send(memory_t *, unsigned pbase, int len, char *data);
 unsigned memory_dma_send_c(memory_t *, unsigned pbase, int len, char data);
 void memory_fini(memory_t *);
@@ -72,11 +69,6 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 // [NOTE] memory does not free rom_ptr on fini
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
-// mmu function
-void memory_dcache_invalidate(memory_t *);
-void memory_dcache_invalidate_line(memory_t *, unsigned paddr);
-void memory_dcache_write_back(memory_t *);
-unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv);
 
 void rom_init(rom_t *rom);
 void rom_str(rom_t *rom, const char *data, unsigned size);
