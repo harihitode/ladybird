@@ -22,7 +22,6 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
-  mem->ram_reserve = (char *)calloc(mem->ram_blocks, sizeof(char));
   mem->vmflag = 0;
   mem->vmrppn = 0;
   mem->icache = (cache_t *)malloc(sizeof(cache_t));
@@ -44,7 +43,6 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
-  mem->ram_reserve[bid] = 0; // expire
   if (is_write && device_id == DEVICE_ID_DMA) {
     // invalidate core's cache line
     memory_dcache_invalidate(mem); // TODO address base
@@ -239,18 +237,6 @@ unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *resu
   return result->exception_code;
 }
 
-static void memory_ram_set_reserve(memory_t *mem, unsigned addr) {
-  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 1;
-}
-
-static void memory_ram_rst_reserve(memory_t *mem, unsigned addr) {
-  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 0;
-}
-
-static char memory_ram_get_reserve(memory_t *mem, unsigned addr) {
-  return mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size];
-}
-
 unsigned memory_load_reserved(memory_t *mem, unsigned aquire, struct core_step_result *result) {
   result->exception_code = memory_address_translation(mem, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
   unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
@@ -260,7 +246,10 @@ unsigned memory_load_reserved(memory_t *mem, unsigned aquire, struct core_step_r
   if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
     // RAM
     result->rd_data = memory_ram_load(mem, result->m_paddr, 4, mem->dcache);
-    memory_ram_set_reserve(mem, result->m_paddr);
+    if (!result->exception_code) {
+      cache_line_t *cline = cache_get_line(mem->dcache, result->m_paddr, CACHE_ACCESS_READ);
+      cline->reserved = 1;
+    }
   } else {
     result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
@@ -274,10 +263,13 @@ unsigned memory_store_conditional(memory_t *mem, unsigned release, struct core_s
     return result->exception_code;
   }
   if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
-    if (memory_ram_get_reserve(mem, result->m_paddr)) {
+    cache_line_t *cline = cache_get_line(mem->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+    if (cline->reserved == 1) {
       memory_ram_store(mem, result->m_paddr, result->m_data, 4, mem->dcache);
-      memory_ram_rst_reserve(mem, result->m_paddr);
-      result->rd_data = MEMORY_STORE_SUCCESS;
+      if (!result->exception_code) {
+        cline->reserved = 0;
+        result->rd_data = MEMORY_STORE_SUCCESS;
+      }
     } else {
       result->rd_data = MEMORY_STORE_FAILURE;
     }
@@ -376,7 +368,6 @@ void memory_fini(memory_t *mem) {
     free(mem->ram_block[i]);
   }
   free(mem->ram_block);
-  free(mem->ram_reserve);
   cache_fini(mem->dcache);
   free(mem->dcache);
   cache_fini(mem->icache);

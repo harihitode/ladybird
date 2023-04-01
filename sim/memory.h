@@ -42,7 +42,6 @@ typedef struct memory_t {
   unsigned ram_block_size;
   unsigned ram_blocks;
   char **ram_block;
-  char *ram_reserve;
   // CACHE for RAM
   struct cache_t *dcache;
   struct cache_t *icache;
