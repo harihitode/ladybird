@@ -1,4 +1,5 @@
 #include "memory.h"
+#include "lsu.h"
 #include "mmio.h"
 #include "plic.h"
 #include "sim.h"
@@ -22,10 +23,9 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
-  mem->cache = NULL;
-  mem->dcache = NULL;
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
+  mem->cache = NULL;
 }
 
 char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int device_id) {
@@ -39,7 +39,10 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
   }
   if (is_write && device_id == DEVICE_ID_DMA) {
     // invalidate core's cache line
-    lsu_dcache_invalidate(mem->lsu); // TODO address base
+    for (unsigned i = 0; i < mem->cache->line_size; i++) {
+      cache_write_back(mem->cache, i);
+      mem->cache->line[i].state = CACHE_INVALID;
+    }
   }
   return mem->ram_block[bid];
 }
@@ -78,83 +81,34 @@ void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base) {
   }
 }
 
-static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, cache_t *cache) {
-  unsigned value = 0;
-  char *line = cache_get_line_ptr(cache, addr, 0);
-  switch (size) {
-  case 1:
-    value = (unsigned char)(line[0]);
-    break;
-  case 2:
-    value = (unsigned short)(((unsigned short *)line)[0]);
-    break;
-  case 4:
-    value = (unsigned)(((unsigned *)line)[0]);
-    break;
-  default:
-    break;
-  }
-  return value;
-}
-
-static void memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, cache_t *cache) {
-  char *line = cache_get_line_ptr(cache, addr, 1);
-  switch (size) {
-  case 1:
-    line[0] = (unsigned char)value;
-    break;
-  case 2:
-    ((unsigned short *)line)[0] = (unsigned short)value;
-    break;
-  case 4:
-    ((unsigned *)line)[0] = value;
-    break;
-  default:
-    break;
-  }
-  return;
-}
-
 unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *result) {
-  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
-  if (result->exception_code) {
-    return result->exception_code;
-  }
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
   unsigned found = 0;
-  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
-    // RAM
-    result->rd_data = memory_ram_load(mem, result->m_paddr, len, mem->dcache);
-    found = 1;
-  } else {
-    // search MMIO
-    for (unsigned u = 0; u < MAX_MMIO; u++) {
-      struct mmio_t *unit = mem->mmio_list[u];
-      if (unit == NULL) continue;
-      if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < len; i++) {
-          result->rd_data |= ((0x000000ff & unit->readb(unit, result->m_paddr + i)) << (8 * i));
-        }
-        found = 1;
+  // search MMIO
+  for (unsigned u = 0; u < MAX_MMIO; u++) {
+    struct mmio_t *unit = mem->mmio_list[u];
+    if (unit == NULL) continue;
+    if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+      for (unsigned i = 0; i < len; i++) {
+        result->rd_data |= ((0x000000ff & unit->readb(unit, result->m_paddr + i)) << (8 * i));
+      }
+      found = 1;
+      break;
+    }
+  }
+  // search ROM
+  if (found == 0 && mem->rom_list) {
+    struct rom_t *rom = NULL;
+    for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
+      if (result->m_paddr >= p->base && (result->m_paddr + len) < p->base + p->size) {
+        rom = p;
         break;
       }
     }
-    // search ROM
-    if (found == 0 && mem->rom_list) {
-      struct rom_t *rom = NULL;
-      // search ROM
-      for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
-        if (result->m_paddr >= p->base && (result->m_paddr + len) < p->base + p->size) {
-          rom = p;
-          break;
-        }
+    if (rom) {
+      for (unsigned i = 0; i < len; i++) {
+        result->rd_data |= ((0x000000ff & rom->data[result->m_paddr + i - rom->base]) << (8 * i));
       }
-      if (rom) {
-        for (unsigned i = 0; i < len; i++) {
-          result->rd_data |= ((0x000000ff & rom->data[result->m_paddr + i - rom->base]) << (8 * i));
-        }
-        found = 1;
-      }
+      found = 1;
     }
   }
   if (found == 0) {
@@ -164,26 +118,15 @@ unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *resul
 }
 
 unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *result) {
-  result->exception_code = lsu_address_translation(mem->lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
-
-  if (result->exception_code != 0) {
-    return result->exception_code;
-  }
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (result->m_paddr >= mem->ram_base && result->m_paddr < ram_max_addr) {
-    // RAM
-    memory_ram_store(mem, result->m_paddr, result->m_data, len, mem->dcache);
-  } else {
-    // search MMIO
-    for (unsigned u = 0; u < MAX_MMIO; u++) {
-      struct mmio_t *unit = mem->mmio_list[u];
-      if (unit == NULL) continue;
-      if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < len; i++) {
-          unit->writeb(unit, result->m_paddr + i, (char)(result->m_data >> (i * 8)));
-        }
-        break;
+  // search MMIO
+  for (unsigned u = 0; u < MAX_MMIO; u++) {
+    struct mmio_t *unit = mem->mmio_list[u];
+    if (unit == NULL) continue;
+    if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+      for (unsigned i = 0; i < len; i++) {
+        unit->writeb(unit, result->m_paddr + i, (char)(result->m_data >> (i * 8)));
       }
+      break;
     }
   }
   return result->exception_code;

@@ -9,16 +9,14 @@
 void lsu_init(lsu_t *lsu, memory_t *mem) {
   lsu->vmflag = 0;
   lsu->vmrppn = 0;
+  lsu->mem = mem;
   lsu->icache = (cache_t *)malloc(sizeof(cache_t));
   lsu->dcache = (cache_t *)malloc(sizeof(cache_t));
   lsu->tlb = (tlb_t *)malloc(sizeof(tlb_t));
   cache_init(lsu->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(lsu->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(lsu->tlb, mem, 64); // 64 entry
-  lsu->mem = mem;
   mem->cache = lsu->dcache;
-  mem->dcache = lsu->dcache;
-  mem->lsu = lsu;
 }
 
 unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
@@ -36,8 +34,8 @@ unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, un
   }
 }
 
-static int is_cachable(unsigned addr) {
-  if (addr >= 0x80000000 && addr <= 0xFFFFFFFF) {
+static int is_cacheable(unsigned addr) {
+  if (addr >= MEMORY_BASE_ADDR_RAM) {
     return 1;
   } else {
     return 0;
@@ -45,48 +43,63 @@ static int is_cachable(unsigned addr) {
 }
 
 unsigned lsu_load(lsu_t *lsu, unsigned len, struct core_step_result *result) {
-  return memory_load(lsu->mem, len, result);
+  result->exception_code = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
+  if (result->exception_code) {
+    return result->exception_code;
+  }
+  if (is_cacheable(result->m_paddr)) {
+    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
+    if (line != NULL) {
+      switch (len) {
+      case 1:
+        result->rd_data = (unsigned char)(line[0]);
+        break;
+      case 2:
+        result->rd_data = (unsigned short)(((unsigned short *)line)[0]);
+        break;
+      case 4:
+        result->rd_data = (unsigned)(((unsigned *)line)[0]);
+        break;
+      default:
+        break;
+      }
+    } else {
+      result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
+    }
+  } else {
+    result->exception_code = memory_load(lsu->mem, len, result);
+  }
+  return result->exception_code;
 }
 
 unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
-  return memory_store(lsu->mem, len, result);
-}
-
-static unsigned lsu_ram_load(lsu_t *lsu, unsigned addr, unsigned size, cache_t *cache) {
-  unsigned value = 0;
-  char *line = cache_get_line_ptr(cache, addr, 0);
-  switch (size) {
-  case 1:
-    value = (unsigned char)(line[0]);
-    break;
-  case 2:
-    value = (unsigned short)(((unsigned short *)line)[0]);
-    break;
-  case 4:
-    value = (unsigned)(((unsigned *)line)[0]);
-    break;
-  default:
-    break;
+  result->exception_code = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
+  if (result->exception_code) {
+    return result->exception_code;
   }
-  return value;
-}
-
-static void lsu_ram_store(lsu_t *lsu, unsigned addr, unsigned value, unsigned size, cache_t *cache) {
-  char *line = cache_get_line_ptr(cache, addr, 1);
-  switch (size) {
-  case 1:
-    line[0] = (unsigned char)value;
-    break;
-  case 2:
-    ((unsigned short *)line)[0] = (unsigned short)value;
-    break;
-  case 4:
-    ((unsigned *)line)[0] = value;
-    break;
-  default:
-    break;
+  if (is_cacheable(result->m_paddr)) {
+    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+    if (line != NULL) {
+      switch (len) {
+      case 1:
+        line[0] = (unsigned char)result->m_data;
+        break;
+      case 2:
+        ((unsigned short *)line)[0] = (unsigned short)result->m_data;
+        break;
+      case 4:
+        ((unsigned *)line)[0] = result->m_data;
+        break;
+      default:
+        break;
+      }
+    } else {
+      result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
+    }
+  } else {
+    result->exception_code = memory_store(lsu->mem, len, result);
   }
-  return;
+  return result->exception_code;
 }
 
 unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result *result) {
@@ -94,10 +107,13 @@ unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result 
   if (result->exception_code) {
     return result->exception_code;
   }
-  if (!result->exception_code) {
-    result->rd_data = lsu_ram_load(lsu, result->m_paddr, 4, lsu->dcache);
+  if (is_cacheable(result->m_paddr)) {
+    if (aquire) lsu_dcache_write_back(lsu);
     cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
+    result->rd_data = *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask]));
     cline->reserved = 1;
+  } else {
+    result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
   return result->exception_code;
 }
@@ -107,15 +123,20 @@ unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_re
   if (result->exception_code) {
     return result->exception_code;
   }
-  cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
-  if (cline->reserved == 1) {
-    lsu_ram_store(lsu, result->m_paddr, result->m_data, 4, lsu->dcache);
-    if (!result->exception_code) {
-      cline->reserved = 0;
-      result->rd_data = MEMORY_STORE_SUCCESS;
+  if (is_cacheable(result->m_paddr)) {
+    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+    if (cline->reserved == 1) {
+      *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask])) = result->m_data;
+      if (!result->exception_code) {
+        cline->reserved = 0;
+        result->rd_data = MEMORY_STORE_SUCCESS;
+      }
+    } else {
+      result->rd_data = MEMORY_STORE_FAILURE;
     }
+    if (release) lsu_dcache_write_back(lsu);
   } else {
-    result->rd_data = MEMORY_STORE_FAILURE;
+    result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
   }
   return result->exception_code;
 }

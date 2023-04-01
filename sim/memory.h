@@ -12,10 +12,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-struct lsu_t;
 struct mmio_t;
 struct cache_t;
-struct tlb_t;
 struct core_step_result;
 
 struct mmio_t {
@@ -43,14 +41,11 @@ typedef struct memory_t {
   unsigned ram_block_size;
   unsigned ram_blocks;
   char **ram_block;
-  // CACHE for RAM
-  struct cache_t *dcache;
-  struct cache_t *cache;
-  struct lsu_t *lsu;
   // MMIO
   struct mmio_t **mmio_list;
   // ROM
   struct rom_t *rom_list;
+  struct cache_t *cache;
 } memory_t;
 
 void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
