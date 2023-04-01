@@ -17,7 +17,6 @@ void lsu_init(lsu_t *lsu, memory_t *mem) {
   tlb_init(lsu->tlb, mem, 64); // 64 entry
   lsu->mem = mem;
   mem->cache = lsu->dcache;
-  mem->icache = lsu->icache;
   mem->dcache = lsu->dcache;
   mem->lsu = lsu;
 }
@@ -80,7 +79,9 @@ unsigned lsu_fence_tso(lsu_t *lsu) {
 }
 
 void lsu_icache_invalidate(lsu_t *lsu) {
-  memory_icache_invalidate(lsu->mem);
+  for (unsigned i = 0; i < lsu->icache->line_size; i++) {
+    lsu->icache->line[i].state = CACHE_INVALID;
+  }
 }
 
 void lsu_dcache_invalidate(lsu_t *lsu) {

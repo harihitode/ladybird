@@ -45,7 +45,6 @@ typedef struct memory_t {
   char **ram_block;
   // CACHE for RAM
   struct cache_t *dcache;
-  struct cache_t *icache;
   struct cache_t *cache;
   struct lsu_t *lsu;
   // MMIO
@@ -74,7 +73,6 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 // mmu function
-void memory_icache_invalidate(memory_t *);
 void memory_dcache_invalidate(memory_t *);
 void memory_dcache_invalidate_line(memory_t *, unsigned paddr);
 void memory_dcache_write_back(memory_t *);

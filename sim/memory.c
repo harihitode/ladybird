@@ -22,7 +22,6 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
-  mem->icache = NULL;
   mem->dcache = NULL;
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
@@ -77,7 +76,7 @@ unsigned memory_atomic_operation(memory_t *mem, unsigned aquire, unsigned releas
 }
 
 unsigned memory_fence_instruction(memory_t *mem) {
-  memory_icache_invalidate(mem);
+  lsu_icache_invalidate(mem->lsu);
   memory_dcache_invalidate(mem);
   return 0;
 }
@@ -346,12 +345,6 @@ void memory_fini(memory_t *mem) {
   }
   free(mem->mmio_list);
   return;
-}
-
-void memory_icache_invalidate(memory_t *mem) {
-  for (unsigned i = 0; i < mem->icache->line_size; i++) {
-    mem->icache->line[i].state = CACHE_INVALID;
-  }
 }
 
 void memory_dcache_invalidate(memory_t *mem) {
