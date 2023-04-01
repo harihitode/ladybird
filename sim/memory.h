@@ -79,6 +79,7 @@ void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsi
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 // mmu function
 void memory_atp_on(memory_t *, unsigned ppn);
+unsigned memory_atp_get(memory_t *);
 void memory_atp_off(memory_t *);
 void memory_tlb_clear(memory_t *);
 void memory_icache_invalidate(memory_t *);

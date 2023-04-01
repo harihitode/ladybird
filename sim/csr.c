@@ -4,6 +4,7 @@
 #include "csr.h"
 #include "plic.h"
 #include "core.h"
+#include "lsu.h"
 #include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 #define CSR_NUM_HPM 29
 
 void csr_init(csr_t *csr) {
-  csr->mem = NULL;
+  csr->lsu = NULL;
   csr->plic = NULL;
   csr->aclint = NULL;
   csr->trig = NULL;
@@ -122,9 +123,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return 0; // not supported
   case CSR_ADDR_S_ATP:
 #if 0
-    fprintf(stderr, "ATP (read) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+    fprintf(stderr, "ATP (read) %08x\n", lsu_atp_get(csr->lsu));
 #endif
-    return (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff);
+    return lsu_atp_get(csr->lsu);
   case CSR_ADDR_S_IE:
     return csr->interrupts_enable & 0x00000222;
   case CSR_ADDR_S_TVEC:
@@ -355,18 +356,18 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
   case CSR_ADDR_S_ATP:
-    memory_dcache_write_back(csr->mem);
+    lsu_dcache_write_back(csr->lsu);
     if (value & 0x80000000) {
-      memory_atp_on(csr->mem, value & 0x000fffff);
+      lsu_atp_on(csr->lsu, value & 0x000fffff);
     } else {
-      memory_atp_off(csr->mem);
+      lsu_atp_off(csr->lsu);
     }
-    memory_tlb_clear(csr->mem);
-    memory_icache_invalidate(csr->mem);
-    memory_dcache_invalidate(csr->mem);
+    lsu_tlb_clear(csr->lsu);
+    lsu_icache_invalidate(csr->lsu);
+    lsu_dcache_invalidate(csr->lsu);
     result->flush = 1;
 #if 0
-    fprintf(stderr, "ATP (write) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+    fprintf(stderr, "ATP (write) %08x\n", (csr->lsu->vmflag << 31) | ((csr->lsu->vmrppn >> 12) & 0x000fffff));
 #endif
     break;
   case CSR_ADDR_S_IE:
@@ -704,9 +705,9 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
 
 static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
-  memory_tlb_clear(csr->mem);
-  memory_icache_invalidate(csr->mem);
-  memory_dcache_invalidate(csr->mem);
+  lsu_tlb_clear(csr->lsu);
+  lsu_icache_invalidate(csr->lsu);
+  lsu_dcache_invalidate(csr->lsu);
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
     csr->pc = csr->mepc;

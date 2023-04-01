@@ -5,6 +5,9 @@
 
 struct csr_t;
 struct memory_t;
+struct plic_t;
+struct aclint_t;
+struct trigger_t;
 
 typedef struct window_t {
   unsigned *pc;
@@ -16,7 +19,7 @@ typedef struct window_t {
 typedef struct core_t {
   unsigned gpr[NUM_GPR];
   struct csr_t *csr;
-  struct memory_t *mem;
+  struct lsu_t *lsu;
   window_t window; // instruction window
 } core_t;
 

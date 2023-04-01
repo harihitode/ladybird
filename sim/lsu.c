@@ -9,29 +9,24 @@
 void lsu_init(lsu_t *lsu, memory_t *mem) {
   lsu->vmflag = 0;
   lsu->vmrppn = 0;
+  lsu->icache = mem->icache;
+  lsu->dcache = mem->dcache;
+  lsu->tlb = mem->tlb;
   lsu->icache = (cache_t *)malloc(sizeof(cache_t));
   lsu->dcache = (cache_t *)malloc(sizeof(cache_t));
   lsu->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  lsu->mem = mem;
   cache_init(lsu->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(lsu->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(lsu->tlb, mem, 64); // 64 entry
+  lsu->mem = mem;
   mem->cache = lsu->dcache;
+  mem->icache = lsu->icache;
+  mem->dcache = lsu->dcache;
+  mem->tlb = lsu->tlb;
 }
 
 unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  if (lsu->vmflag == 0 || prv == PRIVILEGE_MODE_M) {
-    // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
-    // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
-    *paddr = vaddr;
-    return 0;
-  } else {
-    unsigned code = tlb_get(lsu->tlb, lsu->vmrppn, vaddr, paddr, access_type, prv);
-#if 0
-    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
-#endif
-    return code;
-  }
+  return memory_address_translation(lsu->mem, vaddr, paddr, access_type, prv);
 }
 
 static int is_cachable(unsigned addr) {
@@ -43,175 +38,69 @@ static int is_cachable(unsigned addr) {
 }
 
 unsigned lsu_load(lsu_t *lsu, unsigned len, struct core_step_result *result) {
-  unsigned exception = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_LOAD, result->prv);
-  if (exception != 0) {
-    return exception;
-  }
-  if (is_cachable(result->m_paddr)) {
-    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
-    if (line != NULL) {
-      switch (len) {
-      case 1:
-        result->rd_data = (unsigned char)(line[0]);
-        break;
-      case 2:
-        result->rd_data = (unsigned short)(((unsigned short *)line)[0]);
-        break;
-      case 4:
-        result->rd_data = (unsigned)(((unsigned *)line)[0]);
-        break;
-      default:
-        break;
-      }
-    } else {
-      exception = TRAP_CODE_LOAD_ACCESS_FAULT;
-    }
-  } else {
-    exception = memory_load(lsu->mem, len, result);
-  }
-  result->exception_code = exception;
-  return exception;
+  return memory_load(lsu->mem, len, result);
 }
 
 unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
-  unsigned exception = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
-  if (exception != 0) {
-    return exception;
-  }
-  if (is_cachable(result->m_paddr)) {
-    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
-    if (line != NULL) {
-      switch (len) {
-      case 1:
-        line[0] = (unsigned char)result->m_data;
-        break;
-      case 2:
-        ((unsigned short *)line)[0] = (unsigned short)result->m_data;
-        break;
-      case 4:
-        ((unsigned *)line)[0] = result->m_data;
-        break;
-      default:
-        break;
-      }
-    } else {
-      exception = TRAP_CODE_STORE_ACCESS_FAULT;
-    }
-  } else {
-    exception = memory_store(lsu->mem, len, result);
-  }
-  result->exception_code = exception;
-  return exception;
+  return memory_store(lsu->mem, len, result);
 }
 
 unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result *result) {
-  unsigned exception = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
-  if (exception != 0) {
-    return exception;
-  }
-  if (is_cachable(result->m_paddr)) {
-    if (aquire) lsu_dcache_write_back(lsu);
-    exception = lsu_load(lsu, 4, result);
-    if (exception != 0) {
-      cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, 0);
-      cline->reserved = 1;
-    }
-    return exception;
-  } else {
-    return TRAP_CODE_LOAD_ACCESS_FAULT;
-  }
+  return memory_load_reserved(lsu->mem, aquire, result);
 }
 
 unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_result *result) {
-  unsigned exception = lsu_address_translation(lsu, result->m_vaddr, &result->m_paddr, ACCESS_TYPE_STORE, result->prv);
-  if (exception != 0) {
-    return exception;
-  }
-  if (is_cachable(result->m_paddr)) {
-    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, 1);
-    if (cline->reserved == 1) {
-      lsu_store(lsu, 4, result);
-      cline->reserved = 0;
-      result->m_data = MEMORY_STORE_SUCCESS;
-    } else {
-      result->m_data = MEMORY_STORE_FAILURE;
-    }
-    if (release) lsu_dcache_write_back(lsu);
-  } else {
-    exception = TRAP_CODE_STORE_ACCESS_FAULT;
-  }
-  return exception;
+  return memory_store_conditional(lsu->mem, release, result);
 }
 
 unsigned lsu_atomic_operation(lsu_t *lsu, unsigned aquire, unsigned release,
                               unsigned (*op)(unsigned, unsigned),
                               struct core_step_result *result) {
-  if (aquire) lsu_dcache_write_back(lsu);
-  result->exception_code = lsu_load(lsu, 4, result);
-  result->m_data = op(result->rd_data, result->m_data);
-  result->exception_code = lsu_store(lsu, 4, result);
-  if (release) lsu_dcache_write_back(lsu);
-  return 0;
+  return memory_atomic_operation(lsu->mem, aquire, release, op, result);
 }
 
 unsigned lsu_fence_instruction(lsu_t *lsu) {
-  lsu_icache_invalidate(lsu);
-  lsu_dcache_invalidate(lsu);
-  return 0;
+  return memory_fence_instruction(lsu->mem);
 }
 
-unsigned lsu_fence(lsu_t *lsu, unsigned char predecessor, unsigned char succussor) {
-  lsu_dcache_write_back(lsu);
-  return 0;
+unsigned lsu_fence(lsu_t *lsu, unsigned char predecessor, unsigned char successor) {
+  return memory_fence(lsu->mem, predecessor, successor);
 }
 
 unsigned lsu_fence_tso(lsu_t *lsu) {
-  lsu_dcache_write_back(lsu);
-  return 0;
+  return memory_fence_tso(lsu->mem);
 }
 
 void lsu_icache_invalidate(lsu_t *lsu) {
-  for (unsigned i = 0; i < lsu->icache->line_size; i++) {
-    lsu->icache->line[i].state = CACHE_INVALID;
-  }
+  memory_icache_invalidate(lsu->mem);
 }
 
 void lsu_dcache_invalidate(lsu_t *lsu) {
-  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
-    cache_write_back(lsu->dcache, i);
-    lsu->dcache->line[i].state = CACHE_INVALID;
-  }
+  memory_dcache_invalidate(lsu->mem);
 }
 
 void lsu_dcache_invalidate_line(lsu_t *lsu, unsigned paddr) {
-  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
-    if ((lsu->dcache->line[i].state != CACHE_INVALID) &&
-        (lsu->dcache->line[i].tag == (paddr & lsu->dcache->tag_mask))) {
-      lsu->dcache->line[i].state = CACHE_INVALID;
-    }
-  }
+  memory_dcache_invalidate_line(lsu->mem, paddr);
 }
 
 void lsu_dcache_write_back(lsu_t *lsu) {
-  for (unsigned i = 0; i < lsu->dcache->line_size; i++) {
-    cache_write_back(lsu->dcache, i);
-  }
+  memory_dcache_write_back(lsu->mem);
 }
 
 void lsu_atp_on(lsu_t *lsu, unsigned ppn) {
-  lsu->vmflag = 1;
-  lsu->vmrppn = ppn << 12;
-  return;
+  memory_atp_on(lsu->mem, ppn);
+}
+
+unsigned lsu_atp_get(lsu_t *lsu) {
+  return memory_atp_get(lsu->mem);
 }
 
 void lsu_atp_off(lsu_t *lsu) {
-  lsu->vmflag = 0;
-  lsu->vmrppn = 0;
-  return;
+  memory_atp_off(lsu->mem);
 }
 
 void lsu_tlb_clear(lsu_t *lsu) {
-  tlb_clear(lsu->tlb);
+  memory_tlb_clear(lsu->mem);
 }
 
 void lsu_fini(lsu_t *lsu) {

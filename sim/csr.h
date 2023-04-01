@@ -8,7 +8,7 @@ struct aclint_t;
 struct trigger_t;
 
 typedef struct csr_t {
-  struct memory_t *mem;
+  struct lsu_t *lsu;
   struct plic_t *plic;
   struct aclint_t *aclint;
   struct trigger_t *trig;

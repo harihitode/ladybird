@@ -24,12 +24,9 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
   mem->vmflag = 0;
   mem->vmrppn = 0;
-  mem->icache = (cache_t *)malloc(sizeof(cache_t));
-  mem->dcache = (cache_t *)malloc(sizeof(cache_t));
-  mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
-  cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
-  tlb_init(mem->tlb, mem, 64); // 64 entry
+  mem->icache = NULL;
+  mem->dcache = NULL;
+  mem->tlb = NULL;
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
 }
@@ -285,6 +282,10 @@ void memory_atp_on(memory_t *mem, unsigned ppn) {
   return;
 }
 
+unsigned memory_atp_get(memory_t *mem) {
+  return (mem->vmflag << 31) | ((mem->vmrppn >> 12) & 0x000fffff);
+}
+
 void memory_atp_off(memory_t *mem) {
   mem->vmflag = 0;
   mem->vmrppn = 0;
@@ -368,12 +369,6 @@ void memory_fini(memory_t *mem) {
     free(mem->ram_block[i]);
   }
   free(mem->ram_block);
-  cache_fini(mem->dcache);
-  free(mem->dcache);
-  cache_fini(mem->icache);
-  free(mem->icache);
-  tlb_fini(mem->tlb);
-  free(mem->tlb);
   struct rom_t *rom_p = mem->rom_list;
   while (1) {
     if (rom_p == NULL) {

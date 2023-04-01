@@ -84,6 +84,7 @@ unsigned lsu_fence(lsu_t *t, unsigned char predecessor, unsigned char successor)
 unsigned lsu_fence_tso(lsu_t *t);
 // MMU functions
 void lsu_atp_on(lsu_t *, unsigned ppn);
+unsigned lsu_atp_get(lsu_t *);
 void lsu_atp_off(lsu_t *);
 void lsu_tlb_clear(lsu_t *);
 void lsu_icache_invalidate(lsu_t *);

@@ -1,8 +1,9 @@
 #include "sim.h"
 #include "elfloader.h"
 #include "core.h"
-#include "memory.h"
 #include "csr.h"
+#include "lsu.h"
+#include "memory.h"
 #include "mmio.h"
 #include "plic.h"
 #include "trigger.h"
@@ -109,7 +110,7 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
     memory_dma_send_c(sim->mem, sim->elf->program_base[i] + sim->elf->program_file_size[i],
                       sim->elf->program_mem_size[i] - sim->elf->program_file_size[i], 0);
   }
-  memory_dcache_write_back(sim->mem);
+  lsu_dcache_write_back(sim->core->lsu);
   // set entry program counter
   sim->core->csr->pc = sim->elf->entry_address;
   sim_write_csr(sim, CSR_ADDR_D_PC, sim->elf->entry_address);
@@ -248,7 +249,7 @@ char sim_read_memory(sim_t *sim, unsigned addr) {
   struct core_step_result r;
   r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
   r.m_vaddr = addr;
-  memory_load(sim->mem, 1, &r);
+  lsu_load(sim->core->lsu, 1, &r);
   return (char)r.rd_data;
 }
 
@@ -257,15 +258,15 @@ void sim_write_memory(sim_t *sim, unsigned addr, char value) {
   r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
   r.m_vaddr = addr;
   r.m_data = value;
-  memory_store(sim->mem, 1, &r);
+  lsu_store(sim->core->lsu, 1, &r);
   // flush
   sim_cache_flush(sim);
   return;
 }
 
 void sim_cache_flush(sim_t *sim) {
-  memory_dcache_write_back(sim->mem);
-  memory_icache_invalidate(sim->mem);
+  lsu_dcache_write_back(sim->core->lsu);
+  lsu_icache_invalidate(sim->core->lsu);
   core_window_flush(sim->core);
   return;
 }
