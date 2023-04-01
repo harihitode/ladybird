@@ -8,6 +8,7 @@ struct memory_t;
 
 typedef struct window_t {
   unsigned *pc;
+  unsigned *pc_paddr;
   unsigned *inst;
   unsigned *exception;
 } window_t;

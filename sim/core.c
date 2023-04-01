@@ -17,8 +17,10 @@ void core_init(core_t *core, int hart_id, struct memory_t *mem, struct plic_t *p
     core->gpr[i] = 0;
   }
   core->window.pc = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  core->window.pc_paddr = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     core->window.pc[i] = 0xffffffff;
+    core->window.pc_paddr[i] = 0xffffffff;
   }
   core->window.inst = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
@@ -128,6 +130,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   unsigned inst = 0;
   unsigned exception = 0;
   unsigned w_index = 0;
+  unsigned pc_paddr = 0;
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     if (core->window.pc[i] == pc) {
       found = 1;
@@ -136,32 +139,34 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   }
   if (!found) {
     unsigned window_pc = pc;
-    unsigned paddr;
+    unsigned first_paddr;
     unsigned char *line = NULL;
-    exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+    exception = memory_address_translation(core->mem, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
     if (!exception) {
       unsigned index = 0;
-      line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
-      index = paddr & core->mem->icache->line_mask;
+      line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (first_paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
+      index = first_paddr & core->mem->icache->line_mask;
       // update window
       for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
         core->window.pc[i] = window_pc;
         if (index >= core->mem->icache->line_mask) {
           // get new line
           index = 0;
-          exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+          exception = memory_address_translation(core->mem, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
           if (exception == 0) {
-            line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
+            line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (first_paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
           }
         }
+        core->window.pc_paddr[i] = first_paddr;
         if ((line[index] & 0x03) == 0x3) {
           if (index + 2 > core->mem->icache->line_mask) {
             core->window.inst[i] = (line[index + 1] << 8) | line[index];
             // get new line
             index = 0;
-            exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+            unsigned second_paddr;
+            exception = memory_address_translation(core->mem, window_pc + 2, &second_paddr, ACCESS_TYPE_INSTRUCTION, prv);
             if (exception == 0) {
-              line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
+              line = (unsigned char *)cache_get_line_ptr(core->mem->icache, (second_paddr & ~(core->mem->icache->line_mask)), CACHE_ACCESS_READ);
             }
             core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
             index = 2; // this 2 is ok, not a typo
@@ -172,10 +177,12 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
             index += 4;
           }
           window_pc += 4;
+          first_paddr += 4;
         } else {
           core->window.inst[i] = (line[index + 1] << 8) | line[index];
           index += 2;
           window_pc += 2;
+          first_paddr += 2;
         }
         core->window.exception[i] = exception;
       }
@@ -189,11 +196,13 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
       inst = core->window.inst[i];
       w_index = i;
       exception = core->window.exception[i];
+      pc_paddr = core->window.pc_paddr[i];
     }
   }
   result->inst = inst;
   result->exception_code = exception;
   result->inst_window_pos = w_index;
+  result->pc_paddr = pc_paddr;
   return w_index;
 }
 
