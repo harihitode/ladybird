@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
+struct lsu_t;
 struct mmio_t;
 struct cache_t;
 struct tlb_t;
@@ -46,12 +47,7 @@ typedef struct memory_t {
   struct cache_t *dcache;
   struct cache_t *icache;
   struct cache_t *cache;
-  // MMU
-  // To support a physical address space larger than 4GiB,
-  // RV32 stores a PPN in satp, ranther than a physical address.
-  unsigned vmrppn; // root physical page number
-  char vmflag; // true: virtual memory on
-  struct tlb_t *tlb;
+  struct lsu_t *lsu;
   // MMIO
   struct mmio_t **mmio_list;
   // ROM
@@ -78,10 +74,6 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 // mmu function
-void memory_atp_on(memory_t *, unsigned ppn);
-unsigned memory_atp_get(memory_t *);
-void memory_atp_off(memory_t *);
-void memory_tlb_clear(memory_t *);
 void memory_icache_invalidate(memory_t *);
 void memory_dcache_invalidate(memory_t *);
 void memory_dcache_invalidate_line(memory_t *, unsigned paddr);

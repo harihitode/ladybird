@@ -9,9 +9,6 @@
 void lsu_init(lsu_t *lsu, memory_t *mem) {
   lsu->vmflag = 0;
   lsu->vmrppn = 0;
-  lsu->icache = mem->icache;
-  lsu->dcache = mem->dcache;
-  lsu->tlb = mem->tlb;
   lsu->icache = (cache_t *)malloc(sizeof(cache_t));
   lsu->dcache = (cache_t *)malloc(sizeof(cache_t));
   lsu->tlb = (tlb_t *)malloc(sizeof(tlb_t));
@@ -22,11 +19,22 @@ void lsu_init(lsu_t *lsu, memory_t *mem) {
   mem->cache = lsu->dcache;
   mem->icache = lsu->icache;
   mem->dcache = lsu->dcache;
-  mem->tlb = lsu->tlb;
+  mem->lsu = lsu;
 }
 
 unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  return memory_address_translation(lsu->mem, vaddr, paddr, access_type, prv);
+  if (lsu->vmflag == 0 || prv == PRIVILEGE_MODE_M) {
+    // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
+    // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
+    *paddr = vaddr;
+    return 0;
+  } else {
+    unsigned code = tlb_get(lsu->tlb, lsu->vmrppn, vaddr, paddr, access_type, prv);
+#if 0
+    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
+#endif
+    return code;
+  }
 }
 
 static int is_cachable(unsigned addr) {
@@ -88,19 +96,23 @@ void lsu_dcache_write_back(lsu_t *lsu) {
 }
 
 void lsu_atp_on(lsu_t *lsu, unsigned ppn) {
-  memory_atp_on(lsu->mem, ppn);
+  lsu->vmflag = 1;
+  lsu->vmrppn = ppn << 12;
+  return;
 }
 
 unsigned lsu_atp_get(lsu_t *lsu) {
-  return memory_atp_get(lsu->mem);
+  return (lsu->vmflag << 31) | ((lsu->vmrppn >> 12) & 0x000fffff);
 }
 
 void lsu_atp_off(lsu_t *lsu) {
-  memory_atp_off(lsu->mem);
+  lsu->vmflag = 0;
+  lsu->vmrppn = 0;
+  return;
 }
 
 void lsu_tlb_clear(lsu_t *lsu) {
-  memory_tlb_clear(lsu->mem);
+  tlb_clear(lsu->tlb);
 }
 
 void lsu_fini(lsu_t *lsu) {

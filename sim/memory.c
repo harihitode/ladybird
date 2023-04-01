@@ -22,11 +22,8 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
-  mem->vmflag = 0;
-  mem->vmrppn = 0;
   mem->icache = NULL;
   mem->dcache = NULL;
-  mem->tlb = NULL;
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
 }
@@ -146,18 +143,7 @@ static void memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsig
 }
 
 unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  if (mem->vmflag == 0 || prv == PRIVILEGE_MODE_M) {
-    // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
-    // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
-    *paddr = vaddr;
-    return 0;
-  } else {
-    unsigned code = tlb_get(mem->tlb, mem->vmrppn, vaddr, paddr, access_type, prv);
-#if 0
-    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
-#endif
-    return code;
-  }
+  return lsu_address_translation(mem->lsu, vaddr, paddr, access_type, prv);
 }
 
 unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *result) {
@@ -274,26 +260,6 @@ unsigned memory_store_conditional(memory_t *mem, unsigned release, struct core_s
     result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
   }
   return result->exception_code;
-}
-
-void memory_atp_on(memory_t *mem, unsigned ppn) {
-  mem->vmflag = 1;
-  mem->vmrppn = ppn << 12;
-  return;
-}
-
-unsigned memory_atp_get(memory_t *mem) {
-  return (mem->vmflag << 31) | ((mem->vmrppn >> 12) & 0x000fffff);
-}
-
-void memory_atp_off(memory_t *mem) {
-  mem->vmflag = 0;
-  mem->vmrppn = 0;
-  return;
-}
-
-void memory_tlb_clear(memory_t *mem) {
-  tlb_clear(mem->tlb);
 }
 
 unsigned memory_dma_send(memory_t *mem, unsigned pbase, int len, char *data) {
