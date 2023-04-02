@@ -68,7 +68,7 @@ static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
   unsigned swint = 0;
   unsigned extint = 0;
   unsigned timerint = 0;
-  extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
+  extint = (plic_get_interrupt(csr->plic, csr->hart_id * 2 + 1) == 0) ? 0 : 1;
   timerint = csr->stip;
   swint = aclint_get_ssip(csr->aclint, csr->hart_id);
   value =
@@ -83,7 +83,7 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned swint = 0;
   unsigned extint = 0;
   unsigned timerint = 0;
-  extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
+  extint = (plic_get_interrupt(csr->plic, csr->hart_id * 2 + 0) == 0) ? 0 : 1;
   timerint = (csr->aclint->mtime >= aclint_get_mtimecmp(csr->aclint, csr->hart_id)) ? 1 : 0;
   swint = aclint_get_msip(csr->aclint, csr->hart_id);
   value |=
