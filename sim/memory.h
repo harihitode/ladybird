@@ -45,7 +45,8 @@ typedef struct memory_t {
   struct mmio_t **mmio_list;
   // ROM
   struct rom_t *rom_list;
-  struct cache_t *cache;
+  unsigned num_cache;
+  struct cache_t **cache_list;
 } memory_t;
 
 void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
@@ -59,6 +60,7 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 // [NOTE] memory does not free rom_ptr on fini
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
+void memory_add_cache(memory_t *, struct cache_t *);
 
 void rom_init(rom_t *rom);
 void rom_str(rom_t *rom, const char *data, unsigned size);

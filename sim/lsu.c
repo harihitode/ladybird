@@ -16,7 +16,7 @@ void lsu_init(lsu_t *lsu, memory_t *mem) {
   cache_init(lsu->icache, mem, 32, 128); // 32 byte/line, 128 entry
   cache_init(lsu->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(lsu->tlb, mem, 64); // 64 entry
-  mem->cache = lsu->dcache;
+  memory_add_cache(lsu->mem, lsu->dcache);
 }
 
 unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {

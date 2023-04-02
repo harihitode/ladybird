@@ -25,7 +25,8 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
-  mem->cache = NULL;
+  mem->num_cache = 0;
+  mem->cache_list = NULL;
 }
 
 char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int device_id) {
@@ -37,11 +38,12 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
-  if (is_write && device_id != mem->cache->hart_id) {
-    // invalidate core's cache line
-    for (unsigned i = 0; i < mem->cache->line_size; i++) {
-      cache_write_back(mem->cache, i);
-      mem->cache->line[i].state = CACHE_INVALID;
+  for (unsigned i = 0; i < mem->num_cache; i++) {
+    if (is_write && device_id != mem->cache_list[i]->hart_id) {
+      // invalidate core's cache line
+      for (unsigned j = 0; j < mem->cache_list[i]->line_size; j++) {
+        mem->cache_list[i]->line[j].state = CACHE_INVALID;
+      }
     }
   }
   return mem->ram_block[bid];
@@ -200,6 +202,15 @@ unsigned memory_dma_send_c(memory_t *mem, unsigned pbase, int len, char data) {
   return 0;
 }
 
+void memory_add_cache(memory_t *mem, cache_t *cache) {
+  if (mem->cache_list) {
+    mem->cache_list = (cache_t **)realloc(mem->cache_list, (mem->num_cache + 1) * sizeof(cache_t *));
+  } else {
+    mem->cache_list = (cache_t **)malloc(1 * sizeof(cache_t *));
+  }
+  mem->cache_list[mem->num_cache++] = cache;
+}
+
 void memory_fini(memory_t *mem) {
   for (unsigned i = 0; i < mem->ram_blocks; i++) {
     free(mem->ram_block[i]);
@@ -215,6 +226,7 @@ void memory_fini(memory_t *mem) {
     rom_p = rom_np;
   }
   free(mem->mmio_list);
+  free(mem->cache_list);
   return;
 }
 
