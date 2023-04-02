@@ -14,15 +14,26 @@ void plic_init(plic_t *plic) {
   plic->base.writeb = plic_write;
   plic->base.get_irq = NULL;
   plic->base.ack_irq = NULL;
+  plic->num_hart = 0;
   plic->priorities = (unsigned *)malloc((PLIC_MAX_IRQ + 1) * sizeof(unsigned));
   plic->peripherals = (struct mmio_t **)calloc((PLIC_MAX_IRQ + 1), sizeof(struct mmio_t));
-  plic->s_interrupt_enable = 0;
-  plic->s_interrupt_threshold = 0;
-  plic->s_interrupt_complete = 0;
-  plic->m_interrupt_enable = 0;
-  plic->m_interrupt_threshold = 0;
-  plic->m_interrupt_complete = 0;
+  plic->interrupt_enable = NULL;
+  plic->interrupt_threshold = NULL;
+  plic->interrupt_complete = NULL;
   return;
+}
+
+void plic_add_hart(plic_t *plic) {
+  if (plic->num_hart == 0) {
+    plic->interrupt_enable = (unsigned *)malloc(2 * sizeof(unsigned));
+    plic->interrupt_threshold = (unsigned *)malloc(2 * sizeof(unsigned));
+    plic->interrupt_complete = (unsigned *)malloc(2 * sizeof(unsigned));
+  } else {
+    plic->interrupt_enable = (unsigned *)realloc(plic->interrupt_enable, 2 * (plic->num_hart + 1) * sizeof(unsigned));
+    plic->interrupt_threshold = (unsigned *)realloc(plic->interrupt_threshold, 2 * (plic->num_hart + 1) * sizeof(unsigned));
+    plic->interrupt_complete = (unsigned *)realloc(plic->interrupt_complete, 2 * (plic->num_hart + 1) * sizeof(unsigned));
+  }
+  plic->num_hart++;
 }
 
 char plic_read(struct mmio_t *unit, unsigned addr) {
@@ -33,16 +44,16 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
   unsigned value = 0;
   switch (base) {
   case PLIC_ADDR_MENABLE:
-    value = plic->m_interrupt_enable;
+    value = plic->interrupt_enable[0];
     break;
   case PLIC_ADDR_SENABLE:
-    value = plic->s_interrupt_enable;
+    value = plic->interrupt_enable[1];
     break;
   case PLIC_ADDR_MTHRESHOLD:
-    value = plic->m_interrupt_threshold;
+    value = plic->interrupt_threshold[0];
     break;
   case PLIC_ADDR_STHRESHOLD:
-    value = plic->s_interrupt_threshold;
+    value = plic->interrupt_threshold[1];
     break;
   case PLIC_ADDR_SCLAIM:
     value = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
@@ -72,25 +83,25 @@ void plic_write(struct mmio_t *unit, unsigned addr, char value) {
   } else {
     switch (base) {
     case PLIC_ADDR_SENABLE:
-      plic->s_interrupt_enable =
-        (plic->s_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
+      plic->interrupt_enable[1] =
+        (plic->interrupt_enable[1] & (~mask)) | ((unsigned char)value << (8 * woff));
       break;
     case PLIC_ADDR_STHRESHOLD:
-      plic->s_interrupt_threshold =
-        (plic->s_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
+      plic->interrupt_threshold[1] =
+        (plic->interrupt_threshold[1] & (~mask)) | ((unsigned char)value << (8 * woff));
       break;
     case PLIC_ADDR_MENABLE:
-      plic->m_interrupt_enable =
-        (plic->m_interrupt_enable & (~mask)) | ((unsigned char)value << (8 * woff));
+      plic->interrupt_enable[0] =
+        (plic->interrupt_enable[0] & (~mask)) | ((unsigned char)value << (8 * woff));
       break;
     case PLIC_ADDR_MTHRESHOLD:
-      plic->m_interrupt_threshold =
-        (plic->m_interrupt_threshold & (~mask)) | ((unsigned char)value << (8 * woff));
+      plic->interrupt_threshold[0] =
+        (plic->interrupt_threshold[0] & (~mask)) | ((unsigned char)value << (8 * woff));
       break;
     case PLIC_ADDR_SCOMPLETE:
-      plic->s_interrupt_complete =
-        (plic->s_interrupt_complete & (~mask)) | ((unsigned char)value << (8 * woff));
-      if (woff == 0 && plic->s_interrupt_complete) {
+      plic->interrupt_complete[1] =
+        (plic->interrupt_complete[1] & (~mask)) | ((unsigned char)value << (8 * woff));
+      if (woff == 0 && plic->interrupt_complete[1]) {
         unsigned irqno = plic_get_interrupt(plic, PLIC_SUPERVISOR_CONTEXT);
         if (plic->peripherals[irqno] && plic->peripherals[irqno]->ack_irq) {
           plic->peripherals[irqno]->ack_irq(plic->peripherals[irqno]);
@@ -114,8 +125,8 @@ void plic_set_peripheral(plic_t *plic, struct mmio_t *mmio, unsigned irqno) {
 }
 
 unsigned plic_get_interrupt(plic_t *plic, unsigned context) {
-  unsigned enable = (context == PLIC_MACHINE_CONTEXT) ? plic->m_interrupt_enable : plic->s_interrupt_enable;
-  unsigned threshold = (context == PLIC_MACHINE_CONTEXT) ? plic->m_interrupt_threshold : plic->s_interrupt_threshold;
+  unsigned enable = (context == PLIC_MACHINE_CONTEXT) ? plic->interrupt_enable[0] : plic->interrupt_enable[1];
+  unsigned threshold = (context == PLIC_MACHINE_CONTEXT) ? plic->interrupt_threshold[0] : plic->interrupt_threshold[1];
   unsigned pending = 0;
   for (unsigned i = 1; i <= PLIC_MAX_IRQ; i++) {
     if (plic->peripherals[i] && plic->peripherals[i]->get_irq &&
@@ -135,6 +146,9 @@ unsigned plic_get_interrupt(plic_t *plic, unsigned context) {
 
 void plic_fini(plic_t *plic) {
   free(plic->priorities);
+  free(plic->interrupt_enable);
+  free(plic->interrupt_threshold);
+  free(plic->interrupt_complete);
   return;
 }
 
@@ -145,11 +159,25 @@ void aclint_init(aclint_t *aclint) {
   aclint->base.writeb = aclint_write;
   aclint->base.get_irq = NULL;
   aclint->base.ack_irq = NULL;
+  aclint->num_hart = 0;
   aclint->mtime = 0;
-  aclint->mtimecmp = 0;
-  aclint->msip = 0;
-  aclint->ssip = 0;
+  aclint->mtimecmp = NULL;
+  aclint->msip = NULL;
+  aclint->ssip = NULL;
   aclint->cycle_count = 0;
+}
+
+void aclint_add_hart(aclint_t *aclint) {
+  if (aclint->num_hart == 0) {
+    aclint->mtimecmp = (unsigned long long *)malloc(sizeof(unsigned long long));
+    aclint->msip = (unsigned char *)malloc(sizeof(unsigned char));
+    aclint->ssip = (unsigned char *)malloc(sizeof(unsigned char));
+  } else {
+    aclint->mtimecmp = (unsigned long long *)realloc(aclint->mtimecmp, (aclint->num_hart + 1) * sizeof(unsigned long long));
+    aclint->msip = (unsigned char *)realloc(aclint->msip, (aclint->num_hart + 1) * sizeof(unsigned char));
+    aclint->ssip = (unsigned char *)realloc(aclint->ssip, (aclint->num_hart + 1) * sizeof(unsigned char));
+  }
+  aclint->num_hart++;
 }
 
 char aclint_read(struct mmio_t *unit, unsigned addr) {
@@ -157,12 +185,12 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
   char value;
   unsigned long long byte_offset = addr & 0x7;
   unsigned long long value64 = 0;
-  if (addr >= ACLINT_MSIP_BASE && addr < ACLINT_MSIP_BASE + (HART_NUM * 4)) {
-    value64 = aclint->msip;
-  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (HART_NUM * 4)) {
-    value64 = aclint->ssip;
-  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
-    value64 = aclint->mtimecmp;
+  if (addr >= ACLINT_MSIP_BASE && addr < ACLINT_MSIP_BASE + (1 * 4)) {
+    value64 = aclint->msip[0];
+  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (1 * 4)) {
+    value64 = aclint->ssip[0];
+  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (1 * 8)) {
+    value64 = aclint->mtimecmp[0];
   } else if (addr >= ACLINT_MTIME_BASE && addr < ACLINT_MTIME_BASE + 8) {
     value64 = aclint->mtime;
   } else {
@@ -174,19 +202,19 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
 
 void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
   aclint_t *aclint = (aclint_t *)unit;
-  if (addr >= ACLINT_MSIP_BASE && addr < ACLINT_MSIP_BASE + (HART_NUM * 4)) {
+  if (addr >= ACLINT_MSIP_BASE && addr < ACLINT_MSIP_BASE + (1 * 4)) {
     if (addr == ACLINT_MSIP_BASE) {
-      aclint->msip = value;
+      aclint->msip[0] = value;
     }
-  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (HART_NUM * 4)) {
+  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (1 * 4)) {
     if (addr == ACLINT_MSIP_BASE && value == 1) {
-      aclint->ssip = 1; // edge triggered
+      aclint->ssip[0] = 1; // edge triggered
     }
-  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (HART_NUM * 8)) {
+  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (1 * 8)) {
     // [TODO] currently hart0 only
     unsigned long long byte_offset = addr & 0x7;
     unsigned long long mask = (0x0FFL << (8 * byte_offset)) ^ 0xFFFFFFFFFFFFFFFF;
-    aclint->mtimecmp = (aclint->mtimecmp & mask) | (((uint64_t)value << (8 * byte_offset)) & (0x0FFL << (8 * byte_offset)));
+    aclint->mtimecmp[0] = (aclint->mtimecmp[0] & mask) | (((uint64_t)value << (8 * byte_offset)) & (0x0FFL << (8 * byte_offset)));
   } else if (addr >= ACLINT_MTIME_BASE && addr < 8) {
     // mtime read only
   } else {
@@ -200,6 +228,29 @@ void aclint_cycle(aclint_t *aclint) {
   }
 }
 
+unsigned long long aclint_get_mtimecmp(aclint_t *aclint, int hart_id) {
+  return aclint->mtimecmp[hart_id];
+}
+
+unsigned aclint_get_msip(aclint_t *aclint, int hart_id) {
+  return aclint->msip[hart_id];
+}
+
+unsigned aclint_get_ssip(aclint_t *aclint, int hart_id) {
+  return aclint->ssip[hart_id];
+}
+
+void aclint_set_msip(aclint_t *aclint, int hart_id, unsigned char val) {
+  aclint->msip[hart_id] = val;
+}
+
+void aclint_set_ssip(aclint_t *aclint, int hart_id, unsigned char val) {
+  aclint->ssip[hart_id] = val;
+}
+
 void aclint_fini(aclint_t *aclint) {
+  free(aclint->mtimecmp);
+  free(aclint->msip);
+  free(aclint->ssip);
   return;
 }

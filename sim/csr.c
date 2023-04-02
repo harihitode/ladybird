@@ -70,7 +70,7 @@ static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
   timerint = csr->stip;
-  swint = csr->aclint->ssip;
+  swint = aclint_get_ssip(csr->aclint, csr->hart_id);
   value =
     (swint << CSR_INT_SSI_FIELD) |
     (extint << CSR_INT_SEI_FIELD) |
@@ -84,8 +84,8 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned extint = 0;
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
-  timerint = (csr->aclint->mtime >= csr->aclint->mtimecmp) ? 1 : 0;
-  swint = csr->aclint->msip;
+  timerint = (csr->aclint->mtime >= aclint_get_mtimecmp(csr->aclint, csr->hart_id)) ? 1 : 0;
+  swint = aclint_get_msip(csr->aclint, csr->hart_id);
   value |=
     (swint << CSR_INT_MSI_FIELD) |
     (extint << CSR_INT_MEI_FIELD) |
@@ -392,11 +392,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->scause = value;
     break;
   case CSR_ADDR_M_IP:
-    if (value & CSR_INT_MSI) {
-      csr->aclint->msip = 1;
-    } else {
-      csr->aclint->msip = 0;
-    }
+    aclint_set_msip(csr->aclint, csr->hart_id, ((value & CSR_INT_MSI) ? 1 : 0));
     // fall-through
   case CSR_ADDR_S_IP:
     if (value & CSR_INT_STI) {
@@ -404,11 +400,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     } else {
       csr->stip = 0;
     }
-    if (value & CSR_INT_SSI) {
-      csr->aclint->ssip = 1;
-    } else {
-      csr->aclint->ssip = 0;
-    }
+    aclint_set_ssip(csr->aclint, csr->hart_id, ((value & CSR_INT_SSI) ? 1 : 0));
     break;
   case CSR_ADDR_S_TVAL:
     csr->stval = value;

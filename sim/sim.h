@@ -3,9 +3,6 @@
 
 #include "riscv.h"
 
-// hart
-#define HART_NUM 1
-
 // memory map
 #define MEMORY_BASE_ADDR_UART   0x10000000
 #define MEMORY_BASE_ADDR_DISK   0x10001000

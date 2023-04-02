@@ -44,6 +44,8 @@ void sim_add_core(sim_t *sim) {
   sim->core[hart_id] = (core_t *)malloc(sizeof(core_t));
   core_init(sim->core[hart_id], hart_id, sim->mem, sim->plic, sim->aclint, sim->trigger);
   ++sim->num_core;
+  plic_add_hart(sim->plic);
+  aclint_add_hart(sim->aclint);
 }
 
 void sim_init(sim_t *sim) {
