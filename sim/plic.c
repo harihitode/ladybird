@@ -172,11 +172,11 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
     unsigned hart_id = (addr - ACLINT_MSIP_BASE) / 4;
     byte_offset = addr & 0x3;
     value64 = aclint->msip[hart_id];
-  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (1 * 4)) {
+  } else if (addr >= ACLINT_SETSSIP_BASE && addr < ACLINT_SETSSIP_BASE + (aclint->num_hart * 4)) {
     unsigned hart_id = (addr - ACLINT_SETSSIP_BASE) / 4;
     byte_offset = addr & 0x3;
     value64 = aclint->ssip[hart_id];
-  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (1 * 8)) {
+  } else if (addr >= ACLINT_MTIMECMP_BASE && addr < ACLINT_MTIMECMP_BASE + (aclint->num_hart * 8)) {
     unsigned hart_id = (addr - ACLINT_MTIMECMP_BASE) / 8;
     byte_offset = addr & 0x7;
     value64 = aclint->mtimecmp[hart_id];
