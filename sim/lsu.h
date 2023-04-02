@@ -98,7 +98,7 @@ void lsu_fini(lsu_t *);
 void cache_init(cache_t *, struct memory_t *, unsigned line_len, unsigned line_size);
 cache_line_t *cache_get_line(cache_t *, unsigned addr, int is_write);
 char *cache_get_line_ptr(cache_t *, unsigned addr, int is_write);
-int cache_write_back(cache_t *, unsigned line);
+int cache_write_back(cache_t *, unsigned index);
 void cache_fini(cache_t *);
 
 // translate lookaside buffer

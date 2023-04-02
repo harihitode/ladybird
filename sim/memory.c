@@ -39,14 +39,39 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
   for (unsigned i = 0; i < mem->num_cache; i++) {
+    cache_t *cache = mem->cache_list[i];
+    unsigned tag_mask = cache->tag_mask;
+    unsigned index = (addr & cache->index_mask) / cache->line_len;
     if (is_write && device_id != mem->cache_list[i]->hart_id) {
-      // invalidate core's cache line
-      for (unsigned j = 0; j < mem->cache_list[i]->line_size; j++) {
-        mem->cache_list[i]->line[j].state = CACHE_INVALID;
+      if (cache->line[index].tag == (addr & tag_mask)) {
+        cache->line[index].state = CACHE_INVALID;
       }
     }
   }
   return mem->ram_block[bid];
+}
+
+void memory_access_broadcast(memory_t *mem, unsigned addr, int is_write, int device_id) {
+  for (unsigned i = 0; i < mem->num_cache; i++) {
+    if (device_id != mem->cache_list[i]->hart_id) {
+      cache_t *cache = mem->cache_list[i];
+      unsigned tag_mask = cache->tag_mask;
+      unsigned index = (addr & cache->index_mask) / cache->line_len;
+      if (is_write) {
+        if (cache->line[index].tag == (addr & tag_mask)) {
+          if (cache->line[index].state == CACHE_SHARED) {
+            cache->line[index].state = CACHE_INVALID;
+          }
+        }
+      } else {
+        if (cache->line[index].tag == (addr & tag_mask)) {
+          if (cache->line[index].state == CACHE_MODIFIED) {
+            cache_write_back(cache, index);
+          }
+        }
+      }
+    }
+  }
 }
 
 void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned size, unsigned type) {

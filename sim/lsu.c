@@ -244,6 +244,8 @@ cache_line_t *cache_get_line(cache_t *cache, unsigned addr, int is_write) {
   unsigned index = (addr & cache->index_mask) / cache->line_len;
   unsigned tag = addr & cache->tag_mask;
   unsigned ppage_found = 0;
+  // broadcast to other cashe
+  memory_access_broadcast(cache->mem, addr, is_write, cache->hart_id);
   cache->access_count++;
   if (cache->line[index].state != CACHE_INVALID) {
     if (cache->line[index].tag == tag) {

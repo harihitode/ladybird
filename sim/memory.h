@@ -61,6 +61,7 @@ char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_i
 void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
 void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
 void memory_add_cache(memory_t *, struct cache_t *);
+void memory_access_broadcast(memory_t *, unsigned addr, int is_write, int device_id);
 
 void rom_init(rom_t *rom);
 void rom_str(rom_t *rom, const char *data, unsigned size);
