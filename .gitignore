@@ -4,6 +4,7 @@ sim/rspsim
 *.vcd
 *.txt
 *.log
+*.o
 kernel/*
 tb/obj_dir/*
 sim/eval/*.read

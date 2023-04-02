@@ -80,6 +80,7 @@ int main(int argc, char *argv[]) {
   char *disk_file_name = NULL;
   int htif_enable = 0;
   int stat_enable = 0;
+  int dual_enable = 0;
   FILE *statlog = NULL;
 
   if (argc < 2) {
@@ -128,12 +129,18 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         sim->htif_fromhost = (unsigned)strtol(argv[i], NULL, 0);
       }
+    } else if (strcmp(argv[i], "--dual") == 0) {
+      dual_enable = 1;
     }
   }
 
   if (htif_enable) {
     sim_set_debug_callback(sim, htif_callback);
     sim_set_write_trigger(sim, sim->htif_tohost);
+  }
+
+  if (dual_enable) {
+    sim_add_core(sim);
   }
 
   // load elf file to ram

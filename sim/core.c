@@ -1,7 +1,10 @@
 #include "core.h"
-#include "memory.h"
-#include "csr.h"
 #include "riscv.h"
+#include "lsu.h"
+#include "csr.h"
+#include "memory.h"
+#include "plic.h"
+#include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -10,17 +13,33 @@
 #define CORE_MA_STORE (CSR_MATCH6_STORE)
 #define CORE_MA_ACCESS (CSR_MATCH6_LOAD | CSR_MATCH6_STORE)
 
-void core_init(core_t *core) {
+void core_init(core_t *core, int hart_id, struct memory_t *mem, struct plic_t *plic, struct aclint_t *aclint, struct trigger_t *trigger) {
   // clear gpr
   for (unsigned i = 0; i < NUM_GPR; i++) {
     core->gpr[i] = 0;
   }
   core->window.pc = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  core->window.pc_paddr = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     core->window.pc[i] = 0xffffffff;
+    core->window.pc_paddr[i] = 0xffffffff;
   }
   core->window.inst = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
+  core->lsu = (struct lsu_t *)malloc(sizeof(struct lsu_t));
+  lsu_init(core->lsu, mem);
+  core->lsu->tlb->hart_id = hart_id;
+  core->lsu->dcache->hart_id = hart_id;
+  core->lsu->icache->hart_id = hart_id;
+  // init csr
+  core->csr = (csr_t *)malloc(sizeof(csr_t));
+  csr_init(core->csr);
+  // weak reference to csr
+  core->csr->lsu = core->lsu;
+  core->csr->plic = plic;
+  core->csr->aclint = aclint;
+  core->csr->trig = trigger;
+  core->csr->hart_id = hart_id;
 }
 
 static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
@@ -117,6 +136,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   unsigned inst = 0;
   unsigned exception = 0;
   unsigned w_index = 0;
+  unsigned pc_paddr = 0;
   for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
     if (core->window.pc[i] == pc) {
       found = 1;
@@ -125,32 +145,34 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   }
   if (!found) {
     unsigned window_pc = pc;
-    unsigned paddr;
+    unsigned first_paddr;
     unsigned char *line = NULL;
-    exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+    exception = lsu_address_translation(core->lsu, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
     if (!exception) {
       unsigned index = 0;
-      line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
-      index = paddr & core->mem->icache->line_mask;
+      line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
+      index = first_paddr & core->lsu->icache->line_mask;
       // update window
       for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
         core->window.pc[i] = window_pc;
-        if (index >= core->mem->icache->line_mask) {
+        if (index >= core->lsu->icache->line_mask) {
           // get new line
           index = 0;
-          exception = memory_address_translation(core->mem, window_pc, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+          exception = lsu_address_translation(core->lsu, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
           if (exception == 0) {
-            line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+            line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
           }
         }
+        core->window.pc_paddr[i] = first_paddr;
         if ((line[index] & 0x03) == 0x3) {
-          if (index + 2 > core->mem->icache->line_mask) {
+          if (index + 2 > core->lsu->icache->line_mask) {
             core->window.inst[i] = (line[index + 1] << 8) | line[index];
             // get new line
             index = 0;
-            exception = memory_address_translation(core->mem, window_pc + 2, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
+            unsigned second_paddr;
+            exception = lsu_address_translation(core->lsu, window_pc + 2, &second_paddr, ACCESS_TYPE_INSTRUCTION, prv);
             if (exception == 0) {
-              line = (unsigned char *)cache_get(core->mem->icache, (paddr & ~(core->mem->icache->line_mask)), CACHE_READ);
+              line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (second_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
             }
             core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
             index = 2; // this 2 is ok, not a typo
@@ -161,10 +183,12 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
             index += 4;
           }
           window_pc += 4;
+          first_paddr += 4;
         } else {
           core->window.inst[i] = (line[index + 1] << 8) | line[index];
           index += 2;
           window_pc += 2;
+          first_paddr += 2;
         }
         core->window.exception[i] = exception;
       }
@@ -178,13 +202,26 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
       inst = core->window.inst[i];
       w_index = i;
       exception = core->window.exception[i];
+      pc_paddr = core->window.pc_paddr[i];
     }
   }
   result->inst = inst;
   result->exception_code = exception;
   result->inst_window_pos = w_index;
+  result->pc_paddr = pc_paddr;
   return w_index;
 }
+
+// atomic operations
+static unsigned op_add(unsigned src1, unsigned src2) { return src1 + src2; }
+static unsigned op_swap(unsigned src1, unsigned src2) { return src2; }
+static unsigned op_xor(unsigned src1, unsigned src2) { return src1 ^ src2; }
+static unsigned op_or(unsigned src1, unsigned src2) { return src1 | src2; }
+static unsigned op_and(unsigned src1, unsigned src2) { return src1 & src2; }
+static unsigned op_min(unsigned src1, unsigned src2) { return ((int)src1 < (int)src2) ? src1 : src2; }
+static unsigned op_max(unsigned src1, unsigned src2) { return ((int)src1 < (int)src2) ? src2 : src1; }
+static unsigned op_minu(unsigned src1, unsigned src2) { return (src1 < src2) ? src1 : src2; }
+static unsigned op_maxu(unsigned src1, unsigned src2) { return (src1 < src2) ? src2 : src1; }
 
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
@@ -264,13 +301,13 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->m_data = core->gpr[result->rs2_regno];
     switch (riscv_get_funct3(inst)) {
     case 0x0:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 1, prv);
+      lsu_store(core->lsu, 1, result);
       break;
     case 0x1:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 2, prv);
+      lsu_store(core->lsu, 2, result);
       break;
     case 0x2:
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->m_data, 4, prv);
+      lsu_store(core->lsu, 4, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -284,22 +321,22 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     result->rs1_regno = riscv_get_rs1(inst);
     result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_load_offset(inst);
     switch (riscv_get_funct3(inst)) {
-    case 0x0: // singed ext byte
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
+    case 0x0: // signed ext byte
+      lsu_load(core->lsu, 1, result);
       result->rd_data = (int)((char)result->rd_data);
       break;
     case 0x1: // signed ext half
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
+      lsu_load(core->lsu, 2, result);
       result->rd_data = (int)((short)result->rd_data);
       break;
     case 0x2:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
+      lsu_load(core->lsu, 4, result);
       break;
     case 0x4:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 1, prv);
+      lsu_load(core->lsu, 1, result);
       break;
     case 0x5:
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 2, prv);
+      lsu_load(core->lsu, 2, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -310,56 +347,43 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_AMO: {
     result->m_access = CORE_MA_ACCESS;
     result->rd_regno = riscv_get_rd(inst);
-    result->rs1_regno = riscv_get_rs1(inst);
-    result->rs2_regno = riscv_get_rs2(inst);
+    result->rs1_regno = riscv_get_rs1(inst); // addr
+    result->rs2_regno = riscv_get_rs2(inst); // data: 0 when LR
     result->m_vaddr = core->gpr[result->rs1_regno];
-    unsigned src2 = core->gpr[result->rs2_regno];
+    result->m_data = core->gpr[result->rs2_regno];
     switch (riscv_get_funct5(inst)) {
     case 0x002: // Load Reserved
-      result->exception_code = memory_load_reserved(core->mem, result->m_vaddr, &result->rd_data, prv);
+      lsu_load_reserved(core->lsu, (inst & AMO_AQ), result);
       break;
     case 0x003: // Store Conditional
-      result->exception_code = memory_store_conditional(core->mem, result->m_vaddr, src2, &result->rd_data, prv);
+      lsu_store_conditional(core->lsu, (inst & AMO_RL), result);
       break;
     case 0x000: // AMOADD
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data + src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_add, result);
       break;
     case 0x001: // AMOSWAP
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_swap, result);
       break;
     case 0x004: // AMOXOR
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data ^ src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_xor, result);
       break;
     case 0x008: // AMOOR
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data | src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_or, result);
       break;
     case 0x00c: // AMOAND
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr, result->rd_data & src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_and, result);
       break;
     case 0x010: // AMOMIN
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            ((int)result->rd_data < (int)src2) ? result->rd_data : src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_min, result);
       break;
     case 0x014: // AMOMAX
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            ((int)result->rd_data > (int)src2) ? result->rd_data : src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_max, result);
       break;
     case 0x018: // AMOMINU
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            (result->rd_data < src2) ? result->rd_data : src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_minu, result);
       break;
     case 0x01c: // AMOMAXU
-      result->exception_code = memory_load(core->mem, result->m_vaddr, &result->rd_data, 4, prv);
-      result->exception_code = memory_store(core->mem, result->m_vaddr,
-                                            (result->rd_data > src2) ? result->rd_data : src2, 4, prv);
+      lsu_atomic_operation(core->lsu, (inst & AMO_AQ), (inst & AMO_RL), op_maxu, result);
       break;
     default:
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -368,10 +392,19 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     break;
   }
   case OPCODE_MISC_MEM:
-    // any fence means cache flush for this system
-    memory_dcache_write_back(core->mem);
+    if (riscv_get_funct3(inst) == 0x1) {
+      lsu_fence_instruction(core->lsu);
+      result->flush = 1;
+    } else {
+      if (0x80000000 & inst) {
+        lsu_fence_tso(core->lsu);
+      } else {
+        lsu_fence(core->lsu, (inst >> 24) & 0xf, (inst >> 20) & 0xf);
+      }
+    }
     break;
   case OPCODE_SYSTEM:
+    // Reg WB only occurs in CSR instructions
     if (riscv_get_funct3(inst) & 0x03) {
       result->rd_regno = riscv_get_rd(inst);
     }
@@ -429,9 +462,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       default:
         if (riscv_get_funct7(inst) == 0x09) {
           // SFENCE.VMA
-          memory_icache_invalidate(core->mem);
-          memory_dcache_write_back(core->mem);
-          memory_tlb_clear(core->mem);
+          lsu_icache_invalidate(core->lsu);
+          lsu_dcache_write_back(core->lsu);
+          lsu_tlb_clear(core->lsu);
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }
@@ -493,7 +526,12 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
 
 void core_fini(core_t *core) {
   free(core->window.pc);
+  free(core->window.pc_paddr);
   free(core->window.inst);
   free(core->window.exception);
+  csr_fini(core->csr);
+  free(core->csr);
+  lsu_fini(core->lsu);
+  free(core->lsu);
   return;
 }

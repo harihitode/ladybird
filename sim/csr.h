@@ -4,24 +4,21 @@
 struct core_step_result;
 struct memory_t;
 struct plic_t;
+struct aclint_t;
 struct trigger_t;
 
 typedef struct csr_t {
-  struct memory_t *mem;
+  struct lsu_t *lsu;
   struct plic_t *plic;
+  struct aclint_t *aclint;
   struct trigger_t *trig;
   // shadow registers
   unsigned mode;
   unsigned pc;
-  // status
-  unsigned hartid;
+  unsigned hart_id;
   unsigned long long cycle;
-  unsigned long long time;
-  unsigned long long timecmp;
   unsigned long long instret;
-  unsigned char software_interrupt_m;
-  unsigned char software_interrupt_s;
-  unsigned char timer_interrupt_s;
+  unsigned char stip;
   unsigned char status_spp; // previous privilege mode
   unsigned char status_mpp; // previous privilege mode
   unsigned status_sie; // global interrupt enable
@@ -70,8 +67,5 @@ void csr_csrw(csr_t *, unsigned addr, unsigned value, struct core_step_result *r
 unsigned csr_csrrw(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
 unsigned csr_csrrs(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
 unsigned csr_csrrc(csr_t *, unsigned addr, unsigned value, struct core_step_result *result);
-// 64 bit timer interface
-unsigned long long csr_get_timecmp(csr_t *);
-void csr_set_timecmp(csr_t *, unsigned long long);
 
 #endif

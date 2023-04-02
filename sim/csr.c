@@ -4,6 +4,7 @@
 #include "csr.h"
 #include "plic.h"
 #include "core.h"
+#include "lsu.h"
 #include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,10 +12,11 @@
 #define CSR_NUM_HPM 29
 
 void csr_init(csr_t *csr) {
-  csr->mem = NULL;
+  csr->lsu = NULL;
   csr->plic = NULL;
+  csr->aclint = NULL;
   csr->trig = NULL;
-  csr->hartid = 0;
+  csr->hart_id = 0;
   csr->mode = PRIVILEGE_MODE_M;
   csr->status_mpp = 0;
   csr->status_mie = 0;
@@ -25,8 +27,6 @@ void csr_init(csr_t *csr) {
   csr->status_sum = 0;
   // counters
   csr->cycle = 0;
-  csr->time = 0;
-  csr->timecmp = 0;
   csr->instret = 0;
   // trap & interrupts
   csr->interrupts_enable = 0;
@@ -44,11 +44,8 @@ void csr_init(csr_t *csr) {
   csr->stvec = 0;
   csr->mcounteren = 0;
   csr->scounteren = 0;
-  // SW interrupts
-  csr->software_interrupt_m = 0;
-  csr->software_interrupt_s = 0;
   // Timer interrupts
-  csr->timer_interrupt_s = 0;
+  csr->stip = 0;
   // debug
   csr->dcsr_ebreakm = 0;
   csr->dcsr_ebreaks = 0;
@@ -71,9 +68,9 @@ static unsigned csr_get_s_interrupts_pending(csr_t *csr) {
   unsigned swint = 0;
   unsigned extint = 0;
   unsigned timerint = 0;
-  extint = (plic_get_interrupt(csr->plic, PLIC_SUPERVISOR_CONTEXT) == 0) ? 0 : 1;
-  timerint = csr->timer_interrupt_s;
-  swint = csr->software_interrupt_s;
+  extint = (plic_get_interrupt(csr->plic, csr->hart_id * 2 + 1) == 0) ? 0 : 1;
+  timerint = csr->stip;
+  swint = aclint_get_ssip(csr->aclint, csr->hart_id);
   value =
     (swint << CSR_INT_SSI_FIELD) |
     (extint << CSR_INT_SEI_FIELD) |
@@ -86,9 +83,9 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned swint = 0;
   unsigned extint = 0;
   unsigned timerint = 0;
-  extint = (plic_get_interrupt(csr->plic, PLIC_MACHINE_CONTEXT) == 0) ? 0 : 1;
-  timerint = (csr->time >= csr->timecmp) ? 1 : 0;
-  swint = csr->software_interrupt_m;
+  extint = (plic_get_interrupt(csr->plic, csr->hart_id * 2 + 0) == 0) ? 0 : 1;
+  timerint = (csr->aclint->mtime >= aclint_get_mtimecmp(csr->aclint, csr->hart_id)) ? 1 : 0;
+  swint = aclint_get_msip(csr->aclint, csr->hart_id);
   value |=
     (swint << CSR_INT_MSI_FIELD) |
     (extint << CSR_INT_MEI_FIELD) |
@@ -101,7 +98,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_EPC:
     return csr->mepc;
   case CSR_ADDR_M_HARTID:
-    return csr->hartid;
+    return csr->hart_id;
   case CSR_ADDR_M_STATUS:
   case CSR_ADDR_S_STATUS:
     {
@@ -126,9 +123,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return 0; // not supported
   case CSR_ADDR_S_ATP:
 #if 0
-    fprintf(stderr, "ATP (read) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+    fprintf(stderr, "ATP (read) %08x\n", lsu_atp_get(csr->lsu));
 #endif
-    return (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff);
+    return lsu_atp_get(csr->lsu);
   case CSR_ADDR_S_IE:
     return csr->interrupts_enable & 0x00000222;
   case CSR_ADDR_S_TVEC:
@@ -144,7 +141,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return (unsigned)csr->cycle;
   case CSR_ADDR_M_TIME:
   case CSR_ADDR_U_TIME:
-    return (unsigned)csr->time;
+    return (unsigned)csr->aclint->mtime;
   case CSR_ADDR_M_INSTRET:
   case CSR_ADDR_U_INSTRET:
     return (unsigned)csr->instret;
@@ -153,7 +150,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
     return (unsigned)(csr->cycle >> 32);
   case CSR_ADDR_M_TIMEH:
   case CSR_ADDR_U_TIMEH:
-    return (unsigned)(csr->time >> 32);
+    return (unsigned)(csr->aclint->mtime >> 32);
   case CSR_ADDR_M_INSTRETH:
   case CSR_ADDR_U_INSTRETH:
     return (unsigned)(csr->instret >> 32);
@@ -359,18 +356,18 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_PMPADDR0:
     break; // not supported
   case CSR_ADDR_S_ATP:
-    memory_dcache_write_back(csr->mem);
+    lsu_dcache_write_back(csr->lsu);
     if (value & 0x80000000) {
-      memory_atp_on(csr->mem, value & 0x000fffff);
+      lsu_atp_on(csr->lsu, value & 0x000fffff);
     } else {
-      memory_atp_off(csr->mem);
+      lsu_atp_off(csr->lsu);
     }
-    memory_tlb_clear(csr->mem);
-    memory_icache_invalidate(csr->mem);
-    memory_dcache_invalidate(csr->mem);
+    lsu_tlb_clear(csr->lsu);
+    lsu_icache_invalidate(csr->lsu);
+    lsu_dcache_invalidate(csr->lsu);
     result->flush = 1;
 #if 0
-    fprintf(stderr, "ATP (write) %08x\n", (csr->mem->vmflag << 31) | ((csr->mem->vmrppn >> 12) & 0x000fffff));
+    fprintf(stderr, "ATP (write) %08x\n", (csr->lsu->vmflag << 31) | ((csr->lsu->vmrppn >> 12) & 0x000fffff));
 #endif
     break;
   case CSR_ADDR_S_IE:
@@ -395,23 +392,15 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->scause = value;
     break;
   case CSR_ADDR_M_IP:
-    if (value & CSR_INT_MSI) {
-      csr->software_interrupt_m = 1;
-    } else {
-      csr->software_interrupt_m = 0;
-    }
+    aclint_set_msip(csr->aclint, csr->hart_id, ((value & CSR_INT_MSI) ? 1 : 0));
     // fall-through
   case CSR_ADDR_S_IP:
     if (value & CSR_INT_STI) {
-      csr->timer_interrupt_s = 1;
+      csr->stip = 1;
     } else {
-      csr->timer_interrupt_s = 0;
+      csr->stip = 0;
     }
-    if (value & CSR_INT_SSI) {
-      csr->software_interrupt_s = 1;
-    } else {
-      csr->software_interrupt_s = 0;
-    }
+    aclint_set_ssip(csr->aclint, csr->hart_id, ((value & CSR_INT_SSI) ? 1 : 0));
     break;
   case CSR_ADDR_S_TVAL:
     csr->stval = value;
@@ -431,7 +420,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_TIME:
-    csr->time = (csr->time & 0xffffffff00000000) | (unsigned)value;
+    csr->aclint->mtime = (csr->aclint->mtime & 0xffffffff00000000) | (unsigned)value;
     break;
   case CSR_ADDR_M_INSTRET:
     csr->instret = (csr->instret & 0xffffffff00000000) | (unsigned)value;
@@ -440,7 +429,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->cycle = (csr->cycle & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_TIMEH:
-    csr->time = (csr->time & 0x00000000ffffffff) | (unsigned long long)value << 32;
+    csr->aclint->mtime = (csr->aclint->mtime & 0x00000000ffffffff) | (unsigned long long)value << 32;
     break;
   case CSR_ADDR_M_INSTRETH:
     csr->instret = (csr->instret & 0x00000000ffffffff) | (unsigned long long)value << 32;
@@ -683,7 +672,8 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
     csr->status_mpp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to M] trap from %d to %d: code: %08x, %08x\n", csr->status_mpp, to_mode, trap_code, csr->mideleg);
+    fprintf(stderr, "[to M] trap from %d to %u trap_code %08x epc %08x next_pc %08x\n", csr->status_mpp, to_mode, trap_code, csr->mepc, csr->pc);
+    fprintf(stderr, "MIDELEG %08x MEDELEG %08x\n", csr->mideleg, csr->medeleg);
 #endif
   } else if (to_mode == PRIVILEGE_MODE_S) {
     csr->stval = trap_value;
@@ -698,26 +688,18 @@ static void csr_trap(csr_t *csr, unsigned trap_code, unsigned trap_value) {
     csr->status_spp = csr->mode;
     csr->mode = to_mode;
 #if 0
-    fprintf(stderr, "[to S] trap from %d to %d: code: %08x (PC is set %08x)\n", csr->status_spp, to_mode, trap_code, csr->pc);
+    fprintf(stderr, "[to S] trap from %d to %u trap_code %08x epc %08x next_pc %08x\n", csr->status_spp, to_mode, trap_code, csr->sepc, csr->pc);
+    fprintf(stderr, "MIDELEG %08x MEDELEG %08x\n", csr->mideleg, csr->medeleg);
 #endif
   }
   return;
 }
 
-unsigned long long csr_get_timecmp(csr_t *csr) {
-  return csr->timecmp;
-}
-
-void csr_set_timecmp(csr_t *csr, unsigned long long value) {
-  csr->timecmp = value;
-  return;
-}
-
 static void csr_restore_trap(csr_t *csr) {
   unsigned from_mode = csr->mode;
-  memory_tlb_clear(csr->mem);
-  memory_icache_invalidate(csr->mem);
-  memory_dcache_invalidate(csr->mem);
+  lsu_tlb_clear(csr->lsu);
+  lsu_icache_invalidate(csr->lsu);
+  lsu_dcache_invalidate(csr->lsu);
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
     csr->pc = csr->mepc;
@@ -745,10 +727,6 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   csr->cycle++; // assume 100 MHz
   csr->instret++;
   csr->pc = result->pc_next;
-  if ((csr->cycle % 10) == 0) {
-    csr->time++; // precision 0.1 us
-  }
-
   // TODO: variable counting
   // HPM3 regread total
   // HPM4 regread skip total
@@ -760,8 +738,6 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   // HPM10 DCACHE hit
   // HPM11 TLB access
   // HPM12 TLB hit
-
-
   if (csr->regstat_en) {
     if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
       unsigned r_break = 0;

@@ -1,8 +1,10 @@
 #include "memory.h"
+#include "lsu.h"
 #include "mmio.h"
 #include "plic.h"
 #include "sim.h"
 #include "csr.h"
+#include "lsu.h"
 #include "riscv.h"
 #include <stdio.h>
 #include <stdint.h>
@@ -21,20 +23,13 @@ void memory_init(memory_t *mem, unsigned ram_base, unsigned ram_size, unsigned r
   mem->ram_block_size = ram_block_size;
   mem->ram_blocks = ram_size / ram_block_size;
   mem->ram_block = (char **)calloc(mem->ram_blocks, sizeof(char *));
-  mem->ram_reserve = (char *)calloc(mem->ram_blocks, sizeof(char));
-  mem->vmflag = 0;
-  mem->vmrppn = 0;
-  mem->icache = (cache_t *)malloc(sizeof(cache_t));
-  mem->dcache = (cache_t *)malloc(sizeof(cache_t));
-  mem->tlb = (tlb_t *)malloc(sizeof(tlb_t));
-  cache_init(mem->icache, mem, 32, 128); // 32 byte/line, 128 entry
-  cache_init(mem->dcache, mem, 32, 256); // 32 byte/line, 256 entry
-  tlb_init(mem->tlb, mem, 64); // 64 entry
   mem->rom_list = NULL;
   mem->mmio_list = (struct mmio_t **)calloc(MAX_MMIO, sizeof(struct mmio_t *));
+  mem->num_cache = 0;
+  mem->cache_list = NULL;
 }
 
-char *memory_get_page(memory_t *mem, unsigned addr) {
+char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int device_id) {
   unsigned bid = (addr - mem->ram_base) / mem->ram_block_size;
   if (bid >= RAM_SIZE / mem->ram_block_size) {
     fprintf(stderr, "RAM Exceeds, %08x\n", addr);
@@ -43,8 +38,40 @@ char *memory_get_page(memory_t *mem, unsigned addr) {
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
-  mem->ram_reserve[bid] = 0; // expire
+  for (unsigned i = 0; i < mem->num_cache; i++) {
+    cache_t *cache = mem->cache_list[i];
+    unsigned tag_mask = cache->tag_mask;
+    unsigned index = (addr & cache->index_mask) / cache->line_len;
+    if (is_write && device_id != mem->cache_list[i]->hart_id) {
+      if (cache->line[index].tag == (addr & tag_mask)) {
+        cache->line[index].state = CACHE_INVALID;
+      }
+    }
+  }
   return mem->ram_block[bid];
+}
+
+void memory_access_broadcast(memory_t *mem, unsigned addr, int is_write, int device_id) {
+  for (unsigned i = 0; i < mem->num_cache; i++) {
+    if (device_id != mem->cache_list[i]->hart_id) {
+      cache_t *cache = mem->cache_list[i];
+      unsigned tag_mask = cache->tag_mask;
+      unsigned index = (addr & cache->index_mask) / cache->line_len;
+      if (is_write) {
+        if (cache->line[index].tag == (addr & tag_mask)) {
+          if (cache->line[index].state == CACHE_SHARED) {
+            cache->line[index].state = CACHE_INVALID;
+          }
+        }
+      } else {
+        if (cache->line[index].tag == (addr & tag_mask)) {
+          if (cache->line[index].state == CACHE_MODIFIED) {
+            cache_write_back(cache, index);
+          }
+        }
+      }
+    }
+  }
 }
 
 void memory_set_rom(memory_t *mem, const char *rom_ptr, unsigned base, unsigned size, unsigned type) {
@@ -81,221 +108,132 @@ void memory_set_mmio(memory_t *mem, struct mmio_t *unit, unsigned base) {
   }
 }
 
-static unsigned memory_ram_load(memory_t *mem, unsigned addr, unsigned size, cache_t *cache) {
-  unsigned value = 0;
-  char *line = cache_get(cache, addr, 0);
-  switch (size) {
-  case 1:
-    value = (unsigned char)(line[0]);
-    break;
-  case 2:
-    value = (unsigned short)(((unsigned short *)line)[0]);
-    break;
-  case 4:
-    value = (unsigned)(((unsigned *)line)[0]);
-    break;
-  default:
-    break;
-  }
-  return value;
-}
-
-static void memory_ram_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, cache_t *cache) {
-  char *line = cache_get(cache, addr, 1);
-  switch (size) {
-  case 1:
-    line[0] = (unsigned char)value;
-    break;
-  case 2:
-    ((unsigned short *)line)[0] = (unsigned short)value;
-    break;
-  case 4:
-    ((unsigned *)line)[0] = value;
-    break;
-  default:
-    break;
-  }
-  return;
-}
-
-unsigned memory_address_translation(memory_t *mem, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  if (mem->vmflag == 0 || prv == PRIVILEGE_MODE_M) {
-    // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
-    // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
-    *paddr = vaddr;
-    return 0;
-  } else {
-    unsigned code = tlb_get(mem->tlb, vaddr, paddr, access_type, prv);
-#if 0
-    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
-#endif
-    return code;
-  }
-}
-
-unsigned memory_load(memory_t *mem, unsigned addr, unsigned *value, unsigned size, unsigned prv) {
-  *value = 0;
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_LOAD, prv);
-  if (exception) {
-    return exception;
-  }
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
+unsigned memory_load(memory_t *mem, unsigned len, struct core_step_result *result) {
   unsigned found = 0;
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    // RAM
-    *value = memory_ram_load(mem, paddr, size, mem->dcache);
-    found = 1;
-  } else {
-    // search MMIO
-    for (unsigned u = 0; u < MAX_MMIO; u++) {
-      struct mmio_t *unit = mem->mmio_list[u];
-      if (unit == NULL) continue;
-      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & unit->readb(unit, paddr + i)) << (8 * i));
-        }
-        found = 1;
+  // search MMIO
+  for (unsigned u = 0; u < MAX_MMIO; u++) {
+    struct mmio_t *unit = mem->mmio_list[u];
+    if (unit == NULL) continue;
+    if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+      for (unsigned i = 0; i < len; i++) {
+        result->rd_data |= ((0x000000ff & unit->readb(unit, result->m_paddr + i)) << (8 * i));
+      }
+      found = 1;
+      break;
+    }
+  }
+  // search ROM
+  if (found == 0 && mem->rom_list) {
+    struct rom_t *rom = NULL;
+    for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
+      if (result->m_paddr >= p->base && (result->m_paddr + len) < p->base + p->size) {
+        rom = p;
         break;
       }
     }
-    // search ROM
-    if (found == 0 && mem->rom_list) {
-      struct rom_t *rom = NULL;
-      // search ROM
-      for (struct rom_t *p = mem->rom_list; p != NULL; p = p->next) {
-        if (paddr >= p->base && (paddr + size) < p->base + p->size) {
-          rom = p;
-          break;
-        }
+    if (rom) {
+      for (unsigned i = 0; i < len; i++) {
+        result->rd_data |= ((0x000000ff & rom->data[result->m_paddr + i - rom->base]) << (8 * i));
       }
-      if (rom) {
-        for (unsigned i = 0; i < size; i++) {
-          *value |= ((0x000000ff & rom->data[paddr + i - rom->base]) << (8 * i));
-        }
-        found = 1;
-      }
+      found = 1;
     }
   }
   if (found == 0) {
-    exception = TRAP_CODE_LOAD_ACCESS_FAULT;
+    result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
-  return exception;
+  return result->exception_code;
 }
 
-unsigned memory_store(memory_t *mem, unsigned addr, unsigned value, unsigned size, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_STORE, prv);
-  if (exception != 0) {
-    return exception;
-  }
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    // RAM
-    memory_ram_store(mem, paddr, value, size, mem->dcache);
-  } else {
-    // search MMIO
-    for (unsigned u = 0; u < MAX_MMIO; u++) {
-      struct mmio_t *unit = mem->mmio_list[u];
-      if (unit == NULL) continue;
-      if (paddr >= unit->base && paddr < (unit->base + unit->size)) {
-        for (unsigned i = 0; i < size; i++) {
-          unit->writeb(unit, paddr + i, (char)(value >> (i * 8)));
-        }
-        break;
+unsigned memory_store(memory_t *mem, unsigned len, struct core_step_result *result) {
+  // search MMIO
+  for (unsigned u = 0; u < MAX_MMIO; u++) {
+    struct mmio_t *unit = mem->mmio_list[u];
+    if (unit == NULL) continue;
+    if (result->m_paddr >= unit->base && result->m_paddr < (unit->base + unit->size)) {
+      for (unsigned i = 0; i < len; i++) {
+        unit->writeb(unit, result->m_paddr + i, (char)(result->m_data >> (i * 8)));
       }
+      break;
     }
   }
-  return exception;
+  return result->exception_code;
 }
 
-static void memory_ram_set_reserve(memory_t *mem, unsigned addr) {
-  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 1;
-}
-
-static void memory_ram_rst_reserve(memory_t *mem, unsigned addr) {
-  mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size] = 0;
-}
-
-static char memory_ram_get_reserve(memory_t *mem, unsigned addr) {
-  return mem->ram_reserve[(addr - mem->ram_base) / mem->ram_block_size];
-}
-
-unsigned memory_load_reserved(memory_t *mem, unsigned addr, unsigned *value, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_LOAD, prv);
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (exception) {
-    return exception;
-  }
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    // RAM
-    *value = memory_ram_load(mem, paddr, 4, mem->dcache);
-    memory_ram_set_reserve(mem, paddr);
+unsigned memory_dma_send(memory_t *mem, unsigned pbase, int len, char *data) {
+  if (len <= 0) {
     return 0;
+  }
+#if 0
+  printf("DMA pbase %08x len %08x\n", pbase, len);
+#endif
+  int len_remain = len;
+
+  unsigned dest_base;
+  unsigned src_base;
+  unsigned burst_len;
+  char *page;
+
+  dest_base = pbase;
+  src_base = 0;
+  burst_len = (((dest_base & RAM_PAGE_OFFS_MASK) + len) < RAM_PAGE_SIZE) ? len : RAM_PAGE_SIZE - (dest_base & RAM_PAGE_OFFS_MASK);
+
+  while (len_remain > 0) {
+    page = memory_get_page(mem, dest_base, BUS_ACCESS_WRITE, DEVICE_ID_DMA);
+    memcpy(&page[dest_base & RAM_PAGE_OFFS_MASK], &data[src_base], burst_len);
+#if 0
+    printf("DMA page %08x doffs %08x soffs %08x len %08x\n",
+           dest_base & (~RAM_PAGE_OFFS_MASK), dest_base & RAM_PAGE_OFFS_MASK,
+           src_base, burst_len);
+#endif
+    len_remain -= burst_len;
+    dest_base += burst_len;
+    src_base += burst_len;
+    burst_len = (len_remain >= RAM_PAGE_SIZE) ? RAM_PAGE_SIZE : len_remain;
+  }
+  return 0;
+}
+
+unsigned memory_dma_send_c(memory_t *mem, unsigned pbase, int len, char data) {
+  if (len <= 0) {
+    return 0;
+  }
+#if 0
+  printf("DMA (char) pbase %08x len %08x\n", pbase, len);
+#endif
+  int len_remain = len;
+
+  unsigned dest_base;
+  unsigned src_base;
+  unsigned burst_len;
+  char *page;
+
+  dest_base = pbase;
+  src_base = 0;
+  burst_len = (((dest_base & RAM_PAGE_OFFS_MASK) + len) < RAM_PAGE_SIZE) ? len : RAM_PAGE_SIZE - (dest_base & RAM_PAGE_OFFS_MASK);
+
+  while (len_remain > 0) {
+    page = memory_get_page(mem, dest_base, BUS_ACCESS_WRITE, DEVICE_ID_DMA);
+    memset(&page[dest_base & RAM_PAGE_OFFS_MASK], data, burst_len);
+#if 0
+    printf("DMA page %08x doffs %08x soffs %08x len %08x\n",
+           dest_base & (~RAM_PAGE_OFFS_MASK), dest_base & RAM_PAGE_OFFS_MASK,
+           src_base, burst_len);
+#endif
+    len_remain -= burst_len;
+    dest_base += burst_len;
+    src_base += burst_len;
+    burst_len = (len_remain >= RAM_PAGE_SIZE) ? RAM_PAGE_SIZE : len_remain;
+  }
+  return 0;
+}
+
+void memory_add_cache(memory_t *mem, cache_t *cache) {
+  if (mem->cache_list) {
+    mem->cache_list = (cache_t **)realloc(mem->cache_list, (mem->num_cache + 1) * sizeof(cache_t *));
   } else {
-    return TRAP_CODE_LOAD_ACCESS_FAULT;
+    mem->cache_list = (cache_t **)malloc(1 * sizeof(cache_t *));
   }
-}
-
-unsigned memory_load_instruction(memory_t *mem, unsigned addr, unsigned *inst, unsigned prv) {
-  unsigned paddr;
-  unsigned exception = 0;
-  char *inst_line;
-  exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_INSTRUCTION, prv);
-  // pmp check
-  if (exception == 0) {
-    if (paddr >= mem->ram_base && paddr < mem->ram_base + mem->ram_size) {
-      inst_line = cache_get(mem->icache, paddr & ~(mem->icache->line_mask), 0);
-      *inst = ((unsigned short *)(&inst_line[paddr & mem->icache->line_mask]))[0];
-      if ((*inst & 0x03) == 3) {
-        if ((paddr & mem->icache->line_mask) == (mem->icache->line_len - 2)) {
-          inst_line = cache_get(mem->icache, (paddr + 2) & ~(mem->icache->line_mask), 0);
-        }
-        *inst |= (((unsigned short *)(&inst_line[(paddr + 2) & mem->icache->line_mask]))[0] << 16);
-      }
-    } else {
-      exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
-    }
-  }
-  return exception;
-}
-
-unsigned memory_store_conditional(memory_t *mem, unsigned addr, unsigned value, unsigned *success, unsigned prv) {
-  unsigned paddr = 0;
-  unsigned exception = memory_address_translation(mem, addr, &paddr, ACCESS_TYPE_STORE, prv);
-  unsigned long long ram_max_addr = mem->ram_base + mem->ram_size;
-  if (exception) {
-    return exception;
-  }
-  if (paddr >= mem->ram_base && paddr < ram_max_addr) {
-    if (memory_ram_get_reserve(mem, paddr)) {
-      memory_ram_store(mem, paddr, value, 4, mem->dcache);
-      memory_ram_rst_reserve(mem, paddr);
-      *success = MEMORY_STORE_SUCCESS;
-    } else {
-      *success = MEMORY_STORE_FAILURE;
-    }
-  } else {
-    exception = TRAP_CODE_STORE_ACCESS_FAULT;
-  }
-  return exception;
-}
-
-void memory_atp_on(memory_t *mem, unsigned ppn) {
-  mem->vmflag = 1;
-  mem->vmrppn = ppn << 12;
-  return;
-}
-
-void memory_atp_off(memory_t *mem) {
-  mem->vmflag = 0;
-  mem->vmrppn = 0;
-  return;
-}
-
-void memory_tlb_clear(memory_t *mem) {
-  tlb_clear(mem->tlb);
+  mem->cache_list[mem->num_cache++] = cache;
 }
 
 void memory_fini(memory_t *mem) {
@@ -303,13 +241,6 @@ void memory_fini(memory_t *mem) {
     free(mem->ram_block[i]);
   }
   free(mem->ram_block);
-  free(mem->ram_reserve);
-  cache_fini(mem->dcache);
-  free(mem->dcache);
-  cache_fini(mem->icache);
-  free(mem->icache);
-  tlb_fini(mem->tlb);
-  free(mem->tlb);
   struct rom_t *rom_p = mem->rom_list;
   while (1) {
     if (rom_p == NULL) {
@@ -320,292 +251,8 @@ void memory_fini(memory_t *mem) {
     rom_p = rom_np;
   }
   free(mem->mmio_list);
+  free(mem->cache_list);
   return;
-}
-
-void memory_icache_invalidate(memory_t *mem) {
-  for (unsigned i = 0; i < mem->icache->line_size; i++) {
-    mem->icache->line[i].valid = 0;
-  }
-}
-
-void memory_dcache_invalidate(memory_t *mem) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    cache_write_back(mem->dcache, i);
-    mem->dcache->line[i].valid = 0;
-  }
-}
-
-void memory_dcache_invalidate_line(memory_t *mem, unsigned paddr) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    if (mem->dcache->line[i].valid && mem->dcache->line[i].tag == (paddr & mem->dcache->tag_mask)) {
-      mem->dcache->line[i].valid = 0;
-    }
-  }
-}
-
-void memory_dcache_write_back(memory_t *mem) {
-  for (unsigned i = 0; i < mem->dcache->line_size; i++) {
-    cache_write_back(mem->dcache, i);
-  }
-}
-
-void cache_init(cache_t *cache, memory_t *mem, unsigned line_len, unsigned line_size) {
-  cache->mem = mem;
-  cache->access_count = 0;
-  cache->hit_count = 0;
-  cache->line_len = line_len;
-  cache->line_size = line_size;
-  cache->line_mask = line_len - 1;
-  cache->index_mask = ((cache->line_size * cache->line_len) - 1) ^ cache->line_mask;
-  cache->tag_mask = (0xffffffff ^ (cache->index_mask | cache->line_mask));
-  cache->line = (cache_line_t *)calloc(line_size, sizeof(cache_line_t));
-  for (unsigned i = 0; i < line_size; i++) {
-    cache->line[i].data = (char *)malloc(line_len * sizeof(char));
-  }
-}
-
-char *cache_get(cache_t *cache, unsigned addr, char write) {
-  unsigned index = (addr & cache->index_mask) / cache->line_len;
-  unsigned tag = addr & cache->tag_mask;
-  char *line = NULL;
-  cache->access_count++;
-  if (cache->line[index].valid) {
-    if (cache->line[index].tag == tag) {
-      // hit
-      cache->hit_count++;
-    } else {
-      unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
-      // write back
-      cache_write_back(cache, index);
-      // read memory
-      char *page = memory_get_page(cache->mem, addr);
-      memcpy(cache->line[index].data, &page[block_base], cache->line_len);
-      cache->line[index].valid = 1;
-      cache->line[index].tag = tag;
-      cache->line[index].dirty = 0;
-    }
-  } else {
-    unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
-    // read memory
-    char *page = memory_get_page(cache->mem, addr);
-    memcpy(cache->line[index].data, &page[block_base], cache->line_len);
-    cache->line[index].valid = 1;
-    cache->line[index].tag = tag;
-    cache->line[index].dirty = 0;
-  }
-  cache->line[index].dirty |= write;
-  line = &(cache->line[index].data[addr & cache->line_mask]);
-  return line;
-}
-
-int cache_write_back(cache_t *cache, unsigned index) {
-  if (cache->line[index].valid && cache->line[index].dirty) {
-    unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
-    unsigned victim_block_id = (victim_addr - cache->mem->ram_base) / cache->mem->ram_block_size;
-    unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
-    // write back
-    memcpy(&cache->mem->ram_block[victim_block_id][victim_block_base], cache->line[index].data, cache->line_len);
-    cache->line[index].dirty = 0;
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-void cache_fini(cache_t *cache) {
-  for (unsigned i = 0; i < cache->line_size; i++) {
-    free(cache->line[i].data);
-  }
-  free(cache->line);
-  return;
-}
-
-void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
-  tlb->mem = mem;
-  tlb->line_size = size;
-  tlb->index_mask = tlb->line_size - 1;
-  tlb->tag_mask = (0xffffffff ^ tlb->index_mask) << 12;
-  tlb->line = (tlb_line_t *)calloc(size, sizeof(tlb_line_t));
-  tlb->access_count = 0;
-  tlb->hit_count = 0;
-}
-
-void tlb_clear(tlb_t *tlb) {
-  for (unsigned i = 0; i < tlb->line_size; i++) {
-    tlb->line[i].valid = 0;
-    tlb->line[i].megapage = 0;
-  }
-}
-
-void tlb_fini(tlb_t *tlb) {
-  free(tlb->line);
-}
-
-static int page_check_leaf(unsigned pte) {
-  if (pte & (PTE_X | PTE_W | PTE_R)) {
-    return 1;
-  } else {
-    return 0;
-  }
-}
-
-static int page_check_privilege(unsigned pte, unsigned access_type, unsigned prv) {
-  int protect = (pte & PTE_V);
-  // check protect
-  if (page_check_leaf(pte)) {
-    if (prv == PRIVILEGE_MODE_U)
-      protect = (protect && (pte & PTE_U));
-    protect = (protect && (pte & access_type));
-  } else {
-    protect &= 1;
-  }
-  return protect;
-}
-
-#define PAGE_SUCCESS 0
-#define PAGE_ACCESS_ERROR 1
-#define PAGE_PRIVILEGE_ERROR 2
-#define PAGE_SUCCESS_MEGAPAGE 3
-
-static unsigned page_walk(memory_t *mem, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
-  unsigned access_fault = 0;
-  unsigned protect_fault = 0;
-  unsigned current_pte = 0;
-  int level = 1;
-  for (level = 1; level >= 0; level--) {
-    unsigned pte_id = ((vaddr >> ((2 + (10 * (level + 1))) & 0x0000001f)) & 0x000003ff); // word offset
-    unsigned pte_addr = pte_base + (pte_id * PTE_SIZE);
-    if (pte_addr < mem->ram_base || (pte_addr > mem->ram_base + mem->ram_size)) {
-#if 0
-      fprintf(stderr, "access fault pte%d: addr: %08x base: %08x id: %08x\n", level, pte_addr, pte_base, pte_id);
-#endif
-      access_fault = 1;
-      break;
-    }
-    current_pte = ((unsigned *)memory_get_page(mem, pte_base))[pte_id];
-    if (level == 0) {
-      if (page_check_leaf(current_pte) && page_check_privilege(current_pte, access_type, prv)) {
-        protect_fault = 0;
-      } else {
-        protect_fault = 1;
-      }
-    } else {
-      if (page_check_privilege(current_pte, access_type, prv)) {
-        protect_fault = 0;
-        if (page_check_leaf(current_pte)) {
-          break;
-        }
-      } else {
-        protect_fault = 1;
-      }
-    }
-    if (protect_fault) {
-#if 0
-      fprintf(stderr, "TLB privilege error VADDR: %08x level: %d PTE_BASE: %08x ID: %u PTE: %08x current privilege: %u\n",
-              vaddr, level, pte_base, pte_id, current_pte, prv);
-#endif
-      break;
-    }
-    pte_base = ((current_pte >> 10) << 12);
-  }
-  *pte = current_pte;
-  if (access_fault) {
-    return PAGE_ACCESS_ERROR;
-  } else if (protect_fault) {
-    return PAGE_PRIVILEGE_ERROR;
-  } else {
-    if (level == 1) {
-      return PAGE_SUCCESS_MEGAPAGE;
-    } else {
-      return PAGE_SUCCESS;
-    }
-  }
-}
-
-unsigned tlb_get(tlb_t *tlb, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
-  *paddr = 0;
-  // search TLB first
-  unsigned index = (vaddr >> 12) & tlb->index_mask;
-  unsigned tag = vaddr & tlb->tag_mask;
-  unsigned pte = 0;
-  unsigned exception = 0;
-  tlb->access_count++;
-  if (tlb->line[index].valid && (tlb->line[index].tag == tag)) {
-    tlb->hit_count++;
-    pte = tlb->line[index].value;
-    if (page_check_privilege(pte, access_type, prv)) {
-      if (tlb->line[index].megapage) {
-        *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
-      } else {
-        *paddr = ((pte & 0xfffffc00) << 2) | (vaddr & 0x00000fff);
-      }
-    } else {
-      switch (access_type) {
-      case ACCESS_TYPE_INSTRUCTION:
-        exception = TRAP_CODE_INSTRUCTION_PAGE_FAULT;
-        break;
-      case ACCESS_TYPE_LOAD:
-        exception = TRAP_CODE_LOAD_PAGE_FAULT;
-        break;
-      default:
-        exception = TRAP_CODE_STORE_PAGE_FAULT;
-        break;
-      }
-    }
-  } else {
-    // hardware page walking
-    unsigned pte_base = tlb->mem->vmrppn;
-    unsigned pw_result = PAGE_SUCCESS;
-#if 0
-    fprintf(stderr, "HW page walking for addr: %08x, pte_base: %08x\n", vaddr, pte_base);
-#endif
-
-    // Pagewalking
-    pw_result = page_walk(tlb->mem, vaddr, pte_base, &pte, access_type, prv);
-    if (pw_result == PAGE_SUCCESS_MEGAPAGE) {
-      *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
-    } else {
-      *paddr = ((pte & 0xfff00000) << 2) | ((pte & 0x000ffc00) << 2) | (vaddr & 0x00000fff);
-    }
-
-    if ((pw_result == PAGE_SUCCESS) || (pw_result == PAGE_SUCCESS_MEGAPAGE)) {
-      // register to TLB
-      tlb->line[index].valid = 1;
-      tlb->line[index].tag = tag;
-      tlb->line[index].value = pte;
-      if (pw_result == PAGE_SUCCESS_MEGAPAGE) {
-        tlb->line[index].megapage = 1;
-      } else {
-        tlb->line[index].megapage = 0;
-      }
-    } else if (pw_result == PAGE_ACCESS_ERROR) {
-      switch (access_type) {
-      case ACCESS_TYPE_INSTRUCTION:
-        exception = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
-        break;
-      case ACCESS_TYPE_LOAD:
-        exception = TRAP_CODE_LOAD_ACCESS_FAULT;
-        break;
-      default:
-        exception = TRAP_CODE_STORE_ACCESS_FAULT;
-        break;
-      }
-    } else {
-      switch (access_type) {
-      case ACCESS_TYPE_INSTRUCTION:
-        exception = TRAP_CODE_INSTRUCTION_PAGE_FAULT;
-        break;
-      case ACCESS_TYPE_LOAD:
-        exception = TRAP_CODE_LOAD_PAGE_FAULT;
-        break;
-      default:
-        exception = TRAP_CODE_STORE_PAGE_FAULT;
-        break;
-      }
-    }
-  }
-  return exception;
 }
 
 void rom_init(rom_t *rom) {

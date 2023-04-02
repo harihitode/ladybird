@@ -3,9 +3,6 @@
 
 #include "riscv.h"
 
-// hart
-#define HART_NUM 1
-
 // memory map
 #define MEMORY_BASE_ADDR_UART   0x10000000
 #define MEMORY_BASE_ADDR_DISK   0x10001000
@@ -15,6 +12,7 @@
 // 128MiB, 4KiB page RAM
 #define RAM_SIZE (128 * 1024 * 1024)
 #define RAM_PAGE_SIZE (4 * 1024)
+#define RAM_PAGE_OFFS_MASK (RAM_PAGE_SIZE - 1)
 
 // debug address
 #define DEVTREE_BLOB_FILE "./ladybird.dtb"
@@ -24,18 +22,29 @@
 #define CONFIG_ROM_SIZE 1024
 
 // advanced core local interrupt map
-#define ACLINT_MSWI_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00000000)
+#define ACLINT_MSIP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00000000)
 #define ACLINT_MTIMECMP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00004000)
+#define ACLINT_SETSSIP_BASE (MEMORY_BASE_ADDR_ACLINT + 0x00008000)
 #define ACLINT_MTIME_BASE (MEMORY_BASE_ADDR_ACLINT + 0x0000Bff8)
+
+// platform level interrupt controller map
+#define PLIC_ADDR_IRQ_PRIORITY(n) (0x00000000 + (4 * n))
+#define PLIC_ADDR_CTX_ENABLE(n) (0x00002000 + (0x80 * n))
+#define PLIC_ADDR_CTX_THRESHOLD(n) (0x00200000 + (0x00001000 * n))
+#define PLIC_ADDR_IRQ_PRIORITY_BASE PLIC_ADDR_IRQ_PRIORITY(0)
+#define PLIC_ADDR_CTX_ENABLE_BASE PLIC_ADDR_CTX_ENABLE(0)
+#define PLIC_ADDR_CTX_THRESHOLD_BASE PLIC_ADDR_CTX_THRESHOLD(0)
 
 // IRQ
 #define PLIC_MAX_IRQ 10
-#define PLIC_MACHINE_CONTEXT 0
-#define PLIC_SUPERVISOR_CONTEXT 1
 #define PLIC_VIRTIO_MMIO_IRQ_NO 1
 #define PLIC_UART_IRQ_NO 10
 
 #define CORE_WINDOW_SIZE 16
+
+#define BUS_ACCESS_READ 0
+#define BUS_ACCESS_WRITE 1
+#define DEVICE_ID_DMA -1
 
 enum sim_state { running, quit };
 
@@ -43,6 +52,7 @@ struct core_step_result {
   unsigned char prv;
   unsigned long long cycle;
   unsigned pc;
+  unsigned pc_paddr;
   unsigned pc_next;
   unsigned inst;
   unsigned opcode;
@@ -50,6 +60,7 @@ struct core_step_result {
   unsigned exception_code;
   unsigned char m_access;
   unsigned m_vaddr;
+  unsigned m_paddr;
   unsigned m_data;
   unsigned char trapret;
   unsigned char trigger;
@@ -76,9 +87,9 @@ struct core_step_result {
 
 typedef struct sim_t {
   enum sim_state state;
-  struct core_t *core;
+  struct core_t **core;
+  unsigned num_core;
   struct memory_t *mem;
-  struct csr_t *csr;
   struct elf_t *elf;
   struct trigger_t *trigger;
   struct uart_t *uart;
@@ -98,6 +109,7 @@ typedef struct sim_t {
 
 // simulator general interface
 void sim_init(sim_t *);
+void sim_add_core(sim_t *);
 void sim_dtb_on(sim_t *);
 void sim_config_on(sim_t *);
 void sim_single_step(sim_t *);
