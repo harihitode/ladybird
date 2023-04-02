@@ -34,6 +34,18 @@ void sim_config_on(sim_t *sim) {
   free(config_rom);
 }
 
+void sim_add_core(sim_t *sim) {
+  unsigned hart_id = sim->num_core;
+  if (sim->core) {
+    sim->core = (core_t **)realloc(sim->core, (hart_id + 1) * sizeof(core_t *));
+  } else {
+    sim->core = (core_t **)malloc(1 * sizeof(core_t *));
+  }
+  sim->core[hart_id] = (core_t *)malloc(sizeof(core_t));
+  core_init(sim->core[hart_id], hart_id, sim->mem, sim->plic, sim->aclint, sim->trigger);
+  ++sim->num_core;
+}
+
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
@@ -62,8 +74,9 @@ void sim_init(sim_t *sim) {
   sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
   trig_init(sim->trigger);
   // init core
-  sim->core = (core_t *)malloc(sizeof(core_t));
-  core_init(sim->core, 0, sim->mem, sim->plic, sim->aclint, sim->trigger);
+  sim->core = NULL;
+  sim->num_core = 0;
+  sim_add_core(sim);
   // init register info
   sim->reginfo = (char **)calloc(NUM_REGISTERS, sizeof(char *));
   for (int i = 0; i < NUM_REGISTERS; i++) {
@@ -110,9 +123,10 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
     memory_dma_send_c(sim->mem, sim->elf->program_base[i] + sim->elf->program_file_size[i],
                       sim->elf->program_mem_size[i] - sim->elf->program_file_size[i], 0);
   }
-  lsu_dcache_write_back(sim->core->lsu);
   // set entry program counter
-  sim->core->csr->pc = sim->elf->entry_address;
+  for (unsigned i = 0; i < sim->num_core; i++) {
+    sim->core[i]->csr->pc = sim->elf->entry_address;
+  }
   sim_write_csr(sim, CSR_ADDR_D_PC, sim->elf->entry_address);
   sim_write_csr(sim, CSR_ADDR_D_CSR, (dcsr & 0xfffffffc) | PRIVILEGE_MODE_M);
   ret = 0;
@@ -124,11 +138,16 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
 }
 
 void sim_regstat_en(sim_t *sim) {
-  sim->core->csr->regstat_en = 1;
+  for (unsigned i = 0; i < sim->num_core; i++) {
+    sim->core[i]->csr->regstat_en = 1;
+  }
 }
 
 void sim_fini(sim_t *sim) {
-  core_fini(sim->core);
+  for (unsigned i = 0; i < sim->num_core; i++) {
+    core_fini(sim->core[i]);
+    free(sim->core[i]);
+  }
   free(sim->core);
   memory_fini(sim->mem);
   free(sim->mem);
@@ -169,17 +188,19 @@ void sim_set_step_callback_arg(sim_t *sim, void *arg) {
 }
 
 void sim_resume(sim_t *sim) {
-  sim->core->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
-  sim->core->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
-  while (sim->core->csr->mode != PRIVILEGE_MODE_D) {
-    struct core_step_result result;
-    memset(&result, 0, sizeof(struct core_step_result));
-    unsigned pc = sim->core->csr->pc;
-    core_step(sim->core, pc, &result, sim->core->csr->mode);
-    if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
-    trig_cycle(sim->trigger, &result);
+  sim->core[0]->csr->pc = sim_read_csr(sim, CSR_ADDR_D_PC);
+  sim->core[0]->csr->mode = sim_read_csr(sim, CSR_ADDR_D_CSR) & 0x3;
+  while (sim->core[0]->csr->mode != PRIVILEGE_MODE_D) {
+    for (unsigned i = 0; i < sim->num_core; i++) {
+      struct core_step_result result;
+      memset(&result, 0, sizeof(struct core_step_result));
+      unsigned pc = sim->core[i]->csr->pc;
+      core_step(sim->core[i], pc, &result, sim->core[i]->csr->mode);
+      if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
+      trig_cycle(sim->trigger, &result);
+      csr_cycle(sim->core[i]->csr, &result);
+    }
     aclint_cycle(sim->aclint);
-    csr_cycle(sim->core->csr, &result);
   }
 
   // fire debug handlers
@@ -228,9 +249,9 @@ unsigned sim_read_register(sim_t *sim, unsigned regno) {
   if (regno == 0) {
     return 0;
   } else if (regno < NUM_GPR) {
-    return sim->core->gpr[regno];
+    return sim->core[0]->gpr[regno];
   } else if (regno == REG_PC) {
-    return sim->core->csr->pc;
+    return sim->core[0]->csr->pc;
   } else {
     return 0;
   }
@@ -238,36 +259,38 @@ unsigned sim_read_register(sim_t *sim, unsigned regno) {
 
 void sim_write_register(sim_t *sim, unsigned regno, unsigned value) {
   if (regno < NUM_GPR) {
-    sim->core->gpr[regno] = value;
+    sim->core[0]->gpr[regno] = value;
   } else if (regno == REG_PC) {
-    sim->core->csr->pc = value;
+    sim->core[0]->csr->pc = value;
   }
   return;
 }
 
 char sim_read_memory(sim_t *sim, unsigned addr) {
   struct core_step_result r;
-  r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
+  r.prv = sim->core[0]->csr->dcsr_mprven ? sim->core[0]->csr->dcsr_prv : PRIVILEGE_MODE_M;
   r.m_vaddr = addr;
-  lsu_load(sim->core->lsu, 1, &r);
+  lsu_load(sim->core[0]->lsu, 1, &r);
   return (char)r.rd_data;
 }
 
 void sim_write_memory(sim_t *sim, unsigned addr, char value) {
   struct core_step_result r;
-  r.prv = sim->core->csr->dcsr_mprven ? sim->core->csr->dcsr_prv : PRIVILEGE_MODE_M;
+  r.prv = sim->core[0]->csr->dcsr_mprven ? sim->core[0]->csr->dcsr_prv : PRIVILEGE_MODE_M;
   r.m_vaddr = addr;
   r.m_data = value;
-  lsu_store(sim->core->lsu, 1, &r);
+  lsu_store(sim->core[0]->lsu, 1, &r);
   // flush
   sim_cache_flush(sim);
   return;
 }
 
 void sim_cache_flush(sim_t *sim) {
-  lsu_dcache_write_back(sim->core->lsu);
-  lsu_icache_invalidate(sim->core->lsu);
-  core_window_flush(sim->core);
+  for (unsigned i = 0; i < sim->num_core; i++) {
+    lsu_dcache_write_back(sim->core[i]->lsu);
+    lsu_icache_invalidate(sim->core[i]->lsu);
+    core_window_flush(sim->core[i]);
+  }
   return;
 }
 
@@ -325,11 +348,11 @@ int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
 }
 
 unsigned sim_read_csr(sim_t *sim, unsigned addr) {
-  return csr_csrr(sim->core->csr, addr, NULL);
+  return csr_csrr(sim->core[0]->csr, addr, NULL);
 }
 
 void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
-  csr_csrw(sim->core->csr, addr, value, NULL);
+  csr_csrw(sim->core[0]->csr, addr, value, NULL);
 }
 
 int sim_get_trigger_fired(const sim_t *sim) {

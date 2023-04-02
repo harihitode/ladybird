@@ -84,7 +84,8 @@ struct core_step_result {
 
 typedef struct sim_t {
   enum sim_state state;
-  struct core_t *core;
+  struct core_t **core;
+  unsigned num_core;
   struct memory_t *mem;
   struct elf_t *elf;
   struct trigger_t *trigger;
@@ -105,6 +106,7 @@ typedef struct sim_t {
 
 // simulator general interface
 void sim_init(sim_t *);
+void sim_add_core(sim_t *);
 void sim_dtb_on(sim_t *);
 void sim_config_on(sim_t *);
 void sim_single_step(sim_t *);

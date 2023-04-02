@@ -37,7 +37,7 @@ char *memory_get_page(memory_t *mem, unsigned addr, unsigned is_write, int devic
   if (mem->ram_block[bid] == NULL) {
     mem->ram_block[bid] = (char *)malloc(mem->ram_block_size * sizeof(char));
   }
-  if (is_write && device_id == DEVICE_ID_DMA) {
+  if (is_write && device_id != mem->cache->hart_id) {
     // invalidate core's cache line
     for (unsigned i = 0; i < mem->cache->line_size; i++) {
       cache_write_back(mem->cache, i);
