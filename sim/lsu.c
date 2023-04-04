@@ -17,21 +17,87 @@ void lsu_init(lsu_t *lsu, memory_t *mem) {
   cache_init(lsu->dcache, mem, 32, 256); // 32 byte/line, 256 entry
   tlb_init(lsu->tlb, mem, 64); // 64 entry
   memory_add_cache(lsu->mem, lsu->dcache);
+  for (int i = 0; i < 64; i++) {
+    lsu->pmpcfg[i] = 0;
+    lsu->pmpaddr[i] = 0;
+  }
 }
 
 unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, unsigned access_type, unsigned prv) {
+  unsigned exception_code = 0;
   if (lsu->vmflag == 0 || prv == PRIVILEGE_MODE_M) {
     // The satp register is considered active when the effective privilege mode is S-mode or U-mode.
     // Executions of the address-translation algorithm may only begin using a given value of satp when satp is active.
     *paddr = vaddr;
-    return 0;
   } else {
-    unsigned code = tlb_get(lsu->tlb, lsu->vmrppn, vaddr, paddr, access_type, prv);
+    exception_code = tlb_get(lsu->tlb, lsu->vmrppn, vaddr, paddr, access_type, prv);
 #if 0
-    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, code);
+    fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, exception_code);
 #endif
-    return code;
   }
+#if PMP_FEATURE
+  // PMP check
+  if (exception_code == 0) {
+    int success = 1;
+    for (int i = 0; i < 64; i++) {
+      unsigned char locked = lsu->pmpcfg[i] >> 7;
+      unsigned char address_matching = (lsu->pmpcfg[i] >> 3) & 0x3;
+      int is_match = 0;
+      if (!locked && prv == PRIVILEGE_MODE_M) continue;
+
+      if (address_matching == CSR_PMPCFG_A_OFF) {
+        continue;
+      } else if (address_matching == CSR_PMPCFG_A_TOR) {
+        unsigned from_addr = (i == 0) ? 0 : (lsu->pmpaddr[i - 1] << 2);
+        unsigned to_addr = lsu->pmpaddr[i] << 2;
+        if (*paddr >= from_addr && *paddr < to_addr) {
+          is_match = 1;
+        }
+      } else if (address_matching == CSR_PMPCFG_A_NA4) {
+        if ((*paddr & 0xfffffffc) == (lsu->pmpaddr[i - 1] << 2)) {
+          is_match = 1;
+        }
+      } else {
+        const unsigned pmpaddr = lsu->pmpaddr[i];
+        int first_zero = 0;
+        for (; (((pmpaddr >> first_zero) & 0x1) == 1) && first_zero != XLEN; first_zero++) { }
+        unsigned long long check_addr = ((unsigned long long)pmpaddr) << 2;
+        unsigned long long align_power = 1 << (first_zero + 3);
+        unsigned long long align_power_mask = ~(align_power - 1);
+        if ((check_addr & align_power_mask) == (*paddr & align_power_mask)) {
+#if 0
+          printf("[%d] %d %08llx %08llx %08x pmpaddr %08x firstzero %d R[%d] W[%d] X[%d] L[%d]\n", i, address_matching, check_addr, align_power_mask, *paddr,
+                 pmpaddr, first_zero,
+                 (lsu->pmpcfg[i] >> 0) & 0x1,
+                 (lsu->pmpcfg[i] >> 1) & 0x1,
+                 (lsu->pmpcfg[i] >> 2) & 0x1, locked);
+#endif
+          is_match = 1;
+        }
+      }
+      if (is_match) {
+        if (access_type == ACCESS_TYPE_INSTRUCTION) {
+          success = (lsu->pmpcfg[i] >> 2) & 0x1; // executable flag
+        } else if (access_type == ACCESS_TYPE_LOAD) {
+          success = (lsu->pmpcfg[i] >> 0) & 0x1; // readable flag
+        } else {
+          success = (lsu->pmpcfg[i] >> 1) & 0x1; // writable flag
+        }
+        break;
+      }
+    }
+    if (success == 0) {
+      if (access_type == ACCESS_TYPE_INSTRUCTION) {
+        exception_code = TRAP_CODE_INSTRUCTION_ACCESS_FAULT;
+      } else if (access_type == ACCESS_TYPE_LOAD) {
+        exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
+      } else {
+        exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
+      }
+    }
+  }
+#endif
+  return exception_code;
 }
 
 static int is_cacheable(unsigned addr) {
@@ -159,12 +225,20 @@ unsigned lsu_fence_instruction(lsu_t *lsu) {
 }
 
 unsigned lsu_fence(lsu_t *lsu, unsigned char predecessor, unsigned char successor) {
+  // only supported full fence
   lsu_dcache_write_back(lsu);
   return 0;
 }
 
 unsigned lsu_fence_tso(lsu_t *lsu) {
   lsu_dcache_write_back(lsu);
+  return 0;
+}
+
+unsigned lsu_sfence_vma(lsu_t *lsu) {
+  lsu_icache_invalidate(lsu);
+  lsu_dcache_write_back(lsu);
+  lsu_tlb_clear(lsu);
   return 0;
 }
 

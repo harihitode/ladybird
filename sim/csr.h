@@ -43,6 +43,7 @@ typedef struct csr_t {
   unsigned scounteren;
   unsigned long long hpmcounter[29];
   unsigned hpmevent[29];
+  // statistics (extension)
   unsigned char regstat_en; // for register access analysis
   // Sdext
   unsigned char dcsr_ebreakm;

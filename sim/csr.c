@@ -119,8 +119,101 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_IDELEG:
     return csr->mideleg;
   case CSR_ADDR_M_PMPCFG0:
+  case CSR_ADDR_M_PMPCFG1:
+  case CSR_ADDR_M_PMPCFG2:
+  case CSR_ADDR_M_PMPCFG3:
+  case CSR_ADDR_M_PMPCFG4:
+  case CSR_ADDR_M_PMPCFG5:
+  case CSR_ADDR_M_PMPCFG6:
+  case CSR_ADDR_M_PMPCFG7:
+  case CSR_ADDR_M_PMPCFG8:
+  case CSR_ADDR_M_PMPCFG9:
+  case CSR_ADDR_M_PMPCFG10:
+  case CSR_ADDR_M_PMPCFG11:
+  case CSR_ADDR_M_PMPCFG12:
+  case CSR_ADDR_M_PMPCFG13:
+  case CSR_ADDR_M_PMPCFG14:
+  case CSR_ADDR_M_PMPCFG15:
+#if PMP_FEATURE
+    {
+      unsigned index = addr - CSR_ADDR_M_PMPCFG0;
+      return ((csr->lsu->pmpcfg[index * 4 + 3] << 24) |
+              (csr->lsu->pmpcfg[index * 4 + 2] << 16) |
+              (csr->lsu->pmpcfg[index * 4 + 1] << 8) |
+              (csr->lsu->pmpcfg[index * 4 + 0] << 0));
+    }
+#else
+    return 0;
+#endif
   case CSR_ADDR_M_PMPADDR0:
-    return 0; // not supported
+  case CSR_ADDR_M_PMPADDR1:
+  case CSR_ADDR_M_PMPADDR2:
+  case CSR_ADDR_M_PMPADDR3:
+  case CSR_ADDR_M_PMPADDR4:
+  case CSR_ADDR_M_PMPADDR5:
+  case CSR_ADDR_M_PMPADDR6:
+  case CSR_ADDR_M_PMPADDR7:
+  case CSR_ADDR_M_PMPADDR8:
+  case CSR_ADDR_M_PMPADDR9:
+  case CSR_ADDR_M_PMPADDR10:
+  case CSR_ADDR_M_PMPADDR11:
+  case CSR_ADDR_M_PMPADDR12:
+  case CSR_ADDR_M_PMPADDR13:
+  case CSR_ADDR_M_PMPADDR14:
+  case CSR_ADDR_M_PMPADDR15:
+  case CSR_ADDR_M_PMPADDR16:
+  case CSR_ADDR_M_PMPADDR17:
+  case CSR_ADDR_M_PMPADDR18:
+  case CSR_ADDR_M_PMPADDR19:
+  case CSR_ADDR_M_PMPADDR20:
+  case CSR_ADDR_M_PMPADDR21:
+  case CSR_ADDR_M_PMPADDR22:
+  case CSR_ADDR_M_PMPADDR23:
+  case CSR_ADDR_M_PMPADDR24:
+  case CSR_ADDR_M_PMPADDR25:
+  case CSR_ADDR_M_PMPADDR26:
+  case CSR_ADDR_M_PMPADDR27:
+  case CSR_ADDR_M_PMPADDR28:
+  case CSR_ADDR_M_PMPADDR29:
+  case CSR_ADDR_M_PMPADDR30:
+  case CSR_ADDR_M_PMPADDR31:
+  case CSR_ADDR_M_PMPADDR32:
+  case CSR_ADDR_M_PMPADDR33:
+  case CSR_ADDR_M_PMPADDR34:
+  case CSR_ADDR_M_PMPADDR35:
+  case CSR_ADDR_M_PMPADDR36:
+  case CSR_ADDR_M_PMPADDR37:
+  case CSR_ADDR_M_PMPADDR38:
+  case CSR_ADDR_M_PMPADDR39:
+  case CSR_ADDR_M_PMPADDR40:
+  case CSR_ADDR_M_PMPADDR41:
+  case CSR_ADDR_M_PMPADDR42:
+  case CSR_ADDR_M_PMPADDR43:
+  case CSR_ADDR_M_PMPADDR44:
+  case CSR_ADDR_M_PMPADDR45:
+  case CSR_ADDR_M_PMPADDR46:
+  case CSR_ADDR_M_PMPADDR47:
+  case CSR_ADDR_M_PMPADDR48:
+  case CSR_ADDR_M_PMPADDR49:
+  case CSR_ADDR_M_PMPADDR50:
+  case CSR_ADDR_M_PMPADDR51:
+  case CSR_ADDR_M_PMPADDR52:
+  case CSR_ADDR_M_PMPADDR53:
+  case CSR_ADDR_M_PMPADDR54:
+  case CSR_ADDR_M_PMPADDR55:
+  case CSR_ADDR_M_PMPADDR56:
+  case CSR_ADDR_M_PMPADDR57:
+  case CSR_ADDR_M_PMPADDR58:
+  case CSR_ADDR_M_PMPADDR59:
+  case CSR_ADDR_M_PMPADDR60:
+  case CSR_ADDR_M_PMPADDR61:
+  case CSR_ADDR_M_PMPADDR62:
+  case CSR_ADDR_M_PMPADDR63:
+#if PMP_FEATURE
+    return csr->lsu->pmpaddr[addr - CSR_ADDR_M_PMPADDR0];
+#else
+    return 0;
+#endif
   case CSR_ADDR_S_ATP:
 #if 0
     fprintf(stderr, "ATP (read) %08x\n", lsu_atp_get(csr->lsu));
@@ -352,9 +445,102 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     // the machine mode interrupts could not be delegated to supervisor
     // I don't know either it is a qemu ristriction or a spec. of risc-v
     csr->mideleg = value & 0x0000222;
+    break;
   case CSR_ADDR_M_PMPCFG0:
+  case CSR_ADDR_M_PMPCFG1:
+  case CSR_ADDR_M_PMPCFG2:
+  case CSR_ADDR_M_PMPCFG3:
+  case CSR_ADDR_M_PMPCFG4:
+  case CSR_ADDR_M_PMPCFG5:
+  case CSR_ADDR_M_PMPCFG6:
+  case CSR_ADDR_M_PMPCFG7:
+  case CSR_ADDR_M_PMPCFG8:
+  case CSR_ADDR_M_PMPCFG9:
+  case CSR_ADDR_M_PMPCFG10:
+  case CSR_ADDR_M_PMPCFG11:
+  case CSR_ADDR_M_PMPCFG12:
+  case CSR_ADDR_M_PMPCFG13:
+  case CSR_ADDR_M_PMPCFG14:
+  case CSR_ADDR_M_PMPCFG15:
+    {
+      unsigned index = addr - CSR_ADDR_M_PMPCFG0;
+      // locked flag remains ON until reset
+      csr->lsu->pmpcfg[index * 4 + 3] =
+        (csr->lsu->pmpcfg[index * 4 + 3] & 0x80) | (unsigned char)(value >> 24);
+      csr->lsu->pmpcfg[index * 4 + 2] =
+        (csr->lsu->pmpcfg[index * 4 + 2] & 0x80) | (unsigned char)(value >> 16);
+      csr->lsu->pmpcfg[index * 4 + 1] =
+        (csr->lsu->pmpcfg[index * 4 + 1] & 0x80) | (unsigned char)(value >> 8);
+      csr->lsu->pmpcfg[index * 4 + 0] =
+        (csr->lsu->pmpcfg[index * 4 + 0] & 0x80) | (unsigned char)(value >> 0);
+    }
+    break;
   case CSR_ADDR_M_PMPADDR0:
-    break; // not supported
+  case CSR_ADDR_M_PMPADDR1:
+  case CSR_ADDR_M_PMPADDR2:
+  case CSR_ADDR_M_PMPADDR3:
+  case CSR_ADDR_M_PMPADDR4:
+  case CSR_ADDR_M_PMPADDR5:
+  case CSR_ADDR_M_PMPADDR6:
+  case CSR_ADDR_M_PMPADDR7:
+  case CSR_ADDR_M_PMPADDR8:
+  case CSR_ADDR_M_PMPADDR9:
+  case CSR_ADDR_M_PMPADDR10:
+  case CSR_ADDR_M_PMPADDR11:
+  case CSR_ADDR_M_PMPADDR12:
+  case CSR_ADDR_M_PMPADDR13:
+  case CSR_ADDR_M_PMPADDR14:
+  case CSR_ADDR_M_PMPADDR15:
+  case CSR_ADDR_M_PMPADDR16:
+  case CSR_ADDR_M_PMPADDR17:
+  case CSR_ADDR_M_PMPADDR18:
+  case CSR_ADDR_M_PMPADDR19:
+  case CSR_ADDR_M_PMPADDR20:
+  case CSR_ADDR_M_PMPADDR21:
+  case CSR_ADDR_M_PMPADDR22:
+  case CSR_ADDR_M_PMPADDR23:
+  case CSR_ADDR_M_PMPADDR24:
+  case CSR_ADDR_M_PMPADDR25:
+  case CSR_ADDR_M_PMPADDR26:
+  case CSR_ADDR_M_PMPADDR27:
+  case CSR_ADDR_M_PMPADDR28:
+  case CSR_ADDR_M_PMPADDR29:
+  case CSR_ADDR_M_PMPADDR30:
+  case CSR_ADDR_M_PMPADDR31:
+  case CSR_ADDR_M_PMPADDR32:
+  case CSR_ADDR_M_PMPADDR33:
+  case CSR_ADDR_M_PMPADDR34:
+  case CSR_ADDR_M_PMPADDR35:
+  case CSR_ADDR_M_PMPADDR36:
+  case CSR_ADDR_M_PMPADDR37:
+  case CSR_ADDR_M_PMPADDR38:
+  case CSR_ADDR_M_PMPADDR39:
+  case CSR_ADDR_M_PMPADDR40:
+  case CSR_ADDR_M_PMPADDR41:
+  case CSR_ADDR_M_PMPADDR42:
+  case CSR_ADDR_M_PMPADDR43:
+  case CSR_ADDR_M_PMPADDR44:
+  case CSR_ADDR_M_PMPADDR45:
+  case CSR_ADDR_M_PMPADDR46:
+  case CSR_ADDR_M_PMPADDR47:
+  case CSR_ADDR_M_PMPADDR48:
+  case CSR_ADDR_M_PMPADDR49:
+  case CSR_ADDR_M_PMPADDR50:
+  case CSR_ADDR_M_PMPADDR51:
+  case CSR_ADDR_M_PMPADDR52:
+  case CSR_ADDR_M_PMPADDR53:
+  case CSR_ADDR_M_PMPADDR54:
+  case CSR_ADDR_M_PMPADDR55:
+  case CSR_ADDR_M_PMPADDR56:
+  case CSR_ADDR_M_PMPADDR57:
+  case CSR_ADDR_M_PMPADDR58:
+  case CSR_ADDR_M_PMPADDR59:
+  case CSR_ADDR_M_PMPADDR60:
+  case CSR_ADDR_M_PMPADDR61:
+  case CSR_ADDR_M_PMPADDR62:
+  case CSR_ADDR_M_PMPADDR63:
+    csr->lsu->pmpaddr[addr - CSR_ADDR_M_PMPADDR0] = value;
+    break;
   case CSR_ADDR_S_ATP:
     lsu_dcache_write_back(csr->lsu);
     if (value & 0x80000000) {
