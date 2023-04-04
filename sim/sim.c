@@ -13,8 +13,8 @@
 
 #define MAX_DBG_HANDLER 10
 
-void sim_dtb_on(sim_t *sim) {
-  memory_set_rom(sim->mem, DEVTREE_BLOB_FILE, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+void sim_dtb_on(sim_t *sim, const char *dtb_path) {
+  memory_set_rom(sim->mem, dtb_path, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
 }
 
 void sim_config_on(sim_t *sim) {

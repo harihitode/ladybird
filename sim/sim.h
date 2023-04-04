@@ -15,9 +15,8 @@
 #define RAM_PAGE_OFFS_MASK (RAM_PAGE_SIZE - 1)
 
 // debug address
-#define DEVTREE_BLOB_FILE "./ladybird.dtb"
 #define DEVTREE_ROM_ADDR 0x00001020
-#define DEVTREE_ROM_SIZE 2048
+#define DEVTREE_ROM_SIZE 4096
 #define CONFIG_ROM_ADDR 0x00001000
 #define CONFIG_ROM_SIZE 1024
 
@@ -110,7 +109,7 @@ typedef struct sim_t {
 // simulator general interface
 void sim_init(sim_t *);
 void sim_add_core(sim_t *);
-void sim_dtb_on(sim_t *);
+void sim_dtb_on(sim_t *, const char *dtb_path);
 void sim_config_on(sim_t *);
 void sim_single_step(sim_t *);
 void sim_resume(sim_t *);
