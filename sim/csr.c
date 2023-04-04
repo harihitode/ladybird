@@ -134,6 +134,7 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_PMPCFG13:
   case CSR_ADDR_M_PMPCFG14:
   case CSR_ADDR_M_PMPCFG15:
+#if PMP_FEATURE
     {
       unsigned index = addr - CSR_ADDR_M_PMPCFG0;
       return ((csr->lsu->pmpcfg[index * 4 + 3] << 24) |
@@ -141,6 +142,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
               (csr->lsu->pmpcfg[index * 4 + 1] << 8) |
               (csr->lsu->pmpcfg[index * 4 + 0] << 0));
     }
+#else
+    return 0;
+#endif
   case CSR_ADDR_M_PMPADDR0:
   case CSR_ADDR_M_PMPADDR1:
   case CSR_ADDR_M_PMPADDR2:
@@ -205,7 +209,11 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_M_PMPADDR61:
   case CSR_ADDR_M_PMPADDR62:
   case CSR_ADDR_M_PMPADDR63:
+#if PMP_FEATURE
     return csr->lsu->pmpaddr[addr - CSR_ADDR_M_PMPADDR0];
+#else
+    return 0;
+#endif
   case CSR_ADDR_S_ATP:
 #if 0
     fprintf(stderr, "ATP (read) %08x\n", lsu_atp_get(csr->lsu));

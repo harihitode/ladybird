@@ -18,6 +18,8 @@
 #define Z_AM_EXTENSION      0
 #define Z_TSO_EXTENSION     0
 
+#define PMP_FEATURE 0
+
 #define XLEN 32
 
 #define NUM_GPR 32

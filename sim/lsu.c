@@ -35,6 +35,7 @@ unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, un
     fprintf(stderr, "vaddr: %08x, paddr: %08x, code: %08x\n", vaddr, *paddr, exception_code);
 #endif
   }
+#if PMP_FEATURE
   // PMP check
   if (exception_code == 0) {
     int success = 1;
@@ -95,6 +96,7 @@ unsigned lsu_address_translation(lsu_t *lsu, unsigned vaddr, unsigned *paddr, un
       }
     }
   }
+#endif
   return exception_code;
 }
 
