@@ -223,12 +223,20 @@ unsigned lsu_fence_instruction(lsu_t *lsu) {
 }
 
 unsigned lsu_fence(lsu_t *lsu, unsigned char predecessor, unsigned char successor) {
+  // only supported full fence
   lsu_dcache_write_back(lsu);
   return 0;
 }
 
 unsigned lsu_fence_tso(lsu_t *lsu) {
   lsu_dcache_write_back(lsu);
+  return 0;
+}
+
+unsigned lsu_sfence_vma(lsu_t *lsu) {
+  lsu_icache_invalidate(lsu);
+  lsu_dcache_write_back(lsu);
+  lsu_tlb_clear(lsu);
   return 0;
 }
 

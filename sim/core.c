@@ -461,10 +461,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         break;
       default:
         if (riscv_get_funct7(inst) == 0x09) {
-          // SFENCE.VMA
-          lsu_icache_invalidate(core->lsu);
-          lsu_dcache_write_back(core->lsu);
-          lsu_tlb_clear(core->lsu);
+          lsu_sfence_vma(core->lsu);
         } else {
           result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
         }

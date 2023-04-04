@@ -85,6 +85,7 @@ unsigned lsu_atomic_operation(lsu_t *t, unsigned aquire, unsigned release,
 unsigned lsu_fence_instruction(lsu_t *t);
 unsigned lsu_fence(lsu_t *t, unsigned char predecessor, unsigned char successor);
 unsigned lsu_fence_tso(lsu_t *t);
+unsigned lsu_sfence_vma(lsu_t *t);
 // MMU functions
 void lsu_atp_on(lsu_t *, unsigned ppn);
 unsigned lsu_atp_get(lsu_t *);
