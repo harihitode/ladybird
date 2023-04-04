@@ -230,7 +230,11 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
     } else {
       // RX Register (uart input)
       mtx_lock(&uart->mutex);
-      ret = uart->buf[uart->buf_rd_index++];
+      if (uart->buf_rd_index < uart->buf_wr_index) {
+        ret = uart->buf[uart->buf_rd_index++];
+      } else {
+        ret = 0;
+      }
       if (uart->buf_rd_index == uart->buf_wr_index) {
         uart->buf_rd_index = 0;
         uart->buf_wr_index = 0;
