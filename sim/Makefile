@@ -17,28 +17,35 @@ DISK?=$(XV6DISK)
 PORT?=12345
 PROFILE=0
 COMMANDS?=
+DTBS=ladybird.dtb ladybird_dual.dtb
+DUALCORE?=0
 
 ifeq ($(PROFILE),1)
 	CFLAGS+=-pg
 endif
 
+ifeq ($(DUALCORE),1)
+	SIMFLAG+=--dual
+endif
+
 .PHONY: all clean xv6 run_rspsim run_lldb
 .INTERMEDIATE: $(OBJS) $(POBJS)
 .SILENT: run_rspsim run_lldb
+.SUFFIXES: .dts .dtb
 
-all: launch_sim rspsim
+all: launch_sim rspsim $(DTBS)
 
 launch_sim: $(OBJS) launch_sim.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(CyFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 xv6: launch_sim
-	./$< $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
+	./$< $(XV6KRNL) $(SIMFLAG) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
 
-linux: launch_sim ladybird.dtb
-	./$< $(LINUXKRNL) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
+linux: launch_sim
+	./$< $(LINUXKRNL) $(SIMFLAG) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
 
 $(POJBS): sim.h
 
@@ -50,8 +57,8 @@ run_rspsim: rspsim
 run_lldb:
 	$(RVPATH)/lldb $(KRNL) -o 'process connect connect://localhost:$(PORT)'
 
-ladybird.dtb: ladybird.dts
-	dtc -O dtb -o ladybird.dtb ladybird.dts
+.dts.dtb:
+	dtc -O dtb -o $@ $<
 
 clean:
 	$(RM) launch_sim rspsim *.o

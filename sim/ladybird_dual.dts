@@ -1,0 +1,97 @@
+/dts-v1/;
+/ {
+  #address-cells = <1>;
+  #size-cells = <1>;
+  model="RISC-Vシミュレーターですの！,よろしくって？";
+
+  chosen {
+    bootargs = "console=ttyS0 ro root=/dev/vda";
+    stdout-path = &serial0;
+  };
+
+  virtio0: virtio@10001000 {
+    compatible = "virtio,mmio";
+    interrupt-parent = <&plic0>;
+    interrupts = <1>;
+    reg = <0x10001000 0x1000>;
+  };
+
+  serial0: serial@10000000 {
+    clock-frequency = <0x384000>;
+    compatible = "ns16550a";
+    current-speed = <115200>;
+    device_type = "serial";
+    interrupt-parent = <&plic0>;
+    interrupts = <10>;
+    reg = <0x10000000 0x1000>;
+    reg-shift = <0>;
+  };
+
+  cpus {
+    #address-cells = <1>;
+    #size-cells = <0>;
+    timebase-frequency = <10000000>;
+
+    cpu0: cpu@0 {
+      device_type = "cpu";
+      i-cache-size = <32768>;
+      d-cache-size = <32768>;
+      compatible = "riscv";
+      mmu-type = "riscv,sv32";
+      clock-frequency = <100000000>;
+      reg = <0>;
+      riscv,isa = "rv32imac";
+      status = "okay";
+      cpu0_intc: interrupt-controller {
+        #interrupt-cells = <1>;
+        compatible = "riscv,cpu-intc";
+        interrupt-controller;
+      };
+    };
+
+    cpu1: cpu@1 {
+      device_type = "cpu";
+      i-cache-size = <32768>;
+      d-cache-size = <32768>;
+      compatible = "riscv";
+      mmu-type = "riscv,sv32";
+      clock-frequency = <100000000>;
+      reg = <1>;
+      riscv,isa = "rv32imac";
+      status = "okay";
+      cpu1_intc: interrupt-controller {
+        #interrupt-cells = <1>;
+        compatible = "riscv,cpu-intc";
+        interrupt-controller;
+      };
+    };
+  };
+
+  plic0: interrupt-controller@c000000 {
+    compatible = "riscv,plic0";
+    #interrupt-cells = <1>;
+    interrupt-controller;
+    interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9>,
+                          <&cpu1_intc 11 &cpu1_intc 9>;
+    riscv,ndev=<10>;
+    reg = <0x0c000000 0x02000000>;
+  };
+
+  memory0: memory@80000000 {
+    device_type = "memory";
+    #address-cells = <1>;
+    #size-cells = <1>;
+    reg = <0x80000000 0x08000000>;
+  };
+
+  clint0: clint@2000000 {
+    compatible = "riscv,clint0";
+    interrupts-extended = <&cpu0_intc 3 &cpu0_intc 7>,
+                          <&cpu1_intc 3 &cpu1_intc 7>;
+    reg = <0x2000000 0x10000>;
+  };
+
+  htif {
+    compatible = "ucb,htif0";
+  };
+};

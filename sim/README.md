@@ -10,11 +10,13 @@
 
 ## Run with Disk Image for virtio_disk
 
-`$ ./launch_sim [ELF Executable] [Disk Image]`
+`$ ./launch_sim [ELF Executable] --disk [Disk Image]`
 
 ## Run [xv6 (RV32IMA ported)](https://github.com/harihitode/ladybird_xv6)
 
-`$ make xv6`
+`$ make xv6` for single core
+
+`$ make DUALCORE=1 xv6` for dual core
 
 You can get xv6 kernel and disk image from
 
@@ -24,6 +26,8 @@ You can get xv6 kernel and disk image from
 ## Run Linux (see [Embedded Linux from Scratch](http://mcu.cz/images_articles/4980-opdenacker-embedded-linux-45minutes-riscv.pdf) to build kernel)
 
 `$ make linux`
+
+`$ make DUALCORE=1 linux`
 
 You can get Linux kernel and disk image containing Busybox from
 

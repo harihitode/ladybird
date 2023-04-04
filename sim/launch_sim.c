@@ -167,7 +167,11 @@ int main(int argc, char *argv[]) {
     sim_regstat_en(sim);
     sim_config_on(sim);
   } else {
-    sim_dtb_on(sim);
+    if (dual_enable) {
+      sim_dtb_on(sim, "ladybird_dual.dtb");
+    } else {
+      sim_dtb_on(sim, "ladybird.dtb");
+    }
   }
 
   sim_write_register(sim, REG_A0, 0); // contains a unique per-hart ID.
