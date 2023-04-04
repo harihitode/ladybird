@@ -306,9 +306,10 @@ unsigned riscv_decompress(unsigned inst) {
 const char *riscv_get_extension_string() {
   static char buf[256];
   int z_seperate = 0;
-  sprintf(buf, "RV%dI", XLEN);
   if (E_EXTENSION) {
-    sprintf(&buf[strlen(buf)], "E");
+    sprintf(buf, "RV%dE", XLEN);
+  } else {
+    sprintf(buf, "RV%dI", XLEN);
   }
   if (M_EXTENSION) {
     sprintf(&buf[strlen(buf)], "M");
