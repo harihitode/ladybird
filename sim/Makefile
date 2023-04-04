@@ -18,9 +18,14 @@ PORT?=12345
 PROFILE=0
 COMMANDS?=
 DTBS=ladybird.dtb ladybird_dual.dtb
+DUALCORE?=0
 
 ifeq ($(PROFILE),1)
 	CFLAGS+=-pg
+endif
+
+ifeq ($(DUALCORE),1)
+	SIMFLAG+=--dual
 endif
 
 .PHONY: all clean xv6 run_rspsim run_lldb
@@ -34,13 +39,13 @@ launch_sim: $(OBJS) launch_sim.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
-	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(CyFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 xv6: launch_sim
-	./$< $(XV6KRNL) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
+	./$< $(XV6KRNL) $(SIMFLAG) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
 
 linux: launch_sim
-	./$< $(LINUXKRNL) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
+	./$< $(LINUXKRNL) $(SIMFLAG) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
 
 $(POJBS): sim.h
 
