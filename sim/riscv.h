@@ -125,6 +125,11 @@
 #define CSR_INT_MSI (0x00000001 << CSR_INT_MSI_FIELD)
 #define CSR_INT_SSI (0x00000001 << CSR_INT_SSI_FIELD)
 
+#define CSR_PMPCFG_A_OFF 0x0
+#define CSR_PMPCFG_A_TOR 0x1
+#define CSR_PMPCFG_A_NA4 0x2
+#define CSR_PMPCFG_A_NAPOT 0x3
+
 // csr addr
 /// xv6 support
 #define CSR_ADDR_M_EPC 0x00000341

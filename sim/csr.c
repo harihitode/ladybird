@@ -456,10 +456,15 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
   case CSR_ADDR_M_PMPCFG15:
     {
       unsigned index = addr - CSR_ADDR_M_PMPCFG0;
-      csr->lsu->pmpcfg[index * 4 + 3] = (unsigned char)(value >> 24);
-      csr->lsu->pmpcfg[index * 4 + 2] = (unsigned char)(value >> 16);
-      csr->lsu->pmpcfg[index * 4 + 1] = (unsigned char)(value >> 8);
-      csr->lsu->pmpcfg[index * 4 + 0] = (unsigned char)(value >> 0);
+      // locked flag remains ON until reset
+      csr->lsu->pmpcfg[index * 4 + 3] =
+        (csr->lsu->pmpcfg[index * 4 + 3] & 0x80) | (unsigned char)(value >> 24);
+      csr->lsu->pmpcfg[index * 4 + 2] =
+        (csr->lsu->pmpcfg[index * 4 + 2] & 0x80) | (unsigned char)(value >> 16);
+      csr->lsu->pmpcfg[index * 4 + 1] =
+        (csr->lsu->pmpcfg[index * 4 + 1] & 0x80) | (unsigned char)(value >> 8);
+      csr->lsu->pmpcfg[index * 4 + 0] =
+        (csr->lsu->pmpcfg[index * 4 + 0] & 0x80) | (unsigned char)(value >> 0);
     }
     break;
   case CSR_ADDR_M_PMPADDR0:
