@@ -68,6 +68,9 @@ typedef struct lsu_t {
   // CACHE for RAM
   struct cache_t *dcache;
   struct cache_t *icache;
+  // Physical Memory Protection
+  unsigned char pmpcfg[64];
+  unsigned pmpaddr[64];
 } lsu_t;
 
 void lsu_init(lsu_t *, struct memory_t *mem);
