@@ -195,13 +195,13 @@ void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
   if (addr >= ACLINT_MSIP_BASE &&
       addr < ACLINT_MSIP_BASE + (aclint->num_hart * 4)) {
     unsigned hart_id = (addr - ACLINT_MSIP_BASE) / 4;
-    if (addr == ACLINT_MSIP_BASE) {
+    if ((addr & 3) == 0) {
       aclint->msip[hart_id] = value;
     }
   } else if (addr >= ACLINT_SETSSIP_BASE &&
              addr < ACLINT_SETSSIP_BASE + (aclint->num_hart * 4)) {
     unsigned hart_id = (addr - ACLINT_SETSSIP_BASE) / 4;
-    if (addr == ACLINT_MSIP_BASE && value == 1) {
+    if ((addr & 3) == 0 && value == 1) {
       aclint->ssip[hart_id] = 1; // edge triggered
     }
   } else if (addr >= ACLINT_MTIMECMP_BASE &&
