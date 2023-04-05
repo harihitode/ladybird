@@ -80,7 +80,7 @@ int main(int argc, char *argv[]) {
   char *disk_file_name = NULL;
   int htif_enable = 0;
   int stat_enable = 0;
-  int dual_enable = 0;
+  int num_cores = 1;
   FILE *statlog = NULL;
 
   if (argc < 2) {
@@ -129,8 +129,11 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         sim->htif_fromhost = (unsigned)strtol(argv[i], NULL, 0);
       }
-    } else if (strcmp(argv[i], "--dual") == 0) {
-      dual_enable = 1;
+    } else if (strcmp(argv[i], "--cores") == 0) {
+      i++;
+      if (i < argc) {
+        num_cores = atoi(argv[i]);
+      }
     }
   }
 
@@ -139,8 +142,10 @@ int main(int argc, char *argv[]) {
     sim_set_write_trigger(sim, sim->htif_tohost);
   }
 
-  if (dual_enable) {
-    sim_add_core(sim);
+  if (num_cores > 1) {
+    for (int i = 0; i < num_cores - 1; i++) {
+      sim_add_core(sim);
+    }
   }
 
   // load elf file to ram
@@ -167,7 +172,7 @@ int main(int argc, char *argv[]) {
     sim_regstat_en(sim);
     sim_config_on(sim);
   } else {
-    if (dual_enable) {
+    if (num_cores > 1) {
       sim_dtb_on(sim, "ladybird_dual.dtb");
     } else {
       sim_dtb_on(sim, "ladybird.dtb");
