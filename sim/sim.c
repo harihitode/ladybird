@@ -104,6 +104,7 @@ void sim_init(sim_t *sim) {
   sim->state = running;
   sim->htif_tohost = 0;
   sim->htif_fromhost = 0;
+  sim->selected_hart = 0;
   return;
 }
 
@@ -198,7 +199,9 @@ void sim_resume(sim_t *sim) {
       memset(&result, 0, sizeof(struct core_step_result));
       unsigned pc = sim->core[i]->csr->pc;
       core_step(sim->core[i], pc, &result, sim->core[i]->csr->mode);
-      if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
+      if ((int)i == sim->selected_hart) {
+        if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
+      }
       trig_cycle(sim->trigger, &result);
       csr_cycle(sim->core[i]->csr, &result);
     }

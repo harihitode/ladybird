@@ -104,6 +104,7 @@ typedef struct sim_t {
   void (**dbg_handler)(struct sim_t *, unsigned, unsigned, unsigned, unsigned, unsigned);
   void (*stp_handler)(struct core_step_result *, void *arg);
   void *stp_arg;
+  int selected_hart;
 } sim_t;
 
 // simulator general interface
