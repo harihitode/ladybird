@@ -54,9 +54,7 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
       value = plic_get_interrupt(plic, context_id);
     }
   } else {
-#if 0
     fprintf(stderr, "PLIC: unknown addr read: %08x\n", addr);
-#endif
   }
   return (value >> (8 * woff));
 }
@@ -85,17 +83,15 @@ void plic_write(struct mmio_t *unit, unsigned addr, char value) {
     } else { // complete
       plic->interrupt_complete[context_id] =
         (plic->interrupt_complete[context_id] & (~mask)) | ((unsigned char)value << (8 * woff));
-      if (woff == 0 && plic->interrupt_complete[1]) {
-        unsigned irqno = plic_get_interrupt(plic, context_id);
+      if (woff == 0 && plic->interrupt_complete[context_id] <= PLIC_MAX_IRQ) {
+        unsigned irqno = plic->interrupt_complete[context_id];
         if (plic->peripherals[irqno] && plic->peripherals[irqno]->ack_irq) {
           plic->peripherals[irqno]->ack_irq(plic->peripherals[irqno]);
         }
       }
     }
   } else {
-#if 0
     fprintf(stderr, "PLIC: unknown addr write: %08x, %08x\n", addr, value);
-#endif
   }
   return;
 }
