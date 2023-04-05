@@ -305,13 +305,15 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
       }
       if (uart->intr_enable) {
         uart->tx_sent = 1;
-      } else {
-        uart->tx_sent = 0;
       }
     }
     break;
   case UART_ADDR_IER: // 1
     uart->intr_enable = value;
+    if (uart->intr_enable == 0) {
+      uart->tx_sent = 0;
+      uart->rx_reading = 0;
+    }
     break;
   case UART_ADDR_FCR: // 2
     if (value & UART_FCR_CLEAR) {
@@ -368,7 +370,7 @@ void uart_irq_ack(struct mmio_t *mmio) {
   if (uart->intr_enable && uart->tx_sent) {
     uart->tx_sent = 0;
   }
-  if (uart->buf_wr_index > uart->buf_rd_index) {
+  if (uart->intr_enable && uart->buf_wr_index > uart->buf_rd_index) {
     uart->rx_reading = 1;
   }
   return;
