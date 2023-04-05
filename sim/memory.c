@@ -57,14 +57,16 @@ void memory_access_broadcast(memory_t *mem, unsigned addr, int is_write, int dev
       cache_t *cache = mem->cache_list[i];
       unsigned tag_mask = cache->tag_mask;
       unsigned index = (addr & cache->index_mask) / cache->line_len;
-      if (is_write) {
-        if (cache->line[index].tag == (addr & tag_mask)) {
+      if (cache->line[index].tag == (addr & tag_mask)) {
+        // MSI Protocol
+        if (is_write) {
           if (cache->line[index].state == CACHE_SHARED) {
             cache->line[index].state = CACHE_INVALID;
+          } else if (cache->line[index].state == CACHE_MODIFIED) {
+            cache_write_back(cache, index);
+            cache->line[index].state = CACHE_INVALID;
           }
-        }
-      } else {
-        if (cache->line[index].tag == (addr & tag_mask)) {
+        } else {
           if (cache->line[index].state == CACHE_MODIFIED) {
             cache_write_back(cache, index);
           }

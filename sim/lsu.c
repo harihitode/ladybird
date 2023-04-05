@@ -376,7 +376,7 @@ int cache_write_back(cache_t *cache, unsigned index) {
     unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
     unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
     char *page = memory_get_page(cache->mem, victim_addr, 1, cache->hart_id);
-    // write back
+    // MSI Protocol - write back SHARED
     memcpy(&page[victim_block_base], cache->line[index].data, cache->line_len);
     cache->line[index].state = CACHE_SHARED;
     return 1;
