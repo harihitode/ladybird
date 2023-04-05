@@ -12,7 +12,7 @@
 #include <string.h>
 #include <errno.h>
 
-// ns16650a (see `http://byterunner.com/16550.html`)
+// ns16550a (see `http://byterunner.com/16550.html`)
 #define UART_ADDR_RHR 0 // Reciever
 #define UART_ADDR_THR 0 // Transmitter
 #define UART_ADDR_IER 1 // Interrupt Enable Register
@@ -173,6 +173,7 @@ void uart_init(uart_t *uart) {
   uart->lcr_dlab = 0;
   uart->dlab = 0;
   uart->tx_sent = 0;
+  uart->rx_reading = 0;
 }
 
 static void uart_unset_io(uart_t *uart) {
@@ -233,9 +234,10 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
       if (uart->buf_rd_index < uart->buf_wr_index) {
         ret = uart->buf[uart->buf_rd_index++];
       } else {
-        ret = 0;
+        ret = -1;
       }
       if (uart->buf_rd_index == uart->buf_wr_index) {
+        uart->rx_reading = 0;
         uart->buf_rd_index = 0;
         uart->buf_wr_index = 0;
       }
@@ -249,7 +251,8 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
     if (uart->intr_enable && uart->tx_sent == 1) {
       ie = 0;
       cause = UART_ISR_CAUSE_TRANSMITTER_EMPTY;
-    } else if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
+    } else if (uart->intr_enable && !uart->rx_reading &&
+               (uart->buf_wr_index > uart->buf_rd_index)) {
       ie = 0;
       cause = UART_ISR_CAUSE_RECIEVER_READY;
     }
@@ -351,7 +354,7 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
 
 unsigned uart_irq(const struct mmio_t *mmio) {
   const struct uart_t *uart = (const struct uart_t *)mmio;
-  if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
+  if (uart->intr_enable && !uart->rx_reading && (uart->buf_wr_index > uart->buf_rd_index)) {
     return 1;
   } else if (uart->intr_enable && uart->tx_sent) {
     return 1;
@@ -362,7 +365,12 @@ unsigned uart_irq(const struct mmio_t *mmio) {
 
 void uart_irq_ack(struct mmio_t *mmio) {
   struct uart_t *uart = (struct uart_t *)mmio;
-  uart->tx_sent = 0;
+  if (uart->intr_enable && uart->tx_sent) {
+    uart->tx_sent = 0;
+  }
+  if (uart->buf_wr_index > uart->buf_rd_index) {
+    uart->rx_reading = 1;
+  }
   return;
 }
 

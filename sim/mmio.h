@@ -34,6 +34,7 @@ typedef struct uart_t {
   unsigned char lcr_sb;
   unsigned char lcr_dlab; // divisor latch
   unsigned char tx_sent;
+  unsigned char rx_reading;
 } uart_t;
 
 void uart_init(uart_t *uart);
