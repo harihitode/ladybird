@@ -20,6 +20,7 @@ void plic_init(plic_t *plic) {
   plic->interrupt_enable = NULL;
   plic->interrupt_threshold = NULL;
   plic->interrupt_complete = NULL;
+  plic->hart_rr = 0;
   return;
 }
 
@@ -51,7 +52,9 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
     if ((addr & 0x7) < 4) { // threashold
       value = plic->interrupt_threshold[context_id];
     } else { // claim
-      value = plic_get_interrupt(plic, context_id);
+      if ((context_id == 2 * plic->hart_rr) || (context_id == 2 * plic->hart_rr + 1)) {
+        value = plic_get_interrupt(plic, context_id);
+      }
     }
   } else {
     fprintf(stderr, "PLIC: unknown addr read: %08x\n", addr);

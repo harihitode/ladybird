@@ -13,6 +13,7 @@ typedef struct plic_t {
   unsigned *interrupt_enable;
   unsigned *interrupt_threshold;
   unsigned *interrupt_complete;
+  unsigned hart_rr;
 } plic_t;
 
 void plic_init(plic_t *);
