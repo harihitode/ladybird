@@ -246,12 +246,12 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
   case UART_ADDR_ISR: { // 1
     char ie = 1; // no interrupt
     char cause = 0;
-    if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
-      ie = 0;
-      cause = UART_ISR_CAUSE_RECIEVER_READY;
-    } else if (uart->tx_sent == 1) {
+    if (uart->intr_enable && uart->tx_sent == 1) {
       ie = 0;
       cause = UART_ISR_CAUSE_TRANSMITTER_EMPTY;
+    } else if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
+      ie = 0;
+      cause = UART_ISR_CAUSE_RECIEVER_READY;
     }
     return (
             (uart->fcr_enable << 7) |
@@ -300,7 +300,11 @@ void uart_write(struct mmio_t *unit, unsigned addr, char value) {
       if (write(uart->fo, &value, 1) < 0) {
         perror("uart output");
       }
-      uart->tx_sent = 1;
+      if (uart->intr_enable) {
+        uart->tx_sent = 1;
+      } else {
+        uart->tx_sent = 0;
+      }
     }
     break;
   case UART_ADDR_IER: // 1
@@ -349,7 +353,7 @@ unsigned uart_irq(const struct mmio_t *mmio) {
   const struct uart_t *uart = (const struct uart_t *)mmio;
   if (uart->intr_enable && (uart->buf_wr_index > uart->buf_rd_index)) {
     return 1;
-  } else if (uart->tx_sent) {
+  } else if (uart->intr_enable && uart->tx_sent) {
     return 1;
   } else {
     return 0;
