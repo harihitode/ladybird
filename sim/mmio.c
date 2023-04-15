@@ -641,13 +641,13 @@ static void disk_process_queue(disk_t *disk) {
 #if VIRTIO_DEBUG_DUMP
           fprintf(stderr, "\tBLK CMD: sector %016llx <-> DMA %08x\n", req->sector, dma_base);
 #endif
-          if ((req->type == VIRTIO_BLK_T_IN)) {
+          if (req->type == VIRTIO_BLK_T_IN) {
             // disk -> memory
             for (unsigned j = 0; j < current_desc->len; j++) {
               char *page = memory_get_page(disk->mem, dma_base + j, 1, DEVICE_ID_DMA);
               page[(dma_base + j) & disk->page_size_mask] = sector[j];
             }
-          } else if ((req->type == VIRTIO_BLK_T_OUT)) {
+          } else if (req->type == VIRTIO_BLK_T_OUT) {
             // memory -> disk
             for (unsigned j = 0; j < current_desc->len; j++) {
               char *page = memory_get_page(disk->mem, dma_base + j, 0, DEVICE_ID_DMA);

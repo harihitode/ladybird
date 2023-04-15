@@ -205,12 +205,10 @@ unsigned memory_dma_send_c(memory_t *mem, unsigned pbase, int len, char data) {
   int len_remain = len;
 
   unsigned dest_base;
-  unsigned src_base;
   unsigned burst_len;
   char *page;
 
   dest_base = pbase;
-  src_base = 0;
   burst_len = (((dest_base & RAM_PAGE_OFFS_MASK) + len) < RAM_PAGE_SIZE) ? len : RAM_PAGE_SIZE - (dest_base & RAM_PAGE_OFFS_MASK);
 
   while (len_remain > 0) {
@@ -223,7 +221,6 @@ unsigned memory_dma_send_c(memory_t *mem, unsigned pbase, int len, char data) {
 #endif
     len_remain -= burst_len;
     dest_base += burst_len;
-    src_base += burst_len;
     burst_len = (len_remain >= RAM_PAGE_SIZE) ? RAM_PAGE_SIZE : len_remain;
   }
   return 0;
