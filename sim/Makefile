@@ -1,7 +1,6 @@
 SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c core.c lsu.c trigger.c riscv.c htif.c
 HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h core.h lsu.h trigger.h riscv.h htif.h
 OBJS=$(SRCS:.c=.o)
-POBJS=launch_sim.o gdbstub_sys.o
 STUBSRCS=gdbstub/gdbstub.c
 STUBHDRS=gdbstub/gdbstub.h
 STUBOBJS=$(STUBSRCS:.c=.o)
@@ -41,7 +40,7 @@ launch_sim: $(OBJS) launch_sim.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
-	$(CC) $(CyFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
 xv6: launch_sim
 	./$< $(XV6KRNL) $(SIMFLAGS) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
