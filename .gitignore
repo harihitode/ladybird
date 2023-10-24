@@ -11,3 +11,8 @@ sim/eval/*.read
 sim/eval/*.write
 sim/eval/*.log
 sim/eval/*.dat
+sim/*.dtb
+gmon.out
+sim/kernel
+sim/*.elf
+sim/*.img
