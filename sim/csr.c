@@ -59,7 +59,14 @@ void csr_init(csr_t *csr) {
     csr->hpmcounter[i] = 0;
     csr->hpmevent[i] = 0;
   }
+#if REGISTER_STATISTICS
   csr->regstat_en = 0;
+  for (int i = 0; i < NUM_REGISTERS; i++) {
+    csr->cycle_reg_written[i] = -1;
+    csr->regalu[i] = 0;
+    csr->regtouch[i] = 0;
+  }
+#endif
   return;
 }
 
@@ -913,17 +920,7 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
   csr->cycle++; // assume 100 MHz
   csr->instret++;
   csr->pc = result->pc_next;
-  // TODO: variable counting
-  // HPM3 regread total
-  // HPM4 regread skip total
-  // HPM5 regwrite total
-  // HPM6 regwrite skip total
-  // HPM7 ICACHE access
-  // HPM8 ICACHE hit
-  // HPM9 DCACHE access
-  // HPM10 DCACHE hit
-  // HPM11 TLB access
-  // HPM12 TLB hit
+  // register counter
   if (csr->regstat_en) {
     if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
       unsigned r_break = 0;
@@ -964,42 +961,108 @@ static void csr_update_counters(csr_t *csr, struct core_step_result *result) {
         }
       }
     }
+    if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
+      if (result->rs1_regno != 0 && csr->cycle_reg_written[result->rs1_regno] != -1 &&
+          csr->regalu[result->rs1_regno]) {
+        result->rs1_cycle_from_producer = result->cycle - csr->cycle_reg_written[result->rs1_regno];
+        csr->regtouch[result->rs1_regno]++;
+      } else {
+        result->rs1_cycle_from_producer = 0;
+      }
+      if (result->rs2_regno != 0 && csr->cycle_reg_written[result->rs2_regno] != -1 &&
+          csr->regalu[result->rs2_regno]) {
+        result->rs2_cycle_from_producer = result->cycle - csr->cycle_reg_written[result->rs2_regno];
+        csr->regtouch[result->rs2_regno]++;
+      } else {
+        result->rs2_cycle_from_producer = 0;
+      }
+      if (result->rd_regno != 0 && csr->cycle_reg_written[result->rd_regno] != -1 &&
+          csr->regalu[result->rd_regno]) {
+        result->rd_cycle_from_producer = result->cycle - csr->cycle_reg_written[result->rd_regno];
+        result->rd_used_count = csr->regtouch[result->rd_regno];
+      } else {
+        result->rd_cycle_from_producer = 0;
+        result->rd_used_count = 0;
+      }
+    }
+    if (result->rd_regno != 0) {
+      if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
+        csr->regalu[result->rd_regno] = 1;
+      } else {
+        csr->regalu[result->rd_regno] = 0;
+      }
+      // reset
+      csr->regtouch[result->rd_regno] = 0;
+      csr->cycle_reg_written[result->rd_regno] = result->cycle;
+    }
   }
-  if (result->rs1_regno != 0) {
-    csr->hpmcounter[0]++;
+  if (csr->regstat_en) {
+    // HPM3 regread total
+    if (result->rs1_regno != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER3 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
+    if (result->rs2_regno != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER3 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
+    // HPM4 regread skip total
+    if (result->rs1_read_skip != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER4 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
+    if (result->rs2_read_skip != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER4 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
+    // HPM5 regwrite total
+    if (result->rd_regno != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER5 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
+    // HPM6 regwrite skip total
+    if (result->rd_write_skip != 0) {
+      csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER6 - CSR_ADDR_M_HPMCOUNTER3]++;
+    }
   }
-  if (result->rs1_read_skip != 0) {
-    csr->hpmcounter[1]++;
-  }
-  if (result->rs2_regno != 0) {
-    csr->hpmcounter[0]++;
-  }
-  if (result->rs2_read_skip != 0) {
-    csr->hpmcounter[1]++;
-  }
-  if (result->rd_regno != 0) {
-    csr->hpmcounter[2]++;
-  }
-  if (result->rd_write_skip != 0) {
-    csr->hpmcounter[3]++;
-  }
+  // HPM7 ICACHE access
   if (result->icache_access) {
-    csr->hpmcounter[4]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER7 - CSR_ADDR_M_HPMCOUNTER3]++;
   }
+  // HPM8 ICACHE hit
   if (result->icache_hit) {
-    csr->hpmcounter[5]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER8 - CSR_ADDR_M_HPMCOUNTER3]++;
   }
+  // HPM9 DCACHE access
   if (result->dcache_access) {
-    csr->hpmcounter[6]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER9 - CSR_ADDR_M_HPMCOUNTER3]++;
   }
+  // HPM10 DCACHE hit
   if (result->dcache_hit) {
-    csr->hpmcounter[7]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER10 - CSR_ADDR_M_HPMCOUNTER3]++;
   }
+  // HPM11 TLB access
   if (result->tlb_access) {
-    csr->hpmcounter[8]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER11 - CSR_ADDR_M_HPMCOUNTER3]++;
   }
+  // HPM12 TLB hit
   if (result->tlb_hit) {
-    csr->hpmcounter[9]++;
+    csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER12 - CSR_ADDR_M_HPMCOUNTER3]++;
+  }
+  if (csr->regstat_en) {
+    if (result->rd_regno != 0) {
+      if (result->rd_data < (1 << 4)) {
+        // HPM13 Data Width 4
+        csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER13 - CSR_ADDR_M_HPMCOUNTER3]++;
+      } else if (result->rd_data < (1 << 8)) {
+        // HPM14 Data Width 8
+        csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER14 - CSR_ADDR_M_HPMCOUNTER3]++;
+      } else if (result->rd_data < (1 << 16)) {
+        // HPM15 Data Width 16
+        csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER15 - CSR_ADDR_M_HPMCOUNTER3]++;
+      } else if (result->rd_data < (1 << 24)) {
+        // HPM16 Data Width 24
+        csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER16 - CSR_ADDR_M_HPMCOUNTER3]++;
+      } else {
+        // HPM17 Data Width 32
+        csr->hpmcounter[CSR_ADDR_M_HPMCOUNTER17 - CSR_ADDR_M_HPMCOUNTER3]++;
+      }
+    }
   }
 }
 

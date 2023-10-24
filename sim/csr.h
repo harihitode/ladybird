@@ -1,6 +1,8 @@
 #ifndef CSR_H
 #define CSR_H
 
+#include "riscv.h"
+
 struct core_step_result;
 struct memory_t;
 struct plic_t;
@@ -43,8 +45,13 @@ typedef struct csr_t {
   unsigned scounteren;
   unsigned long long hpmcounter[29];
   unsigned hpmevent[29];
+#if REGISTER_STATISTICS
   // statistics (extension)
   unsigned char regstat_en; // for register access analysis
+  long long cycle_reg_written[NUM_REGISTERS];
+  long long regalu[NUM_REGISTERS];
+  long long regtouch[NUM_REGISTERS];
+#endif
   // Sdext
   unsigned char dcsr_ebreakm;
   unsigned char dcsr_ebreaks;

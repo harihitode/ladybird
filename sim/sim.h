@@ -45,6 +45,8 @@
 #define BUS_ACCESS_WRITE 1
 #define DEVICE_ID_DMA -1
 
+#define REGISTER_STATISTICS 1
+
 enum sim_state { running, quit };
 
 struct core_step_result {
@@ -64,13 +66,17 @@ struct core_step_result {
   unsigned char trapret;
   unsigned char trigger;
 
+  unsigned rd_data;
   unsigned char rd_regno;
   unsigned char rd_write_skip;
-  unsigned rd_data;
+  unsigned rd_used_count;
+  unsigned rd_cycle_from_producer;
   unsigned char rs1_regno;
   unsigned char rs1_read_skip;
+  unsigned rs1_cycle_from_producer;
   unsigned char rs2_regno;
   unsigned char rs2_read_skip;
+  unsigned rs2_cycle_from_producer;
 
   unsigned inst_window_pos;
   unsigned inst_window_pc[CORE_WINDOW_SIZE];
@@ -117,6 +123,7 @@ void sim_resume(sim_t *);
 unsigned sim_read_register(sim_t *, unsigned regno);
 void sim_write_register(sim_t *, unsigned regno, unsigned value);
 unsigned sim_read_csr(sim_t *, unsigned addr);
+unsigned long long sim_read_csr64(sim_t *, unsigned addrh, unsigned addrl);
 void sim_write_csr(sim_t *, unsigned addr, unsigned value);
 char sim_read_memory(sim_t *, unsigned addr);
 void sim_write_memory(sim_t *, unsigned addr, char value);
@@ -148,6 +155,8 @@ void sim_set_debug_callback(sim_t *sim, void (*callback)(sim_t *, unsigned, unsi
 // set callback function on every step
 void sim_set_step_callback(sim_t *, void (*func)(struct core_step_result *result, void *));
 void sim_set_step_callback_arg(sim_t *sim, void *arg);
+#if REGISTER_STATISTICS
 void sim_regstat_en(sim_t *sim);
+#endif
 
 #endif

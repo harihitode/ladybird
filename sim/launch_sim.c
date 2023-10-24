@@ -5,10 +5,6 @@
 #include "sim.h"
 #include "htif.h"
 
-long long regwrite[32];
-long long regalu[32];
-int touch[32];
-
 void print_banner() {
   fprintf(stderr, "=============================================\n");
   fprintf(stderr, " Hi, folks!                             !(''*\n");
@@ -23,29 +19,17 @@ void dump_inst_callback(struct core_step_result *result, void *arg) {
 
 void stat_handler(struct core_step_result *result, void *file) {
   unsigned inst = riscv_decompress(result->inst);
-  unsigned opcode = inst & 0x7f;
   FILE *logfile = (FILE *)file;
-  if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
-    if (result->rs1_regno != 0 && regwrite[result->rs1_regno] != -1 && regalu[result->rs1_regno]) {
-      fprintf(logfile, "%s %d R %lld\n", riscv_get_mnemonic(inst), result->rs1_regno, result->cycle - regwrite[result->rs1_regno]);
-      touch[result->rs1_regno]++;
+  if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
+    if (result->rs1_cycle_from_producer) {
+      fprintf(logfile, "%s %d R %u\n", riscv_get_mnemonic(inst), result->rs1_regno, result->rs1_cycle_from_producer);
     }
-    if (result->rs2_regno != 0 && regwrite[result->rs2_regno] != -1 && regalu[result->rs2_regno]) {
-      fprintf(logfile, "%s %d R %lld\n", riscv_get_mnemonic(inst), result->rs2_regno, result->cycle - regwrite[result->rs2_regno]);
-      touch[result->rs2_regno]++;
+    if (result->rs2_cycle_from_producer) {
+      fprintf(logfile, "%s %d R %u\n", riscv_get_mnemonic(inst), result->rs2_regno, result->rs2_cycle_from_producer);
     }
-    if (result->rd_regno != 0 && regwrite[result->rd_regno] != -1 && regalu[result->rd_regno]) {
-      fprintf(logfile, "%s %d W %lld %d\n", riscv_get_mnemonic(inst), result->rd_regno, result->cycle - regwrite[result->rd_regno], touch[result->rd_regno]);
+    if (result->rd_cycle_from_producer) {
+      fprintf(logfile, "%s %d W %u %d\n", riscv_get_mnemonic(inst), result->rd_regno, result->rd_cycle_from_producer, result->rd_used_count);
     }
-  }
-  if (result->rd_regno != 0) {
-    if (opcode == OPCODE_OP || opcode == OPCODE_OP_IMM) {
-      regalu[result->rd_regno] = 1;
-    } else {
-      regalu[result->rd_regno] = 0;
-    }
-    touch[result->rd_regno] = 0;
-    regwrite[result->rd_regno] = result->cycle;
   }
   return;
 }
@@ -134,6 +118,8 @@ int main(int argc, char *argv[]) {
       if (i < argc) {
         num_cores = atoi(argv[i]);
       }
+    } else if (strcmp(argv[i], "--config-rom") == 0) {
+      sim_config_on(sim);
     }
   }
 
@@ -160,17 +146,12 @@ int main(int argc, char *argv[]) {
   sim_uart_io(sim, uart_in_file_name, uart_out_file_name);
 
   if (stat_enable) {
-    for (int i = 0; i < 32; i++) {
-      regwrite[i] = -1;
-      regalu[i] = 0;
-    }
     sprintf(log_file_name, "%s.log", basename(argv[1]));
     statlog = fopen(log_file_name, "w");
-    fprintf(statlog, "# mnemonic regno R/W after_last_write use_count_by_alu\n");
+    fprintf(statlog, "# mnemonic regno R/W cycles_after_producer times_consumed_by_alu\n");
     sim_set_step_callback(sim, stat_handler);
     sim_set_step_callback_arg(sim, (void *)statlog);
     sim_regstat_en(sim);
-    sim_config_on(sim);
   } else {
     if (num_cores > 1) {
       sim_dtb_on(sim, "ladybird_dual.dtb");
@@ -186,21 +167,23 @@ int main(int argc, char *argv[]) {
   }
 
   if (stat_enable) {
-    unsigned long long regread_total = 0;
-    unsigned long long regread_skip_total = 0;
-    unsigned long long regwrite_total = 0;
-    unsigned long long regwrite_skip_total = 0;
-    regread_total = ((unsigned long long)sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER3H) << 32) |
-      sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER3);
-    regread_skip_total = ((unsigned long long)sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER4H) << 32) |
-      sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER4);
-    regwrite_total = ((unsigned long long)sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER5H) << 32) |
-      sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER5);
-    regwrite_skip_total = ((unsigned long long)sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER6H) << 32) |
-      sim_read_csr(sim, CSR_ADDR_M_HPMCOUNTER6);
+    unsigned long long regread_total, regread_skip_total;
+    unsigned long long regwrite_total, regwrite_skip_total;
+    unsigned long long count4, count8, count16, count24, count32;
+    regread_total = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER3H, CSR_ADDR_M_HPMCOUNTER3);
+    regread_skip_total = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER4H, CSR_ADDR_M_HPMCOUNTER4);
+    regwrite_total = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER5H, CSR_ADDR_M_HPMCOUNTER5);
+    regwrite_skip_total = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER6H, CSR_ADDR_M_HPMCOUNTER6);
+    count4 = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER13H, CSR_ADDR_M_HPMCOUNTER13);
+    count8 = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER14H, CSR_ADDR_M_HPMCOUNTER14);
+    count16 = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER15H, CSR_ADDR_M_HPMCOUNTER15);
+    count24 = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER16H, CSR_ADDR_M_HPMCOUNTER16);
+    count32 = sim_read_csr64(sim, CSR_ADDR_M_HPMCOUNTER17H, CSR_ADDR_M_HPMCOUNTER17);
     fprintf(statlog, "# total_regwrite %llu total_regread %llu\n", regwrite_total, regread_total);
     fprintf(statlog, "# total_regwrite_skip %llu total regread_skip %llu\n", regwrite_skip_total, regread_skip_total);
     fprintf(statlog, "# write_skip %f read_skip %f\n", 1.0 - (double)regwrite_skip_total/(double)regwrite_total, 1.0 - (double)regread_skip_total/(double)regread_total);
+    fprintf(statlog, "WIDTH 4=%llu 8=%llu 16=%llu 24=%llu 32=%llu\n",
+            count4, count8, count16, count24, count32);
   }
 
  cleanup:

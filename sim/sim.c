@@ -199,11 +199,11 @@ void sim_resume(sim_t *sim) {
       memset(&result, 0, sizeof(struct core_step_result));
       unsigned pc = sim->core[i]->csr->pc;
       core_step(sim->core[i], pc, &result, sim->core[i]->csr->mode);
+      trig_cycle(sim->trigger, &result);
+      csr_cycle(sim->core[i]->csr, &result);
       if ((int)i == sim->selected_hart) {
         if (sim->stp_handler) sim->stp_handler(&result, sim->stp_arg);
       }
-      trig_cycle(sim->trigger, &result);
-      csr_cycle(sim->core[i]->csr, &result);
     }
     aclint_cycle(sim->aclint);
   }
@@ -354,6 +354,12 @@ int sim_uart_io(sim_t *sim, const char *in_path, const char *out_path) {
 
 unsigned sim_read_csr(sim_t *sim, unsigned addr) {
   return csr_csrr(sim->core[0]->csr, addr, NULL);
+}
+
+unsigned long long sim_read_csr64(sim_t *sim, unsigned addrh, unsigned addrl) {
+  unsigned long long result = sim_read_csr(sim, addrh);
+  result = (result << 32) | (unsigned long long)sim_read_csr(sim, addrl);
+  return result;
 }
 
 void sim_write_csr(sim_t *sim, unsigned addr, unsigned value) {
