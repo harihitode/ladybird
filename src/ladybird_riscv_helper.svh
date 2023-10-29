@@ -1,47 +1,21 @@
+`ifndef LADYBIRD_RISCV_HELPER_SVH
+`define LADYBIRD_RISCV_HELPER_SVH
+
 `timescale 1 ns / 1 ps
 
-package ladybird_config;
-  localparam logic [31:0] VERSION = 32'h0000_0000;
-  localparam              XLEN = 32;
-
-  // core bus type
-  typedef enum            logic [0:0] {
-                                       D_BUS = 1'b0,
-                                       I_BUS = 1'b1
-                                       } core_bus_t;
-  // access type
-  localparam              NUM_PERIPHERAL = 6;
-  typedef enum            logic [2:0] {
-                                       IRAM = 3'b000,
-                                       BRAM = 3'b001,
-                                       DRAM = 3'b010,
-                                       UART = 3'b011,
-                                       QSPI = 3'b100,
-                                       GPIO = 3'b101
-                                       } access_t;
-
-  function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
-    case (addr[XLEN-1-:4])
-      4'hF:    return UART;
-      4'hE:    return GPIO;
-      4'hD:    return QSPI;
-      4'h8:    return BRAM;
-      4'h9:    return IRAM;
-      default: return DRAM;
-    endcase
-  endfunction
-
-  localparam logic [6:0]      OPCODE_LOAD = 7'b00000_11;
-  localparam logic [6:0]      OPCODE_MISC_MEM = 7'b00011_11;
-  localparam logic [6:0]      OPCODE_OP_IMM = 7'b00100_11;
-  localparam logic [6:0]      OPCODE_AUIPC = 7'b00101_11;
-  localparam logic [6:0]      OPCODE_STORE = 7'b01000_11;
-  localparam logic [6:0]      OPCODE_OP = 7'b01100_11;
-  localparam logic [6:0]      OPCODE_LUI = 7'b01101_11;
-  localparam logic [6:0]      OPCODE_BRANCH = 7'b11000_11;
-  localparam logic [6:0]      OPCODE_JALR = 7'b11001_11;
-  localparam logic [6:0]      OPCODE_JAL = 7'b11011_11;
-  localparam logic [6:0]      OPCODE_SYSTEM = 7'b11100_11;
+package ladybird_riscv_helper;
+  // verilator lint_off UNUSEDSIGNAL
+  localparam logic [6:0] OPCODE_LOAD = 7'b00000_11;
+  localparam logic [6:0] OPCODE_MISC_MEM = 7'b00011_11;
+  localparam logic [6:0] OPCODE_OP_IMM = 7'b00100_11;
+  localparam logic [6:0] OPCODE_AUIPC = 7'b00101_11;
+  localparam logic [6:0] OPCODE_STORE = 7'b01000_11;
+  localparam logic [6:0] OPCODE_OP = 7'b01100_11;
+  localparam logic [6:0] OPCODE_LUI = 7'b01101_11;
+  localparam logic [6:0] OPCODE_BRANCH = 7'b11000_11;
+  localparam logic [6:0] OPCODE_JALR = 7'b11001_11;
+  localparam logic [6:0] OPCODE_JAL = 7'b11011_11;
+  localparam logic [6:0] OPCODE_SYSTEM = 7'b11100_11;
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);
@@ -217,7 +191,7 @@ package ladybird_config;
 
   // FENCE
   function automatic logic [31:0] FENCE(input logic [3:0] PRED, input logic [3:0] SUCC);
-    automatic logic [3:0] FM = 3'b000; // NORMAL FENCE
+    automatic logic [3:0] FM = 4'b0000; // NORMAL FENCE
     return {FM, PRED, SUCC, 5'd0, 3'b000, 5'd0, OPCODE_MISC_MEM};
   endfunction
 
@@ -229,4 +203,13 @@ package ladybird_config;
   function automatic logic [31:0] J(input logic [20:0] offset);
     return JAL(5'd0, offset);
   endfunction
+
+`ifdef LADYBIRD_SIMULATION
+  function display_asm(input logic [31:0] inst);
+
+  endfunction
+`endif
+  // verilator lint_on UNUSEDSIGNAL
 endpackage
+
+`endif
