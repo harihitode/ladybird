@@ -21,14 +21,22 @@ void stat_handler(struct core_step_result *result, void *file) {
   unsigned inst = riscv_decompress(result->inst);
   FILE *logfile = (FILE *)file;
   if (result->opcode == OPCODE_OP || result->opcode == OPCODE_OP_IMM) {
-    if (result->rs1_cycle_from_producer) {
+    unsigned long long rd_data_prev = result->rd_data_prev;
+    unsigned width = 4 * 8;
+    for (int i = 1; i < 8; i++) {
+      if (rd_data_prev < (1 << (i * 4))) {
+        width = 4 * i;
+        break;
+      }
+    }
+    if (result->rs1_cycle_from_producer >= 1) {
       fprintf(logfile, "%s %d R %u\n", riscv_get_mnemonic(inst), result->rs1_regno, result->rs1_cycle_from_producer);
     }
-    if (result->rs2_cycle_from_producer) {
+    if (result->rs2_cycle_from_producer >= 1) {
       fprintf(logfile, "%s %d R %u\n", riscv_get_mnemonic(inst), result->rs2_regno, result->rs2_cycle_from_producer);
     }
-    if (result->rd_cycle_from_producer) {
-      fprintf(logfile, "%s %d W %u %d\n", riscv_get_mnemonic(inst), result->rd_regno, result->rd_cycle_from_producer, result->rd_used_count);
+    if (result->rd_cycle_from_producer >= 1) {
+      fprintf(logfile, "%s %d W %u %d %u\n", riscv_get_mnemonic(inst), result->rd_regno, result->rd_cycle_from_producer, result->rd_used_count, width);
     }
   }
   return;

@@ -67,6 +67,7 @@ struct core_step_result {
   unsigned char trigger;
 
   unsigned rd_data;
+  unsigned rd_data_prev;
   unsigned char rd_regno;
   unsigned char rd_write_skip;
   unsigned rd_used_count;

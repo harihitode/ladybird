@@ -512,6 +512,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   if (result->exception_code != 0) {
     return;
   } else if (result->rd_regno != 0) {
+    result->rd_data_prev = core->gpr[result->rd_regno];
     core->gpr[result->rd_regno] = result->rd_data;
   }
   result->pc_next = pc_next;
