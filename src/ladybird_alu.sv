@@ -1,4 +1,5 @@
 `timescale 1 ns / 1 ps
+`include "../src/ladybird_config.svh"
 
 module ladybird_alu
   import ladybird_config::*;
@@ -12,8 +13,8 @@ module ladybird_alu
    output logic [XLEN-1:0] Q
    );
   logic [XLEN-1:0]         Q_ADD, Q_SHIFT_RIGHT, Q_SHIFT_LEFT;
-  logic [0:4][XLEN-1:0]    SRC1_SHL;
-  logic [0:4][XLEN-1:0]    SRC1_SHR;
+  logic [4:0][XLEN-1:0]    SRC1_SHL;
+  logic [4:0][XLEN-1:0]    SRC1_SHR;
   logic [XLEN-1:0]         SRC2_ALT;
   logic                    COMPARISON;
   logic                    SUBTRACT;
@@ -31,6 +32,12 @@ module ladybird_alu
                             OP_BITWISE_AND     = 3'b111
                             } OPERATIONS_T;
 
+  generate if (SIMULATION) begin: ALU_SIMULATION
+    initial begin
+      $display("alu: fa-module: %d", USE_FA_MODULE);
+    end
+  end endgenerate
+
   always_comb begin: EXEC_AND_RESULT_MUX
     case (OPERATION)
       OP_ADDITION:        Q = Q_ADD;
@@ -44,15 +51,18 @@ module ladybird_alu
       default:            Q = '0;
     endcase
   end
+
   always_comb begin
     COMPARISON = OPERATION[1];
+    SUBTRACT = ALTERNATE | COMPARISON;
+    SRC2_ALT = SUBTRACT ? ~SRC2 : SRC2;
   end
 
-  generate if (USE_FA_MODULE) begin
+  generate if (USE_FA_MODULE) begin: FA_ARITHMETIC
     logic [XLEN:0] CARRY_I;
     assign CARRY_I[0] = SUBTRACT;
     // adder
-    for (genvar i = 0; i < XLEN; i++) begin
+    for (genvar i = 0; i < XLEN; i++) begin: FULLADDER
       ladybird_full_adder ADDER
                              (
                               .x(SRC1[i]),
@@ -65,15 +75,17 @@ module ladybird_alu
     always_comb begin
       CARRY = CARRY_I[32]; // CARRY FLAG
     end
-  end else begin
+  end else begin: ARITHMETIC
     always_comb begin
-      {CARRY, Q_ADD} = SRC1 + SRC2_ALT + SUBTRACT;
+      if (SUBTRACT == 1'b1) begin
+        {CARRY, Q_ADD} = SRC1 + SRC2_ALT + 32'd1;
+      end else begin
+        {CARRY, Q_ADD} = SRC1 + SRC2_ALT;
+      end
     end
   end endgenerate
 
-  always_comb begin: ADDER
-    SUBTRACT = ALTERNATE | COMPARISON;
-    SRC2_ALT = SUBTRACT ? ~SRC2 : SRC2;
+  always_comb begin
     // OVERFLOW = ~(SRC1[31] ^ SRC2_ALT[31]) & (Q_ADD[31] ^ CARRY); // OVERFLOW FLAG
     OVERFLOW = (SRC1[31] & SRC2_ALT[31] & ~Q_ADD[31]) | (~SRC1[31] & ~SRC2_ALT[31] & Q_ADD[31]); // OVERFLOW FLAG
   end
