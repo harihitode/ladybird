@@ -1,13 +1,16 @@
 `timescale 1 ns / 1 ps
 
+`include "../src/ladybird_config.svh"
+`include "../src/ladybird_riscv_helper.svh"
+
+// verilator lint_off UNUSEDSIGNAL
 module ladybird_core
   import ladybird_config::*;
-  #(parameter SIMULATION = 0,
-    parameter logic [XLEN-1:0] TVEC = 'd0)
+  import ladybird_riscv_helper::*;
+  #(parameter logic [XLEN-1:0] TVEC = 'd0)
   (
    input logic            clk,
-   interface.primary i_bus,
-   interface.primary d_bus,
+   ladybird_axi_interface.master axi,
    input logic            start,
    input logic [XLEN-1:0] start_pc,
    input logic            pending,
@@ -62,8 +65,7 @@ module ladybird_core
      .o_valid(mmu_finish),
      .o_data(mmu_lw_data),
      .o_ready(1'b1),
-     .d_bus(d_bus),
-     .i_bus(i_bus),
+     .axi(axi),
      .pc(pc),
      .pc_valid(pc_valid),
      .pc_ready(pc_ready),
@@ -98,7 +100,7 @@ module ladybird_core
       end
       MEMORY: begin
         state_n = COMMIT;
-        if ((inst_l[6:0] == OPCODE_LOAD) || (inst_l[6:0] == OPCODE_STORE)) begin
+        if ((inst_l[6:2] == OPCODE_LOAD) || (inst_l[6:2] == OPCODE_STORE)) begin
           state_progress_n = mmu_req & mmu_gnt;
         end else begin
           state_progress_n = 1'b1;
@@ -126,7 +128,7 @@ module ladybird_core
   end
 
   always_comb begin: SELECT_NEXT_PC
-    case (inst_l[6:0])
+    case (inst_l[6:2])
       OPCODE_BRANCH: begin
         pc_n = branch_flag ? pc + immediate : pc + 'h4;
       end
@@ -143,14 +145,14 @@ module ladybird_core
     rs1_addr = inst[19:15];
     rs2_addr = inst[24:20];
     rd_addr = inst_l[11:7];
-    if (inst_l[6:0] == OPCODE_STORE) begin: STORE_OFFSET
+    if (inst_l[6:2] == OPCODE_STORE) begin: STORE_OFFSET
       immediate = {{20{inst_l[31]}}, inst_l[31:25], inst_l[11:7]};
-    end else if ((inst_l[6:0] == OPCODE_AUIPC) ||
-                 (inst_l[6:0] == OPCODE_LUI)) begin: AUIPC_LUI_IMMEDIATE
+    end else if ((inst_l[6:2] == OPCODE_AUIPC) ||
+                 (inst_l[6:2] == OPCODE_LUI)) begin: AUIPC_LUI_IMMEDIATE
       immediate = {inst_l[31:12], 12'h000};
-    end else if (inst_l[6:0] == OPCODE_JAL) begin: JAL_OFFSET
+    end else if (inst_l[6:2] == OPCODE_JAL) begin: JAL_OFFSET
       immediate = {{12{inst_l[31]}}, inst_l[19:12], inst_l[20], inst_l[30:21], 1'b0};
-    end else if (inst_l[6:0] == OPCODE_BRANCH) begin: BRANCH_OFFSET
+    end else if (inst_l[6:2] == OPCODE_BRANCH) begin: BRANCH_OFFSET
       immediate = {{19{inst_l[31]}}, inst_l[31], inst_l[7], inst_l[30:25], inst_l[11:8], 1'b0};
     end else begin
       immediate = {{20{inst_l[31]}}, inst_l[31:20]};
@@ -161,13 +163,13 @@ module ladybird_core
     if (rd_addr == 5'd0) begin
       write_back = 'b0;
     end else begin
-      if ((inst_l[6:0] == OPCODE_LOAD) ||
-          (inst_l[6:0] == OPCODE_OP_IMM) ||
-          (inst_l[6:0] == OPCODE_AUIPC) ||
-          (inst_l[6:0] == OPCODE_LUI) ||
-          (inst_l[6:0] == OPCODE_OP) ||
-          (inst_l[6:0] == OPCODE_JALR) ||
-          (inst_l[6:0] == OPCODE_JAL)
+      if ((inst_l[6:2] == OPCODE_LOAD) ||
+          (inst_l[6:2] == OPCODE_OP_IMM) ||
+          (inst_l[6:2] == OPCODE_AUIPC) ||
+          (inst_l[6:2] == OPCODE_LUI) ||
+          (inst_l[6:2] == OPCODE_OP) ||
+          (inst_l[6:2] == OPCODE_JALR) ||
+          (inst_l[6:2] == OPCODE_JAL)
           ) begin
         write_back = 'b1;
       end else begin
@@ -179,22 +181,22 @@ module ladybird_core
   end
 
   always_comb begin: ALU_SOURCE_MUX
-    if (inst_l[6:0] == OPCODE_LUI) begin: LUI_src1
+    if (inst_l[6:2] == OPCODE_LUI) begin: LUI_src1
       src1 = '0;
-    end else if ((inst_l[6:0] == OPCODE_AUIPC) ||
-                 (inst_l[6:0] == OPCODE_JAL)
+    end else if ((inst_l[6:2] == OPCODE_AUIPC) ||
+                 (inst_l[6:2] == OPCODE_JAL)
                  ) begin
       src1 = pc;
     end else begin
       src1 = rs1_data;
     end
-    if ((inst_l[6:0] == OPCODE_LOAD) ||
-        (inst_l[6:0] == OPCODE_OP_IMM) ||
-        (inst_l[6:0] == OPCODE_AUIPC) ||
-        (inst_l[6:0] == OPCODE_LUI) ||
-        (inst_l[6:0] == OPCODE_STORE) ||
-        (inst_l[6:0] == OPCODE_JALR) ||
-        (inst_l[6:0] == OPCODE_JAL)
+    if ((inst_l[6:2] == OPCODE_LOAD) ||
+        (inst_l[6:2] == OPCODE_OP_IMM) ||
+        (inst_l[6:2] == OPCODE_AUIPC) ||
+        (inst_l[6:2] == OPCODE_LUI) ||
+        (inst_l[6:2] == OPCODE_STORE) ||
+        (inst_l[6:2] == OPCODE_JALR) ||
+        (inst_l[6:2] == OPCODE_JAL)
         ) begin
       src2 = immediate;
     end else begin: OPCODE_01100_11
@@ -203,9 +205,9 @@ module ladybird_core
   end
 
   always_comb begin: ALU_OPERATION_DECODER
-    if ((inst_l[6:0] == OPCODE_OP_IMM) || (inst_l[6:0] == OPCODE_OP)) begin
+    if ((inst_l[6:2] == OPCODE_OP_IMM) || (inst_l[6:2] == OPCODE_OP)) begin
       alu_operation = inst_l[14:12];
-    end else if (inst_l[6:0] == OPCODE_BRANCH) begin
+    end else if (inst_l[6:2] == OPCODE_BRANCH) begin
       if ((inst_l[14:12] == 3'b000) || (inst_l[14:12] == 3'b001)) begin: BEQ_BNE__XOR
         alu_operation = 3'b100;
       end else if ((inst_l[14:12] == 3'b100) || (inst_l[14:12] == 3'b101)) begin: BLT_BGE__SLT
@@ -219,18 +221,19 @@ module ladybird_core
   end
 
   always_comb begin: ALTERNATE_INSTRUCTION
-    if (inst_l[6:0] == OPCODE_OP_IMM) begin: operation_is_imm_arithmetic
+    if (inst_l[6:2] == OPCODE_OP_IMM) begin: operation_is_imm_arithmetic
       if (inst_l[14:12] == 3'b101) begin: operation_is_imm_shift_right
         alu_alternate = inst_l[30];
       end else begin
         alu_alternate = 1'b0;
       end
-    end else if (inst_l[6:0] == OPCODE_OP) begin: operation_is_arithmetic
+    end else if (inst_l[6:2] == OPCODE_OP) begin: operation_is_arithmetic
       alu_alternate = inst_l[30];
     end else begin
       alu_alternate = 1'b0;
     end
   end
+
   ladybird_alu #(.USE_FA_MODULE(0))
   ALU
     (
@@ -244,13 +247,13 @@ module ladybird_core
   always_comb begin
     mmu_addr = alu_res_l;
     mmu_sw_data = rs2_data;
-    if ((state == MEMORY) && ((inst_l[6:0] == OPCODE_LOAD) ||
-                              (inst_l[6:0] == OPCODE_STORE))) begin
+    if ((state == MEMORY) && ((inst_l[6:2] == OPCODE_LOAD) ||
+                              (inst_l[6:2] == OPCODE_STORE))) begin
       mmu_req = 'b1;
     end else begin
       mmu_req = 'b0;
     end
-    if (inst_l[6:0] == OPCODE_STORE) begin
+    if (inst_l[6:2] == OPCODE_STORE) begin
       mmu_we = 'b1;
     end else begin
       mmu_we = 'b0;
@@ -276,7 +279,7 @@ module ladybird_core
       pc_valid = 'b0;
     end
     if (state == COMMIT) begin
-      if (inst_l[6:0] == OPCODE_LOAD) begin
+      if (inst_l[6:2] == OPCODE_LOAD) begin
         if (mmu_finish) begin
           commit_valid = 'b1;
         end else begin
@@ -291,10 +294,10 @@ module ladybird_core
   end
 
   always_comb begin
-    if (inst_l[6:0] == OPCODE_LOAD) begin
+    if (inst_l[6:2] == OPCODE_LOAD) begin
       commit_data = mmu_lw_data;
-    end else if ((inst_l[6:0] == OPCODE_JALR) ||
-                 (inst_l[6:0] == OPCODE_JAL)
+    end else if ((inst_l[6:2] == OPCODE_JALR) ||
+                 (inst_l[6:2] == OPCODE_JAL)
                  ) begin
       commit_data = pc + 'h4; // return address for link register
     end else begin
@@ -353,7 +356,7 @@ module ladybird_core
   assign complete = trap_ret;
 
   always_comb begin: REQUESTED_TRAP_BY_SOFTWARE
-    if (inst_l[6:0] == OPCODE_SYSTEM) begin
+    if (inst_l[6:2] == OPCODE_SYSTEM && inst_l[31:25] == '0) begin
       if ((inst_l[24:20] == 5'd0) || (inst_l[24:20] == 5'd1)) begin
         requested_trap = 'b1; // ECALL and EBREAK
       end else begin
@@ -365,7 +368,7 @@ module ladybird_core
   end
 
   always_comb begin
-    if ((inst_l[6:0] == OPCODE_SYSTEM) && (inst_l[24:20] == 5'd2)) begin
+    if ((inst_l[6:2] == OPCODE_SYSTEM) && (inst_l[24:20] == 5'd2)) begin
       trap_ret = 'b1;
     end else begin
       trap_ret = 'b0;
@@ -386,35 +389,25 @@ module ladybird_core
     end
   end
 
-  generate if (SIMULATION) begin: INSTRUCTION_DUMPER
-    always_ff @(posedge clk) begin
-      automatic string nm;
-      case (inst[6:0])
-        OPCODE_LOAD: nm = "LOAD";
-        OPCODE_MISC_MEM: nm = "MISC-MEM";
-        OPCODE_OP_IMM: nm = "OP-IMM";
-        OPCODE_AUIPC: nm = "AUIPC";
-        OPCODE_STORE: nm = "STORE";
-        OPCODE_OP: nm = "OP";
-        OPCODE_LUI: nm = "LUI";
-        OPCODE_BRANCH: nm = "BRANCH";
-        OPCODE_JALR: nm = "JALR";
-        OPCODE_JAL: nm = "JAL";
-        OPCODE_SYSTEM: nm = "SYSTEM";
-        default: nm = "unknown op";
-      endcase
-      if ((state == D_FETCH) && inst_valid) begin
-        $display($time, " %08x, %08x, %s", pc, inst, nm);
-      end
-      if ((mmu_req) && (mmu_addr == 32'h9000_FFA0)) begin
-        $display($time, " BREAK POINT, %08x, %08x, %x", mmu_lw_data, mmu_sw_data, mmu_we);
-        $finish;
-      end
-      if ((state == COMMIT) && requested_trap) begin
-        $display($time, " REQUESTED TRAP");
-        $finish;
-      end
+`ifdef LADYBIRD_SIMULATION
+  string inst_disas;
+  always_comb begin
+    inst_disas = ladybird_riscv_helper::riscv_disas(inst);
+  end
+  always_ff @(posedge clk) begin
+    if ((state == D_FETCH) && inst_valid) begin
+      $display($time, " %08x, %08x, %s", pc, inst, inst_disas);
     end
-  end endgenerate
+    if ((mmu_req) && (mmu_addr == 32'h9000_FFA0)) begin
+      $display($time, " BREAK POINT, %08x, %08x, %x", mmu_lw_data, mmu_sw_data, mmu_we);
+      $finish;
+    end
+    if ((state == COMMIT) && requested_trap) begin
+      $display($time, " TRAP");
+      $finish;
+    end
+  end
+`endif
 
 endmodule
+// verilator lint_on UNUSEDSIGNAL

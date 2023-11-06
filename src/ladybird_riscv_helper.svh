@@ -33,6 +33,15 @@ package ladybird_riscv_helper;
   localparam logic [4:0] AMO_MINU = 5'b11000;
   localparam logic [4:0] AMO_MAXU = 5'b11100;
 
+  localparam logic [2:0] FUNCT3_LB = 3'b000;
+  localparam logic [2:0] FUNCT3_LH = 3'b001;
+  localparam logic [2:0] FUNCT3_LW = 3'b010;
+  localparam logic [2:0] FUNCT3_LBU = 3'b100;
+  localparam logic [2:0] FUNCT3_LHU = 3'b101;
+  localparam logic [2:0] FUNCT3_SB = 3'b000;
+  localparam logic [2:0] FUNCT3_SH = 3'b001;
+  localparam logic [2:0] FUNCT3_SW = 3'b010;
+
   localparam POS_FENCE_PRED_I = 27;
   localparam POS_FENCE_PRED_O = 26;
   localparam POS_FENCE_PRED_R = 25;
