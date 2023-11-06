@@ -30,8 +30,7 @@ module ladybird_tb
 
   logic        start = '0;
   logic [XLEN-1:0] start_pc = '0;
-  logic            pending;
-  logic            complete;
+  logic            trap;
   logic            nrst = '0;
 
   localparam AXI_DATA_W = 32;
@@ -39,14 +38,13 @@ module ladybird_tb
 
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) axi(.aclk(clk));
 
-  ladybird_core
+  ladybird_core #(.HART_ID(0))
   CORE (
         .clk(clk),
         .start(start),
         .start_pc(start_pc),
         .axi(axi),
-        .pending(pending),
-        .complete(complete),
+        .trap(trap),
         .nrst(nrst)
         );
 
@@ -60,7 +58,6 @@ module ladybird_tb
   initial begin
     $display("LADYBIRD SIMULATION");
     $display("\t VERSION 0x%08x", VERSION);
-    pending = '0;
     nrst = '0;
     #100;
     nrst = '1;
@@ -77,7 +74,7 @@ module ladybird_tb
     start = 'b1;
     while ($time < timeout) begin
       @(posedge clk);
-      if (complete == 'b1) begin
+      if (trap == 'b1) begin
         break;
       end
     end
