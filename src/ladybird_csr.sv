@@ -20,6 +20,12 @@ module ladybird_csr
 #(parameter logic [XLEN-1:0] HART_ID = 'd0)
 (
   input logic             clk,
+  input logic [63:0]      rtc,
+  input logic             retire,
+// verilator lint_off UNUSED
+  input logic [XLEN-1:0]  retire_inst,
+  input logic [XLEN-1:0]  retire_pc,
+// verilator lint_on UNUSED
   input logic [2:0]       i_op,
   input logic             i_valid,
   input logic [11:0]      i_addr,
@@ -27,6 +33,28 @@ module ladybird_csr
   output logic [XLEN-1:0] o_data,
   input logic             nrst
 );
+
+  logic [63:0]            minstret, mcycle;
+`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
+  string                  inst_disas;
+  always_comb begin
+    inst_disas = ladybird_riscv_helper::riscv_disas(retire_inst);
+  end
+`endif
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
+      minstret <= '0;
+      mcycle <= '0;
+    end else begin
+      mcycle <= mcycle + 'd1;
+      if (retire) begin
+        minstret <= minstret + 'd1;
+`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
+        $display("%0d %08x, %08x, %s", rtc, retire_pc, retire_inst, inst_disas);
+`endif
+      end
+    end
+  end
 
   typedef struct packed {
     logic [12:0] reserved1;
@@ -101,14 +129,16 @@ module ladybird_csr
     unimpl = '0;
 `endif
     case (i_addr)
-      CSR_ADDR_M_STATUS:
-        o_data = m_status;
-      CSR_ADDR_M_TVEC:
-        o_data = m_tvec;
-      CSR_ADDR_M_HARTID:
-        o_data = HART_ID;
-      CSR_ADDR_M_ISA:
-        o_data = m_isa;
+      CSR_ADDR_TIME: o_data = rtc[31:0];
+      CSR_ADDR_CYCLE: o_data = mcycle[31:0];
+      CSR_ADDR_INSTRET: o_data = minstret[31:0];
+      CSR_ADDR_TIMEH: o_data = rtc[63:32];
+      CSR_ADDR_CYCLEH: o_data = mcycle[63:32];
+      CSR_ADDR_INSTRETH: o_data = minstret[63:32];
+      CSR_ADDR_M_STATUS: o_data = m_status;
+      CSR_ADDR_M_TVEC: o_data = m_tvec;
+      CSR_ADDR_M_HARTID: o_data = HART_ID;
+      CSR_ADDR_M_ISA: o_data = m_isa;
       default: begin
         o_data = '0;
 `ifdef LADYBIRD_SIMULATION

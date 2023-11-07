@@ -32,6 +32,7 @@ module ladybird_tb
   logic [XLEN-1:0] start_pc = '0;
   logic            trap;
   logic            nrst = '0;
+  logic [63:0]     rtc;
 
   localparam AXI_DATA_W = 32;
   localparam AXI_ADDR_W = 32;
@@ -63,6 +64,7 @@ module ladybird_tb
   ladybird_core #(.HART_ID(0))
   CORE (
         .clk(clk),
+        .rtc(rtc),
         .start(start),
         .start_pc(start_pc),
         .axi(axi),
@@ -103,5 +105,8 @@ module ladybird_tb
     end
     $finish;
   end
+
+  initial forever #1000 rtc = rtc + 'd1;
+
 endmodule
 // verilator lint_on UNUSEDSIGNAL

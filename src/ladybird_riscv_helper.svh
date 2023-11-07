@@ -61,6 +61,15 @@ package ladybird_riscv_helper;
   localparam POS_AMO_AQ = 26;
   localparam POS_AMO_RL = 25;
 
+  // CSR (Basic)
+  localparam [11:0] CSR_ADDR_CYCLE = 12'hc00;
+  localparam [11:0] CSR_ADDR_TIME = 12'hc01;
+  localparam [11:0] CSR_ADDR_INSTRET = 12'hc02;
+  localparam [11:0] CSR_ADDR_CYCLEH = 12'hc80;
+  localparam [11:0] CSR_ADDR_TIMEH = 12'hc81;
+  localparam [11:0] CSR_ADDR_INSTRETH = 12'hc82;
+
+  // CSR (Priv.)
   localparam [11:0] CSR_ADDR_M_STATUS = 12'h300;
   localparam [11:0] CSR_ADDR_M_ISA = 12'h301;
   localparam [11:0] CSR_ADDR_M_TVEC = 12'h305;

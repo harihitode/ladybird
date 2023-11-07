@@ -12,6 +12,7 @@ module ladybird_core
    ladybird_axi_interface.master axi,
    input logic            start,
    input logic [XLEN-1:0] start_pc,
+   input logic [63:0]     rtc,
    output logic           trap,
    input logic            nrst
    );
@@ -33,7 +34,7 @@ module ladybird_core
   logic [XLEN-1:0]        csr_src, csr_res;
   logic [11:0]            csr_addr;
 
-  logic                   commit_valid, writeback_valid;
+  logic                   retire, writeback_valid;
   logic [XLEN-1:0]        src1, src2, writeback_data;
   logic                   idle;
   logic                   pipeline_stall;
@@ -116,6 +117,10 @@ module ladybird_core
   CSR
     (
      .clk(clk),
+     .rtc(rtc),
+     .retire(retire),
+     .retire_pc(commit_q.pc),
+     .retire_inst(commit_q.inst),
      .i_op(exec_q.inst[14:12]),
      .i_valid(csr_req),
      .i_addr(csr_addr),
@@ -238,7 +243,7 @@ module ladybird_core
             i_fetch_d.pc = commit_q.pc + 'h4;
           end
         endcase
-        i_fetch_d.valid = commit_valid;
+        i_fetch_d.valid = retire;
       end else if (i_fetch_q.valid & mmu_pc_valid & mmu_pc_ready) begin
         i_fetch_d.valid = '0;
       end
@@ -336,15 +341,15 @@ module ladybird_core
     if (commit_q.valid == '1) begin
       if (commit_q.inst[6:2] == OPCODE_LOAD) begin
         if (mmu_finish) begin
-          commit_valid = 'b1;
+          retire = 'b1;
         end else begin
-          commit_valid = 'b0;
+          retire = 'b0;
         end
       end else begin
-        commit_valid = 'b1;
+        retire = 'b1;
       end
     end else begin
-      commit_valid = 'b0;
+      retire = 'b0;
     end
   end
 
@@ -385,8 +390,8 @@ module ladybird_core
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && (writeback_valid & commit_valid)) begin
-        if (writeback_valid & commit_valid) begin
+      if (commit_q.valid == '1 && (writeback_valid & retire)) begin
+        if (writeback_valid & retire) begin
           gpr[commit_q.rd_addr] <= writeback_data;
         end
       end
@@ -399,7 +404,7 @@ module ladybird_core
     end else begin
       if (idle && start) begin
         pc <= start_pc;
-      end else if (commit_valid) begin
+      end else if (retire) begin
         pc <= i_fetch_d.pc;
       end
     end
@@ -412,7 +417,7 @@ module ladybird_core
     ebreak = '0;
     mret = '0;
     sret = '0;
-    if (commit_valid && commit_q.inst[6:2] == OPCODE_SYSTEM) begin
+    if (retire && commit_q.inst[6:2] == OPCODE_SYSTEM) begin
       if (funct7 == 7'h00 && rs2 == 'd0) begin
         ecall = '1;
       end
@@ -446,21 +451,5 @@ module ladybird_core
       end
     end
   end
-
-`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
-  string inst_disas;
-  always_comb begin
-    inst_disas = ladybird_riscv_helper::riscv_disas(mmu_inst);
-  end
-  always_ff @(posedge clk) begin
-    if (d_fetch_q.valid && mmu_inst_valid) begin
-      $display($time, " %08x, %08x, %s", i_fetch_q.pc, mmu_inst, inst_disas);
-    end
-    if (trap) begin
-      $display($time, " TRAP HARTID %d %08x", HART_ID, pc);
-      $finish;
-    end
-  end
-`endif
 
 endmodule
