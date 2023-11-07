@@ -42,6 +42,13 @@ package ladybird_riscv_helper;
   localparam logic [2:0] FUNCT3_SH = 3'b001;
   localparam logic [2:0] FUNCT3_SW = 3'b010;
 
+  localparam logic [2:0] FUNCT3_CSRRW = 3'b001;
+  localparam logic [2:0] FUNCT3_CSRRS = 3'b010;
+  localparam logic [2:0] FUNCT3_CSRRC = 3'b011;
+  localparam logic [2:0] FUNCT3_CSRRWI = 3'b101;
+  localparam logic [2:0] FUNCT3_CSRRSI = 3'b110;
+  localparam logic [2:0] FUNCT3_CSRRCI = 3'b111;
+
   localparam POS_FENCE_PRED_I = 27;
   localparam POS_FENCE_PRED_O = 26;
   localparam POS_FENCE_PRED_R = 25;
@@ -53,6 +60,11 @@ package ladybird_riscv_helper;
   localparam POS_ALU_ALTERNATE = 30;
   localparam POS_AMO_AQ = 26;
   localparam POS_AMO_RL = 25;
+
+  localparam [11:0] CSR_ADDR_M_STATUS = 12'h300;
+  localparam [11:0] CSR_ADDR_M_ISA = 12'h301;
+  localparam [11:0] CSR_ADDR_M_TVEC = 12'h305;
+  localparam [11:0] CSR_ADDR_M_HARTID = 12'hf14;
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);

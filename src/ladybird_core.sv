@@ -28,8 +28,13 @@ module ladybird_core
   logic                   mmu_pc_valid, mmu_pc_ready;
   logic                   mmu_inst_valid;
 
-  logic                   commit_valid, write_back;
-  logic [XLEN-1:0]        src1, src2;
+  // CSR I/F
+  logic                   csr_req;
+  logic [XLEN-1:0]        csr_src, csr_res;
+  logic [11:0]            csr_addr;
+
+  logic                   commit_valid, writeback_valid;
+  logic [XLEN-1:0]        src1, src2, writeback_data;
   logic                   idle;
   logic                   pipeline_stall;
 
@@ -73,7 +78,7 @@ module ladybird_core
     logic [4:0]      rd_addr;
     logic [XLEN-1:0] branch_pc;
     logic            branch_flag;
-    logic [XLEN-1:0] commit_data;
+    logic [XLEN-1:0] rd_data;
     logic            valid;
   } commit_stage_t;
   commit_stage_t commit_q, commit_d;
@@ -97,7 +102,6 @@ module ladybird_core
   assign stage_valid[3] = memory_q.valid;
   assign stage_valid[4] = commit_q.valid;
 
-
   ladybird_alu #(.USE_FA_MODULE(0))
   ALU
     (
@@ -106,6 +110,18 @@ module ladybird_core
      .SRC1(src1),
      .SRC2(src2),
      .Q(alu_res)
+     );
+
+  ladybird_csr #(.HART_ID(HART_ID))
+  CSR
+    (
+     .clk(clk),
+     .i_op(exec_q.inst[14:12]),
+     .i_valid(csr_req),
+     .i_addr(csr_addr),
+     .i_data(csr_src),
+     .o_data(csr_res),
+     .nrst(nrst)
      );
 
   ladybird_mmu
@@ -165,7 +181,11 @@ module ladybird_core
     memory_d.imm = exec_q.imm;
     memory_d.addr = exec_q.rs1_data + exec_q.imm;
     memory_d.data = exec_q.rs2_data;
-    memory_d.rd_data = alu_res;
+    if (exec_q.inst[6:2] == OPCODE_SYSTEM) begin
+      memory_d.rd_data = csr_res;
+    end else begin
+      memory_d.rd_data = alu_res;
+    end
     memory_d.rs1_data = exec_q.rs1_data;
     memory_d.valid = exec_q.valid;
   end
@@ -186,15 +206,7 @@ module ladybird_core
       end else begin
         commit_d.branch_flag = memory_q.rd_data[0];
       end
-      if (memory_q.inst[6:2] == OPCODE_LOAD) begin
-        commit_d.commit_data = mmu_lw_data;
-      end else if ((memory_q.inst[6:2] == OPCODE_JALR) ||
-                   (memory_q.inst[6:2] == OPCODE_JAL)
-                   ) begin
-        commit_d.commit_data = memory_q.pc + 'h4; // return address for link register
-      end else begin
-        commit_d.commit_data = memory_q.rd_data;
-      end
+      commit_d.rd_data = memory_q.rd_data;
       if ((memory_q.inst[6:2] == OPCODE_LOAD) || (memory_q.inst[6:2] == OPCODE_STORE)) begin
         commit_d.valid = memory_q.valid & mmu_req & mmu_gnt;
       end else begin
@@ -229,27 +241,6 @@ module ladybird_core
         i_fetch_d.valid = commit_valid;
       end else if (i_fetch_q.valid & mmu_pc_valid & mmu_pc_ready) begin
         i_fetch_d.valid = '0;
-      end
-    end
-  end
-
-  always_comb begin
-    if (commit_q.rd_addr == 5'd0) begin
-      write_back = 'b0;
-    end else begin
-      if ((commit_q.inst[6:2] == OPCODE_LOAD) ||
-          (commit_q.inst[6:2] == OPCODE_OP_IMM) ||
-          (commit_q.inst[6:2] == OPCODE_AUIPC) ||
-          (commit_q.inst[6:2] == OPCODE_LUI) ||
-          (commit_q.inst[6:2] == OPCODE_OP) ||
-          (commit_q.inst[6:2] == OPCODE_JALR) ||
-          (commit_q.inst[6:2] == OPCODE_JAL)
-          ) begin
-        write_back = 'b1;
-      end else begin
-        // FENCE is treated as a NOP
-        // Other opcodes have no effect for their commit
-        write_back = 'b0;
       end
     end
   end
@@ -306,6 +297,20 @@ module ladybird_core
   end
 
   always_comb begin
+    if (exec_q.valid == '1 && exec_q.inst[6:2] == OPCODE_SYSTEM && exec_q.inst[14:12] != 'd0) begin
+      csr_req = '1;
+    end else begin
+      csr_req = '0;
+    end
+    csr_addr = exec_q.inst[31:20];
+    if (exec_q.inst[14]) begin
+      csr_src = {{27{1'b0}}, exec_q.inst[19:15]};
+    end else begin
+      csr_src = exec_q.rs1_data;
+    end
+  end
+
+  always_comb begin
     if ((memory_q.valid == '1) && ((memory_q.inst[6:2] == OPCODE_LOAD) ||
                                    (memory_q.inst[6:2] == OPCODE_STORE))) begin
       mmu_req = 'b1;
@@ -343,13 +348,50 @@ module ladybird_core
     end
   end
 
+  always_comb begin
+    if (commit_q.inst[6:2] == OPCODE_LOAD) begin
+      writeback_data = mmu_lw_data;
+    end else if ((commit_q.inst[6:2] == OPCODE_JALR) ||
+                 (commit_q.inst[6:2] == OPCODE_JAL)
+                 ) begin
+      writeback_data = commit_q.pc + 'h4; // return address for link register
+    end else begin
+      writeback_data = commit_q.rd_data;
+    end
+  end
+
+  always_comb begin
+    if (commit_q.rd_addr == 5'd0) begin
+      writeback_valid = 'b0;
+    end else begin
+      if ((commit_q.inst[6:2] == OPCODE_LOAD) ||
+          (commit_q.inst[6:2] == OPCODE_OP_IMM) ||
+          (commit_q.inst[6:2] == OPCODE_AUIPC) ||
+          (commit_q.inst[6:2] == OPCODE_LUI) ||
+          (commit_q.inst[6:2] == OPCODE_OP) ||
+          (commit_q.inst[6:2] == OPCODE_JALR) ||
+          (commit_q.inst[6:2] == OPCODE_JAL)
+          ) begin
+        writeback_valid = 'b1;
+      end else begin
+        // FENCE is treated as a NOP
+        // Other opcodes have no effect for their commit
+        writeback_valid = 'b0;
+      end
+    end
+  end
+
+  always_comb begin
+
+  end
+
   always_ff @(posedge clk) begin
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && (write_back & commit_valid)) begin
-        if (write_back & commit_valid) begin
-          gpr[commit_q.rd_addr] <= commit_q.commit_data;
+      if (commit_q.valid == '1 && (writeback_valid & commit_valid)) begin
+        if (writeback_valid & commit_valid) begin
+          gpr[commit_q.rd_addr] <= writeback_data;
         end
       end
     end
@@ -409,7 +451,7 @@ module ladybird_core
     end
   end
 
-`ifdef LADYBIRD_SIMULATION
+`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
   string inst_disas;
   always_comb begin
     inst_disas = ladybird_riscv_helper::riscv_disas(mmu_inst);
