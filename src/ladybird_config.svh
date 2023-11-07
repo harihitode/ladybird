@@ -7,6 +7,8 @@ package ladybird_config;
   // verilator lint_off UNUSED
   localparam logic [31:0] VERSION = 32'hcafe_0a0a;
   localparam              XLEN = 32;
+  localparam string       VENDOR_NAME = "harihitde";
+  localparam string       ARCH_NAME = "ladybird";
 
   // core bus type
   typedef enum            logic [0:0] {
@@ -23,6 +25,15 @@ package ladybird_config;
                                        QSPI = 3'b100,
                                        GPIO = 3'b101
                                        } access_t;
+
+  localparam MEMORY_BASEADDR_CONFROM = 32'h00001000;
+  localparam MEMORY_BASEADDR_RAM = 32'h80000000;
+  localparam MEMORY_BASEADDR_ACLINT = 32'h02000000;
+  localparam MEMORY_SIZE_RAM = (128 * 1024 * 1024);
+  localparam ACLINT_MSIP_BASE = MEMORY_BASEADDR_ACLINT;
+  localparam ACLINT_MTIMECMP_BASE = MEMORY_BASEADDR_ACLINT + 32'h00004000;
+  localparam ACLINT_SETSSIP_BASE = MEMORY_BASEADDR_ACLINT + 32'h00008000;
+  localparam ACLINT_MTIME_BASE = MEMORY_BASEADDR_ACLINT + 32'h0000bff8;
 
   function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
     case (addr[XLEN-1-:4])
