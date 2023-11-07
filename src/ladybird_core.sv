@@ -215,7 +215,7 @@ module ladybird_core
       if (memory_q.inst[6:2] == OPCODE_BRANCH || memory_q.inst[6:2] == OPCODE_JAL) begin
         commit_d.branch_pc = memory_q.pc + memory_q.imm;
       end else begin
-        commit_d.branch_pc = memory_q.rs1_data;
+        commit_d.branch_pc = memory_q.rs1_data + memory_q.imm;
       end
     end
   end
@@ -379,10 +379,6 @@ module ladybird_core
         writeback_valid = 'b0;
       end
     end
-  end
-
-  always_comb begin
-
   end
 
   always_ff @(posedge clk) begin
