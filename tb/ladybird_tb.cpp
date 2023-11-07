@@ -30,16 +30,18 @@ int main(int argc, char **argv, char **) {
   }
 
   // Generating waveform
-  tfp = new VerilatedVcdC;
-  topp->trace(tfp, 99);
-  tfp->open("./wave.vcd");
+  if (argc > 3) {
+    tfp = new VerilatedVcdC;
+    topp->trace(tfp, 99);
+    tfp->open(argv[3]);
+  }
 
   // Simulate until $finish
   while (!contextp->gotFinish()) {
     // Evaluate model
     topp->eval();
     // Dump trace
-    tfp->dump(contextp->time());
+    if (tfp) tfp->dump(contextp->time());
     // Advance time
     contextp->timeInc(1);
   }

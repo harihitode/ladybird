@@ -39,7 +39,7 @@ module ladybird_tb
   task config_rom_on();
     automatic logic [XLEN-1:0] conf_str_addr = MEMORY_BASEADDR_CONFROM + 'd32;
     automatic int last = 0;
-    automatic string conf_str = $sformatf("platform { vendor %s; arch %s; };\nrtc { addr %08x; };\nram { 0 { addr %08x; size %08x; }; };\ncore { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n\0",
+    automatic string conf_str = $sformatf("platform { vendor %s; arch %s; };\nrtc { addr %08x; };\nram { 0 { addr %08x; size %08x; }; };\ncore { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
                                           VENDOR_NAME, ARCH_NAME,
                                           ACLINT_MTIME_BASE,
                                           MEMORY_BASEADDR_RAM, MEMORY_SIZE_RAM,
@@ -49,14 +49,13 @@ module ladybird_tb
     MEMORY.write(MEMORY_BASEADDR_CONFROM + 'd13, conf_str_addr[15:8]);
     MEMORY.write(MEMORY_BASEADDR_CONFROM + 'd14, conf_str_addr[23:16]);
     MEMORY.write(MEMORY_BASEADDR_CONFROM + 'd15, conf_str_addr[31:24]);
-    $display("config string");
-    $display("%s", conf_str);
+    $display("[core config]");
+    $write("%s", conf_str);
     foreach (conf_str[i]) begin
       MEMORY.write(conf_str_addr + i, conf_str[i]);
       last++;
     end
     MEMORY.write(conf_str_addr + last, '0);
-    $display("conf rom upper address %08x", conf_str_addr + last);
   endtask
 
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) axi(.aclk(clk));
