@@ -28,6 +28,7 @@ module ladybird_mmu
 
   localparam [axi.AXI_ID_W-1:0] AXI_ID_I = 'd0;
   localparam [axi.AXI_ID_W-1:0] AXI_ID_D = 'd1;
+  localparam [XLEN-1:0] address_mask = ~((axi.AXI_DATA_W / 8) - 1);
 
   typedef enum logic [2:0] {
                             IDLE,
@@ -126,7 +127,7 @@ module ladybird_mmu
   assign i_ready = (state_q == IDLE) ? ~pc_valid : '0;
   // AW channel
   assign axi.awid = request_q.id;
-  assign axi.awaddr = request_q.addr;
+  assign axi.awaddr = request_q.addr & address_mask;
   assign axi.awlen = '0;
   assign axi.awsize = ladybird_axi::axi_burst_size_32;
   assign axi.awburst = ladybird_axi::axi_incrementing_burst;
@@ -163,7 +164,7 @@ module ladybird_mmu
   assign axi.bready = (state_q == B_CHANNEL) ? '1 : '0;
   // AR channel
   assign axi.arid = request_q.id;
-  assign axi.araddr = request_q.addr;
+  assign axi.araddr = request_q.addr & address_mask;
   assign axi.arlen = '0;
   assign axi.arsize = ladybird_axi::axi_burst_size_32;
   assign axi.arburst = ladybird_axi::axi_incrementing_burst;
