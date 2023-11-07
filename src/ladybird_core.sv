@@ -379,6 +379,8 @@ module ladybird_core
           (commit_q.inst[6:2] == OPCODE_JAL)
           ) begin
         writeback_valid = 'b1;
+      end else if (commit_q.inst[6:2] == OPCODE_SYSTEM && commit_q.inst[14:12] != 'd0) begin
+        writeback_valid = 'b1;
       end else begin
         // FENCE is treated as a NOP
         // Other opcodes have no effect for their commit
