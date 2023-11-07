@@ -48,7 +48,7 @@ module ladybird_simulation_memory
 
   always_comb begin
     for (int i = 0; i < AXI_DATA_W / 8; i++) begin
-      axi.rdata[i*8+:8] = memory_model[request_q.addr + (AXI_DATA_W / 8 * current_beat) + i];
+      axi.rdata[i*8+:8] = read(request_q.addr + (AXI_DATA_W / 8 * current_beat) + i);
     end
   end
 
@@ -74,6 +74,12 @@ module ladybird_simulation_memory
       PREPARE_READING: begin
         if (preparing > access_latency) begin
           state_d = READING;
+`ifdef LADYBIRD_SIMULATION_DEBUG_UNTOUCHED_MEM
+          if (memory_model.exists(request_q.addr) == '0) begin
+            $display("untouched memory read: %08x", request_q.addr);
+            $finish;
+          end
+`endif
         end
       end
       READING: begin
@@ -122,9 +128,6 @@ module ladybird_simulation_memory
       end else begin
         current_beat <= '0;
       end
-      // if (state_q == READING) begin
-      //   $display("LOAD: %08x %08x\n", request_q.addr, axi.rdata);
-      // end
     end
   end
 
