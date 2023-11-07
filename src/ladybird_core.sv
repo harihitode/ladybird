@@ -121,6 +121,7 @@ module ladybird_core
      .retire(retire),
      .retire_pc(commit_q.pc),
      .retire_inst(commit_q.inst),
+     .retire_next_pc(i_fetch_d.pc),
      .i_op(exec_q.inst[14:12]),
      .i_valid(csr_req),
      .i_addr(csr_addr),

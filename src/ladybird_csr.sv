@@ -25,6 +25,7 @@ module ladybird_csr
 // verilator lint_off UNUSED
   input logic [XLEN-1:0]  retire_inst,
   input logic [XLEN-1:0]  retire_pc,
+  input logic [XLEN-1:0]  retire_next_pc,
 // verilator lint_on UNUSED
   input logic [2:0]       i_op,
   input logic             i_valid,
