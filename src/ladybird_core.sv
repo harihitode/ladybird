@@ -34,10 +34,15 @@ module ladybird_core
   logic [XLEN-1:0]        csr_src, csr_res;
   logic [11:0]            csr_addr;
 
-  logic                   retire, writeback_valid;
-  logic [XLEN-1:0]        src1, src2, writeback_data;
+  logic [XLEN-1:0]        src1, src2;
   logic                   idle;
   logic                   pipeline_stall;
+  commit_t                commit;
+
+  // Status
+  // verilator lint_off UNUSED
+  logic [1:0]             mode;
+  // verilator lint_on UNUSED
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
@@ -77,6 +82,7 @@ module ladybird_core
     logic [XLEN-1:0] pc;
     logic [XLEN-1:0] inst;
     logic [4:0]      rd_addr;
+    logic [XLEN-1:0] paddr;
     logic [XLEN-1:0] branch_pc;
     logic            branch_flag;
     logic [XLEN-1:0] rd_data;
@@ -118,10 +124,8 @@ module ladybird_core
     (
      .clk(clk),
      .rtc(rtc),
-     .retire(retire),
-     .retire_pc(commit_q.pc),
-     .retire_inst(commit_q.inst),
-     .retire_next_pc(i_fetch_d.pc),
+     .commit(commit),
+     .mode(mode),
      .i_op(exec_q.inst[14:12]),
      .i_valid(csr_req),
      .i_addr(csr_addr),
@@ -203,6 +207,7 @@ module ladybird_core
       commit_d.pc = memory_q.pc;
       commit_d.inst = memory_q.inst;
       commit_d.rd_addr = memory_q.inst[11:7];
+      commit_d.paddr = memory_q.addr;
       if (memory_q.inst[14:12] == 3'b000) begin: BEQ_impl
         commit_d.branch_flag = ~(|memory_q.rd_data);
       end else if (memory_q.inst[14:12] == 3'b001) begin: BNE_impl
@@ -232,19 +237,10 @@ module ladybird_core
       i_fetch_d.valid = '1;
     end else begin
       i_fetch_d = i_fetch_q;
+      // TODO: pipeline
       if (commit_q.valid) begin
-        case (commit_q.inst[6:2])
-          OPCODE_BRANCH: begin
-            i_fetch_d.pc = commit_q.branch_flag ? commit_q.branch_pc : commit_q.pc + 'h4;
-          end
-          OPCODE_JALR, OPCODE_JAL: begin
-            i_fetch_d.pc = commit_q.branch_pc;
-          end
-          default: begin
-            i_fetch_d.pc = commit_q.pc + 'h4;
-          end
-        endcase
-        i_fetch_d.valid = retire;
+        i_fetch_d.pc = commit.pc_next;
+        i_fetch_d.valid = commit.valid;
       end else if (i_fetch_q.valid & mmu_pc_valid & mmu_pc_ready) begin
         i_fetch_d.valid = '0;
       end
@@ -339,36 +335,32 @@ module ladybird_core
   end
 
   always_comb begin
-    if (commit_q.valid == '1) begin
-      if (commit_q.inst[6:2] == OPCODE_LOAD) begin
-        if (mmu_finish) begin
-          retire = 'b1;
-        end else begin
-          retire = 'b0;
-        end
-      end else begin
-        retire = 'b1;
+    commit.exception_code = '0;
+    commit.pc = commit_q.pc;
+    commit.inst = commit_q.inst;
+    commit.paddr = commit_q.paddr;
+    case (commit_q.inst[6:2])
+      OPCODE_BRANCH: begin
+        commit.pc_next = commit_q.branch_flag ? commit_q.branch_pc : commit_q.pc + 'h4;
       end
-    end else begin
-      retire = 'b0;
-    end
-  end
-
-  always_comb begin
+      OPCODE_JALR, OPCODE_JAL: begin
+        commit.pc_next = commit_q.branch_pc;
+      end
+      default: begin
+        commit.pc_next = commit_q.pc + 'h4;
+      end
+    endcase
     if (commit_q.inst[6:2] == OPCODE_LOAD) begin
-      writeback_data = mmu_lw_data;
+      commit.wb_data = mmu_lw_data;
     end else if ((commit_q.inst[6:2] == OPCODE_JALR) ||
                  (commit_q.inst[6:2] == OPCODE_JAL)
                  ) begin
-      writeback_data = commit_q.pc + 'h4; // return address for link register
+      commit.wb_data = commit_q.pc + 'h4; // return address for link register
     end else begin
-      writeback_data = commit_q.rd_data;
+      commit.wb_data = commit_q.rd_data;
     end
-  end
-
-  always_comb begin
     if (commit_q.rd_addr == 5'd0) begin
-      writeback_valid = 'b0;
+      commit.wb_en = 'b0;
     end else begin
       if ((commit_q.inst[6:2] == OPCODE_LOAD) ||
           (commit_q.inst[6:2] == OPCODE_OP_IMM) ||
@@ -378,14 +370,23 @@ module ladybird_core
           (commit_q.inst[6:2] == OPCODE_JALR) ||
           (commit_q.inst[6:2] == OPCODE_JAL)
           ) begin
-        writeback_valid = 'b1;
+        commit.wb_en = 'b1;
       end else if (commit_q.inst[6:2] == OPCODE_SYSTEM && commit_q.inst[14:12] != 'd0) begin
-        writeback_valid = 'b1;
+        commit.wb_en = 'b1;
       end else begin
         // FENCE is treated as a NOP
         // Other opcodes have no effect for their commit
-        writeback_valid = 'b0;
+        commit.wb_en = 'b0;
       end
+    end
+    if (commit_q.valid == '1) begin
+      if (commit_q.inst[6:2] == OPCODE_LOAD) begin
+        commit.valid = mmu_finish;
+      end else begin
+        commit.valid = '1;
+      end
+    end else begin
+      commit.valid = '0;
     end
   end
 
@@ -393,10 +394,8 @@ module ladybird_core
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && (writeback_valid & retire)) begin
-        if (writeback_valid & retire) begin
-          gpr[commit_q.rd_addr] <= writeback_data;
-        end
+      if (commit_q.valid == '1 && (commit.valid & commit.wb_en)) begin
+        gpr[commit_q.rd_addr] <= commit.wb_data;
       end
     end
   end
@@ -407,8 +406,8 @@ module ladybird_core
     end else begin
       if (idle && start) begin
         pc <= start_pc;
-      end else if (retire) begin
-        pc <= i_fetch_d.pc;
+      end else if (commit.valid) begin
+        pc <= commit.pc_next;
       end
     end
   end
@@ -420,7 +419,7 @@ module ladybird_core
     ebreak = '0;
     mret = '0;
     sret = '0;
-    if (retire && commit_q.inst[6:2] == OPCODE_SYSTEM) begin
+    if (commit.valid && commit_q.inst[6:2] == OPCODE_SYSTEM) begin
       if (funct7 == 7'h00 && rs2 == 'd0) begin
         ecall = '1;
       end
