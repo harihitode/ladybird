@@ -58,21 +58,35 @@ module ladybird_csr
   end
 
   typedef struct packed {
-    logic [12:0] reserved1;
+    logic        SD;
+    logic [7:0]  reserved1;
+    logic        TSR;
+    logic        TW;
+    logic        TVM;
+    logic        MXR;
     logic        SUM;
-    logic [4:0]  reserved2;
+    logic        MPRV;
+    logic [1:0]  XS;
+    logic [1:0]  FS;
     logic [1:0]  MPP;
-    logic [1:0]  reserved3;
+    logic [1:0]  VS;
     logic        SPP;
     logic        MPIE;
-    logic        reserved4;
+    logic        UBE;
     logic        SPIE;
-    logic        reserved5;
+    logic        reserved2;
     logic        MIE;
-    logic        reserved6;
+    logic        reserved3;
     logic        SIE;
-    logic        reserved7;
+    logic        reserved4;
   } status_t;
+
+  typedef struct packed {
+    logic [25:0] reserved1;
+    logic        MBE;
+    logic        SBE;
+    logic [3:0]  reserved2;
+  } statush_t;
 
   typedef struct packed {
     logic [1:0]  xml;
@@ -82,8 +96,90 @@ module ladybird_csr
 
   logic [XLEN-1:0]        masked;
   logic [XLEN-1:0]        m_tvec;
-  status_t                m_status;
+  // verilator lint_off UNUSEDSIGNAL
+  status_t                m_status, status_d;
+  statush_t               m_statush, statush_d;
+  // verilator lint_on UNUSEDSIGNAL
   isa_t                   m_isa;
+
+  // Status Signals
+  logic                   status_dirty;
+  logic [1:0]             f_status;
+  logic [1:0]             x_status;
+  logic [1:0]             m_previous_mode;
+  logic                   s_access_usermemory;
+  logic                   s_previous_mode;
+  logic                   m_previous_interrupt_en;
+  logic                   s_previous_interrupt_en;
+  logic                   m_current_interrupt_en;
+  logic                   s_current_interrupt_en;
+  logic [1:0]             current_mode;
+
+  assign f_status = '0;
+  assign x_status = '0;
+  assign status_dirty = &f_status | &x_status;
+  // F-Extension
+  always_comb begin
+    m_status.SD = status_dirty;
+    m_status.reserved1 = '0;
+    m_status.TSR = '0; // trap sret
+    m_status.TW = '0; // timeout for wfi
+    m_status.TVM = '0; // trap virtual memory access
+    m_status.MXR = '0; // make executable readable
+    m_status.SUM = s_access_usermemory;
+    m_status.MPRV = '0; // modify privilege
+    m_status.XS = x_status;
+    m_status.FS = f_status;
+    m_status.MPP = m_previous_mode;
+    m_status.VS = '0;
+    m_status.SPP = s_previous_mode;
+    m_status.MPIE = m_previous_interrupt_en;
+    m_status.UBE = '0;
+    m_status.SPIE = s_previous_interrupt_en;
+    m_status.reserved2 = '0;
+    m_status.MIE = m_current_interrupt_en;
+    m_status.reserved3 = '0;
+    m_status.SIE = s_current_interrupt_en;
+    m_status.reserved4 = '0;
+    m_statush = '0;
+  end
+
+  assign status_d = masked;
+
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
+      current_mode <= PRIV_MODE_M;
+      s_access_usermemory <= '0;
+      m_previous_mode <= PRIV_MODE_M;
+      s_previous_mode <= PRIV_MODE_S[0];
+      m_previous_interrupt_en <= '0;
+      s_previous_interrupt_en <= '0;
+      m_current_interrupt_en <= '0;
+      s_current_interrupt_en <= '0;
+    end else begin
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        s_access_usermemory <= status_d.SUM;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        m_previous_mode <= status_d.MPP;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        s_previous_mode <= status_d.SPP;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        m_previous_interrupt_en <= status_d.MPIE;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        s_previous_interrupt_en <= status_d.SPIE;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        m_previous_interrupt_en <= status_d.MPIE;
+      end
+      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+        s_previous_interrupt_en <= status_d.SPIE;
+      end
+    end
+  end
 
 `ifdef LADYBIRD_SIMULATION
   logic                   unimpl;
@@ -137,6 +233,7 @@ module ladybird_csr
       CSR_ADDR_CYCLEH: o_data = mcycle[63:32];
       CSR_ADDR_INSTRETH: o_data = minstret[63:32];
       CSR_ADDR_M_STATUS: o_data = m_status;
+      CSR_ADDR_M_STATUSH: o_data = m_statush;
       CSR_ADDR_M_TVEC: o_data = m_tvec;
       CSR_ADDR_M_HARTID: o_data = HART_ID;
       CSR_ADDR_M_ISA: o_data = m_isa;
@@ -149,13 +246,12 @@ module ladybird_csr
     endcase
   end
 
-  `LADYBIRD_SIMPLE_CSR(CSR_ADDR_M_STATUS, m_status, 'd0)
   `LADYBIRD_SIMPLE_CSR(CSR_ADDR_M_TVEC, m_tvec, 'd0)
 
 `ifdef LADYBIRD_SIMULATION
   always_ff @(posedge clk) begin
     if (nrst & i_valid & unimpl) begin
-      $display("hart%0d [%s] unimpl. addr %08x data %08x", HART_ID, operation, i_addr, i_data);
+      $display("hart%0d mode%0d [%s] unimpl. addr %08x data %08x", HART_ID, current_mode, operation, i_addr, i_data);
     end
   end
 `endif

@@ -71,9 +71,14 @@ package ladybird_riscv_helper;
 
   // CSR (Priv.)
   localparam [11:0] CSR_ADDR_M_STATUS = 12'h300;
+  localparam [11:0] CSR_ADDR_M_STATUSH = 12'h310;
   localparam [11:0] CSR_ADDR_M_ISA = 12'h301;
   localparam [11:0] CSR_ADDR_M_TVEC = 12'h305;
   localparam [11:0] CSR_ADDR_M_HARTID = 12'hf14;
+
+  localparam [1:0] PRIV_MODE_M = 2'b11;
+  localparam [1:0] PRIV_MODE_S = 2'b01;
+  localparam [1:0] PRIV_MODE_U = 2'b00;
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);
