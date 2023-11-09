@@ -12,15 +12,15 @@ module ladybird_tb
 );
   import ladybird_riscv_helper::*;
   import ladybird_config::*;
-`ifdef LADYBIRD_SIM_TARGET_ELF
-  ladybird_elfreader elf = new(LADYBIRD_SIM_TARGET_ELF);
+`ifdef LADYBIRD_SIMULATION_TARGET_ELF
+  ladybird_elfreader elf = new(`LADYBIRD_SIMULATION_TARGET_ELF);
 `else
   ladybird_elfreader elf = new(ELF_PATH);
 `endif
 
   logic [63:0]       timeout;
-`ifdef LADYBIRD_SIM_TIMEOUT
-  assign timeout = LADYBIRD_SIM_TIMEOUT;
+`ifdef LADYBIRD_SIMULATION_TIMEOUT
+  assign timeout = `LADYBIRD_SIMULATION_TIMEOUT;
 `else
   assign timeout = TIMEOUT;
 `endif
@@ -31,7 +31,7 @@ module ladybird_tb
   logic        start = '0;
   logic [XLEN-1:0] start_pc = '0;
   logic            nrst = '0;
-  logic [63:0]     rtc;
+  logic [63:0]     rtc = '0;
 
   localparam AXI_DATA_W = 32;
   localparam AXI_ADDR_W = 32;

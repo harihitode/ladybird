@@ -137,19 +137,23 @@ module ladybird_simulation_memory
       if (axi.wvalid & axi.wready) begin
         for (int i = 0; i < AXI_DATA_W / 8; i++) begin
           if (axi.wstrb[i]) begin
-            memory_model[request_q.addr + (AXI_DATA_W / 8 * current_beat) + i] <= axi.wdata[i*8+:8];
+            // verilator lint_off BLKSEQ
+            memory_model[request_q.addr + (AXI_DATA_W / 8 * current_beat) + i] = axi.wdata[i*8+:8];
+            // verilator lint_on BLKSEQ
           end
         end
       end
 `ifdef LADYBIRD_SIMULATION_HTIF
+      // verilator lint_off BLKSEQ
       if (axi.bvalid & axi.bready) begin
         if (request_q.addr == MEMORY_HTIF_TOHOST) begin
           for (int i = 0; i < 8; i++) begin
-            memory_model[MEMORY_HTIF_TOHOST + i] <= '0;
+            memory_model[MEMORY_HTIF_TOHOST + i] = '0;
           end
-          memory_model[MEMORY_HTIF_FROMHOST] <= 'b1;
+          memory_model[MEMORY_HTIF_FROMHOST] = 'b1;
         end
       end
+      // verilator lint_on BLKSEQ
 `endif
     end
   end
