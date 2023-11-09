@@ -11,7 +11,10 @@ typedef logic [31:0] Elf32_Off;
 class ladybird_elfreader;
   // verilator lint_off UNUSEDSIGNAL
   localparam EI_NINDENT = 16;
+  // verilator lint_off UNUSEDPARAM
   localparam PT_LOAD = 1;
+  localparam PT_TLS = 7;
+  // verilator lint_on UNUSEDPARAM
   string filepath_i;
 
   typedef struct packed {
@@ -83,17 +86,16 @@ class ladybird_elfreader;
     $display("\tSize of program headers:\t%d (bytes)", eheader_i.e_phentsize);
     $display("\tNumber of program headers:\t%d", eheader_i.e_phnum);
     $display("Program Headers: (Loadable)");
-    $display("\tOffset\tVirtAddr\tPhysAddr\tFileSiz\tMemSiz");
+    $display("\tTYPE\tOffset\tVirtAddr\tPhysAddr\tFileSiz\tMemSiz");
     for (int i = 0; i < eheader_i.e_phnum; i++) begin
-      if (pheader_i[i].p_type == PT_LOAD) begin
-        $display("0x%08x\t0x%08x\t0x%08x\t0x%08x\t0x%08x",
-                 pheader_i[i].p_offset,
-                 pheader_i[i].p_vaddr,
-                 pheader_i[i].p_paddr,
-                 pheader_i[i].p_filesz,
-                 pheader_i[i].p_memsz
-                 );
-      end
+      $display("\t0x%8x\t0x%08x\t0x%08x\t0x%08x\t0x%08x\t0x%08x",
+               pheader_i[i].p_type,
+               pheader_i[i].p_offset,
+               pheader_i[i].p_vaddr,
+               pheader_i[i].p_paddr,
+               pheader_i[i].p_filesz,
+               pheader_i[i].p_memsz
+               );
     end
   endfunction
 
@@ -106,6 +108,9 @@ class ladybird_elfreader;
     for (int i = 0; i < pheader_i[p].p_filesz; i++) begin
       $fread(c, fd);
       mem[i] = c;
+    end
+    for (int i = pheader_i[p].p_filesz; i < pheader_i[p].p_memsz; i++) begin
+      mem[i] = 8'h00; // zero padding
     end
     $fclose(fd);
   endfunction
