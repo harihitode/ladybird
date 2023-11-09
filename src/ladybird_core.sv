@@ -13,7 +13,6 @@ module ladybird_core
    input logic            start,
    input logic [XLEN-1:0] start_pc,
    input logic [63:0]     rtc,
-   output logic           trap,
    input logic            nrst
    );
 
@@ -42,6 +41,8 @@ module ladybird_core
   // Status
   // verilator lint_off UNUSED
   logic [1:0]             mode;
+  logic [XLEN-1:0]        force_pc;
+  logic                   force_pc_valid;
   // verilator lint_on UNUSED
 
   typedef struct packed {
@@ -52,12 +53,14 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] exception_code;
     logic            valid;
   } d_fetch_stage_t;
   d_fetch_stage_t d_fetch_q, d_fetch_d;
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] exception_code;
     logic [XLEN-1:0] inst;
     logic [XLEN-1:0] imm;
     logic [XLEN-1:0] rs1_data;
@@ -68,6 +71,7 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] exception_code;
     logic [XLEN-1:0] inst;
     logic [XLEN-1:0] imm;
     logic [XLEN-1:0] addr;
@@ -80,6 +84,7 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] exception_code;
     logic [XLEN-1:0] inst;
     logic [4:0]      rd_addr;
     logic [XLEN-1:0] paddr;
@@ -97,17 +102,9 @@ module ladybird_core
   logic [4:0]             stage_valid;
   // verilator lint_on UNUSED
 
-  // SYSTEM Operation flag
-  logic                   ebreak, ecall, mret, sret;
-
-  assign trap = ebreak | ecall | mret | sret;
-  assign idle = ~(i_fetch_q.valid | d_fetch_q.valid | exec_q.valid | memory_q.valid | commit_q.valid);
   assign pipeline_stall = '0;
-  assign stage_valid[0] = i_fetch_q.valid;
-  assign stage_valid[1] = d_fetch_q.valid;
-  assign stage_valid[2] = exec_q.valid;
-  assign stage_valid[3] = memory_q.valid;
-  assign stage_valid[4] = commit_q.valid;
+  assign stage_valid = {commit_q.valid, memory_q.valid, exec_q.valid, d_fetch_q.valid, i_fetch_q.valid};
+  assign idle = ~(|stage_valid);
 
   ladybird_alu #(.USE_FA_MODULE(0))
   ALU
@@ -131,6 +128,8 @@ module ladybird_core
      .i_addr(csr_addr),
      .i_data(csr_src),
      .o_data(csr_res),
+     .force_pc(force_pc),
+     .force_pc_valid(force_pc_valid),
      .nrst(nrst)
      );
 
@@ -158,6 +157,7 @@ module ladybird_core
 
   always_comb begin
     d_fetch_d.pc = i_fetch_q.pc;
+    d_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
     d_fetch_d.valid = mmu_pc_valid & mmu_pc_ready;
     if (d_fetch_q.valid & ~mmu_inst_valid) begin
       d_fetch_d = d_fetch_q;
@@ -167,6 +167,7 @@ module ladybird_core
   always_comb begin
     automatic logic [XLEN-1:0] inst = mmu_inst;
     exec_d.pc = d_fetch_q.pc;
+    exec_d.exception_code = d_fetch_q.exception_code; // TODO: Illegal Instruction
     exec_d.inst = inst;
     if (inst[6:2] == OPCODE_STORE) begin: STORE_OFFSET
       exec_d.imm = {{20{inst[31]}}, inst[31:25], inst[11:7]};
@@ -186,7 +187,17 @@ module ladybird_core
   end
 
   always_comb begin
+    automatic logic [6:0] funct7 = exec_q.inst[31:25];
+    automatic logic [4:0] rs2 = exec_q.inst[24:20];
     memory_d.pc = exec_q.pc;
+    memory_d.exception_code = exec_q.exception_code;
+    if (exec_q.inst[6:2] == OPCODE_SYSTEM && funct7 == 7'h00) begin
+      if (rs2 == 'd0) begin
+        memory_d.exception_code = TRAP_CODE_ENVIRONMENT_CALL_U | {30'd0, mode};
+      end else if (rs2 == 'd1) begin
+        memory_d.exception_code = TRAP_CODE_BREAKPOINT;
+      end
+    end
     memory_d.inst = exec_q.inst;
     memory_d.imm = exec_q.imm;
     memory_d.addr = exec_q.rs1_data + exec_q.imm;
@@ -205,6 +216,7 @@ module ladybird_core
       commit_d = commit_q;
     end else begin
       commit_d.pc = memory_q.pc;
+      commit_d.exception_code = memory_q.exception_code;
       commit_d.inst = memory_q.inst;
       commit_d.rd_addr = memory_q.inst[11:7];
       commit_d.paddr = memory_q.addr;
@@ -238,9 +250,13 @@ module ladybird_core
     end else begin
       i_fetch_d = i_fetch_q;
       // TODO: pipeline
-      if (commit_q.valid) begin
-        i_fetch_d.pc = commit.pc_next;
-        i_fetch_d.valid = commit.valid;
+      if (commit_q.valid & commit.valid) begin
+        if (force_pc_valid) begin
+          i_fetch_d.pc = force_pc;
+        end else begin
+          i_fetch_d.pc = commit.pc_next;
+        end
+        i_fetch_d.valid = '1;
       end else if (i_fetch_q.valid & mmu_pc_valid & mmu_pc_ready) begin
         i_fetch_d.valid = '0;
       end
@@ -335,7 +351,7 @@ module ladybird_core
   end
 
   always_comb begin
-    commit.exception_code = '0;
+    commit.exception_code = commit_q.exception_code;
     commit.pc = commit_q.pc;
     commit.inst = commit_q.inst;
     commit.paddr = commit_q.paddr;
@@ -408,29 +424,6 @@ module ladybird_core
         pc <= start_pc;
       end else if (commit.valid) begin
         pc <= commit.pc_next;
-      end
-    end
-  end
-
-  always_comb begin
-    automatic logic [6:0] funct7 = commit_q.inst[31:25];
-    automatic logic [4:0] rs2 = commit_q.inst[24:20];
-    ecall = '0;
-    ebreak = '0;
-    mret = '0;
-    sret = '0;
-    if (commit.valid && commit_q.inst[6:2] == OPCODE_SYSTEM) begin
-      if (funct7 == 7'h00 && rs2 == 'd0) begin
-        ecall = '1;
-      end
-      if (funct7 == 7'h00 && rs2 == 'd1) begin
-        ebreak = '1;
-      end
-      if (funct7 == 7'h18 && rs2 == 'd2) begin
-        mret = '1;
-      end
-      if (funct7 == 7'h08 && rs2 == 'd2) begin
-        sret = '1;
       end
     end
   end

@@ -75,10 +75,40 @@ package ladybird_riscv_helper;
   localparam [11:0] CSR_ADDR_M_ISA = 12'h301;
   localparam [11:0] CSR_ADDR_M_TVEC = 12'h305;
   localparam [11:0] CSR_ADDR_M_HARTID = 12'hf14;
+  localparam [11:0] CSR_ADDR_M_EPC = 12'h341;
+  localparam [11:0] CSR_ADDR_M_CAUSE = 12'h342;
+
+  // S-MODE
+  localparam [11:0] CSR_ADDR_S_TVEC = 12'h105;
+  localparam [11:0] CSR_ADDR_S_EPC = 12'h141;
+  localparam [11:0] CSR_ADDR_S_CAUSE = 12'h142;
 
   localparam [1:0] PRIV_MODE_M = 2'b11;
   localparam [1:0] PRIV_MODE_S = 2'b01;
   localparam [1:0] PRIV_MODE_U = 2'b00;
+
+  // Exception Code
+  localparam [XLEN-1:0] TRAP_CODE_ILLEGAL_INSTRUCTION = 32'h00000002;
+  localparam [XLEN-1:0] TRAP_CODE_BREAKPOINT = 32'h00000003;
+  localparam [XLEN-1:0] TRAP_CODE_ENVIRONMENT_CALL_U = 32'h00000008;
+  localparam [XLEN-1:0] TRAP_CODE_ENVIRONMENT_CALL_S = 32'h00000009;
+  localparam [XLEN-1:0] TRAP_CODE_ENVIRONMENT_CALL_M = 32'h0000000b;
+  localparam [XLEN-1:0] TRAP_CODE_INSTRUCTION_ACCESS_FAULT = 32'h0000001;
+  localparam [XLEN-1:0] TRAP_CODE_LOAD_ACCESS_FAULT = 32'h00000005;
+  localparam [XLEN-1:0] TRAP_CODE_STORE_ACCESS_FAULT = 32'h00000007;
+  localparam [XLEN-1:0] TRAP_CODE_AMO_ACCESS_FAULT = 32'h00000007;
+  localparam [XLEN-1:0] TRAP_CODE_INSTRUCTION_PAGE_FAULT = 32'h000000c;
+  localparam [XLEN-1:0] TRAP_CODE_LOAD_PAGE_FAULT = 32'h0000000d;
+  localparam [XLEN-1:0] TRAP_CODE_STORE_PAGE_FAULT = 32'h0000000f;
+  localparam [XLEN-1:0] TRAP_CODE_AMO_PAGE_FAULT = 32'h0000000f;
+
+  // Interrupt Code
+  localparam [XLEN-1:0] TRAP_CODE_M_EXTERNAL_INTERRUPT = 32'h8000000b;
+  localparam [XLEN-1:0] TRAP_CODE_S_EXTERNAL_INTERRUPT = 32'h80000009;
+  localparam [XLEN-1:0] TRAP_CODE_M_TIMER_INTERRUPT = 32'h80000007;
+  localparam [XLEN-1:0] TRAP_CODE_S_TIMER_INTERRUPT = 32'h80000005;
+  localparam [XLEN-1:0] TRAP_CODE_M_SOFTWARE_INTERRUPT = 32'h80000003;
+  localparam [XLEN-1:0] TRAP_CODE_S_SOFTWARE_INTERRUPT = 32'h80000001;
 
   // riscv instruction constructor
   function automatic logic [19:0] HI(input logic [31:0] immediate);

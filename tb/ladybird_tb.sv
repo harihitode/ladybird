@@ -30,7 +30,6 @@ module ladybird_tb
 
   logic        start = '0;
   logic [XLEN-1:0] start_pc = '0;
-  logic            trap;
   logic            nrst = '0;
   logic [63:0]     rtc;
 
@@ -67,8 +66,7 @@ module ladybird_tb
         .rtc(rtc),
         .start(start),
         .start_pc(start_pc),
-        .axi(axi),
-        .trap(trap),
+        .axi(axi.master),
         .nrst(nrst)
         );
 
@@ -99,9 +97,6 @@ module ladybird_tb
     start = 'b1;
     while ($time < timeout) begin
       @(posedge clk);
-      if (trap == 'b1) begin
-        break;
-      end
     end
     $finish;
   end
