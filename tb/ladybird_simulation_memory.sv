@@ -4,16 +4,22 @@
 
 // verilator lint_off UNUSED
 module ladybird_simulation_memory
+#(
+  parameter logic [31:0] MEMORY_HTIF_TOHOST = 32'h80001000,
+  parameter logic [31:0] MEMORY_HTIF_FROMHOST = 32'h80001040
+)
 (
   input logic                  clk,
   ladybird_axi_interface.slave axi,
   input logic                  nrst
 );
-
   import ladybird_axi::*;
   localparam AXI_ADDR_W = axi.AXI_ADDR_W;
   localparam AXI_DATA_W = axi.AXI_DATA_W;
   localparam AXI_ID_W = axi.AXI_ID_W;
+  localparam HTIF_SYS_write = 'd64;
+  localparam HTIF_SYS_exit = 'd93;
+  localparam HTIF_SYS_status = 'd1234;
   logic [7:0] memory_model[int unsigned];
   logic [LEN_W-1:0] current_beat;
   logic [31:0]      access_latency, preparing;
@@ -128,8 +134,57 @@ module ladybird_simulation_memory
       end else begin
         current_beat <= '0;
       end
+      if (axi.wvalid & axi.wready) begin
+        for (int i = 0; i < AXI_DATA_W / 8; i++) begin
+          if (axi.wstrb[i]) begin
+            memory_model[request_q.addr + (AXI_DATA_W / 8 * current_beat) + i] <= axi.wdata[i*8+:8];
+          end
+        end
+      end
+`ifdef LADYBIRD_SIMULATION_HTIF
+      if (axi.bvalid & axi.bready) begin
+        if (request_q.addr == MEMORY_HTIF_TOHOST) begin
+          for (int i = 0; i < 8; i++) begin
+            memory_model[MEMORY_HTIF_TOHOST + i] <= '0;
+          end
+          memory_model[MEMORY_HTIF_FROMHOST] <= 'b1;
+        end
+      end
+`endif
     end
   end
+
+`ifdef LADYBIRD_SIMULATION_HTIF
+  always_latch begin
+    automatic logic [31:0] magic_mem, which, arg0, arg1, arg2;
+    if (axi.bvalid & axi.bready) begin
+      if (request_q.addr == MEMORY_HTIF_TOHOST) begin
+        magic_mem = {memory_model[MEMORY_HTIF_TOHOST + 3],
+                     memory_model[MEMORY_HTIF_TOHOST + 2],
+                     memory_model[MEMORY_HTIF_TOHOST + 1],
+                     memory_model[MEMORY_HTIF_TOHOST + 0]};
+        if ((magic_mem & 32'd1) == 32'd1) begin
+          $display("HTIF: Halt Request");
+          $finish;
+        end else if (magic_mem != 1) begin
+          for (int i = 0; i < 4; i++) begin
+            which[i*8+:8] = memory_model[magic_mem + i];
+            arg0[i*8+:8] = memory_model[magic_mem + 8 + i];
+            arg1[i*8+:8] = memory_model[magic_mem + 16 + i];
+            arg2[i*8+:8] = memory_model[magic_mem + 24 + i];
+          end
+          // $display("HTIF: System Call (No:%0d) Emulation (magic mem 0x%08x)", which, magic_mem);
+          // $display("args %08x %08x %08x", arg0, arg1, arg2);
+          if (which == HTIF_SYS_write) begin
+            for (int i = 0; i < arg2; i++) begin
+              $write("%c", memory_model[arg1 + i]);
+            end
+          end
+        end
+      end
+    end
+  end
+`endif
 
   // R/W helper functions
   function void write(int addr, logic [7:0] data);
