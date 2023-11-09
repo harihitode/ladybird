@@ -41,7 +41,7 @@ module ladybird_csr
 `ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
   string                  inst_disas;
   always_comb begin
-    inst_disas = ladybird_riscv_helper::riscv_disas(commit.inst);
+    inst_disas = ladybird_riscv_helper::riscv_disas(commit.inst, commit.pc);
   end
 `endif
   always_ff @(posedge clk) begin
@@ -101,7 +101,7 @@ module ladybird_csr
   logic [XLEN-1:0]        m_tvec, m_epc, m_cause;
   // verilator lint_off UNUSEDSIGNAL
   status_t                m_status, status_d;
-  statush_t               m_statush, statush_d;
+  statush_t               m_statush;
   // verilator lint_on UNUSEDSIGNAL
   isa_t                   m_isa;
 
