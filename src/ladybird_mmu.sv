@@ -136,7 +136,6 @@ module ladybird_mmu
   assign axi.awprot = '0;
   assign axi.awvalid = (state_q == AW_CHANNEL) ? '1 : '0;
   // W channel
-  assign axi.wdata = request_q.data;
   always_comb begin
     axi.wstrb = '0;
     if (request_q.we) begin
@@ -156,6 +155,15 @@ module ladybird_mmu
       end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_SW) begin
         axi.wstrb = 4'b1111;
       end
+    end
+  end
+  always_comb begin
+    if (request_q.funct == ladybird_riscv_helper::FUNCT3_SB) begin
+      axi.wdata = {4{request_q.data[7:0]}};
+    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_SH) begin
+      axi.wdata = {2{request_q.data[15:0]}};
+    end else begin
+      axi.wdata = request_q.data;
     end
   end
   assign axi.wlast = '1;
