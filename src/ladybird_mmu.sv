@@ -136,6 +136,7 @@ module ladybird_mmu
   assign axi.awprot = '0;
   assign axi.awvalid = (state_q == AW_CHANNEL) ? '1 : '0;
   // W channel
+  assign axi.wid = request_q.id;
   always_comb begin
     axi.wstrb = '0;
     if (request_q.we) begin
