@@ -38,12 +38,6 @@ module ladybird_csr
   logic [63:0]            minstret, mcycle;
   logic                   mret, sret;
 
-`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
-  string                  inst_disas;
-  always_comb begin
-    inst_disas = ladybird_riscv_helper::riscv_disas(commit.inst, commit.pc);
-  end
-`endif
   always_ff @(posedge clk) begin
     if (~nrst) begin
       minstret <= '0;
@@ -53,7 +47,7 @@ module ladybird_csr
       if (commit.valid) begin
         minstret <= minstret + 'd1;
 `ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
-        $display("%0d %08x, %08x, %s", rtc, commit.pc, commit.inst, inst_disas);
+        $display("%0d %08x, %08x, %s", rtc, commit.pc, commit.inst, ladybird_riscv_helper::riscv_disas(commit.inst, commit.pc));
 `endif
       end
     end

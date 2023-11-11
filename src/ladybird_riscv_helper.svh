@@ -526,15 +526,16 @@ package ladybird_riscv_helper;
   endfunction
 
   function string riscv_disas(input logic [31:0] inst, input logic [31:0] pc);
-    automatic string asm, mnemonic;
+    automatic string asm;
+    automatic string mnemonic;
     automatic result_t ret;
+    ret.inst = inst;
     ret.pc = pc;
     ret = riscv_decode(ret);
-    ret.inst = inst;
     mnemonic = riscv_get_mnemonic(ret.inst);
     case (ret.opcode)
       OPCODE_LOAD: asm = $sformatf("[%s] x%0d <- x%0d[0x%0x]", mnemonic, ret.rd_regno, ret.rs1_regno, ret.mmu_offset);
-      OPCODE_MISC_MEM: $sformatf("[%s]", mnemonic);
+      OPCODE_MISC_MEM: asm = $sformatf("[%s]", mnemonic);
       OPCODE_OP_IMM: asm = $sformatf("[%s] x%0d <- x%0d, %0d", mnemonic, ret.rd_regno, ret.rs1_regno, ret.alu_imm);
       OPCODE_AUIPC: asm = $sformatf("[%s] x%0d <- 0x%0x", mnemonic, ret.rd_regno, ret.pc + ret.alu_imm);
       OPCODE_STORE: asm = $sformatf("[%s] x%0d -> x%0d[0x%0x]", mnemonic, ret.rs2_regno, ret.rs1_regno, ret.mmu_offset);
