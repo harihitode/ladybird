@@ -29,21 +29,19 @@ module ladybird_core
   logic                   mmu_inst_valid;
 
   // CSR I/F
-  logic                   csr_req;
-  logic [XLEN-1:0]        csr_src, csr_res;
-  logic [11:0]            csr_addr;
+  logic [XLEN-1:0]        csr_src, csr_trap_code, csr_res;
 
   logic [XLEN-1:0]        src1, src2;
   logic                   idle;
   logic                   pipeline_stall;
-  commit_t                commit;
 
   // Status
   // verilator lint_off UNUSED
   logic [1:0]             mode;
+  commit_t                commit;
+  // verilator lint_on UNUSED
   logic [XLEN-1:0]        force_pc;
   logic                   force_pc_valid;
-  // verilator lint_on UNUSED
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
@@ -71,12 +69,11 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
-    logic [XLEN-1:0] exception_code;
+    logic [XLEN-1:0] npc;
+    logic [XLEN-1:0] trap_code;
     logic [XLEN-1:0] inst;
-    logic [XLEN-1:0] imm;
-    logic [XLEN-1:0] addr;
-    logic [XLEN-1:0] data;
     logic [XLEN-1:0] rs1_data;
+    logic [XLEN-1:0] rs2_data;
     logic [XLEN-1:0] rd_data;
     logic            valid;
   } memory_stage_t;
@@ -84,12 +81,13 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
-    logic [XLEN-1:0] exception_code;
+    logic [XLEN-1:0] npc;
+    logic [XLEN-1:0] trap_code;
     logic [XLEN-1:0] inst;
-    logic [4:0]      rd_addr;
+    logic [XLEN-1:0] rs1_data;
+    logic [XLEN-1:0] rs2_data;
     logic [XLEN-1:0] paddr;
-    logic [XLEN-1:0] branch_pc;
-    logic            branch_flag;
+    logic [4:0]      rd_addr;
     logic [XLEN-1:0] rd_data;
     logic            valid;
   } commit_stage_t;
@@ -98,13 +96,17 @@ module ladybird_core
   // GENERAL PURPOSE REGISTER
   logic [XLEN-1:0]        gpr [32];
   // verilator lint_off UNUSED
-  logic [XLEN-1:0]        pc;
+  logic [XLEN-1:0]        pc, npc, target_pc;
+  logic                   branch_flag;
   logic [4:0]             stage_valid;
+  logic [4:0]             stage_invalidate;
+  logic [63:0]            instret, cycle;
   // verilator lint_on UNUSED
 
   assign pipeline_stall = '0;
   assign stage_valid = {commit_q.valid, memory_q.valid, exec_q.valid, d_fetch_q.valid, i_fetch_q.valid};
   assign idle = ~(|stage_valid);
+  assign stage_invalidate = '0;
 
   ladybird_alu #(.USE_FA_MODULE(0))
   ALU
@@ -121,15 +123,18 @@ module ladybird_core
     (
      .clk(clk),
      .rtc(rtc),
-     .commit(commit),
+     .instret(instret),
+     .cycle(cycle),
      .mode(mode),
-     .i_op(exec_q.inst[14:12]),
-     .i_valid(csr_req),
-     .i_addr(csr_addr),
+     .i_req(exec_q.valid),
+     .i_inst(exec_q.inst),
+     .i_pc(exec_q.pc),
+     .i_exception_code(exec_q.exception_code),
      .i_data(csr_src),
      .o_data(csr_res),
-     .force_pc(force_pc),
-     .force_pc_valid(force_pc_valid),
+     .o_pc(force_pc),
+     .o_trap_code(csr_trap_code),
+     .o_pc_valid(force_pc_valid),
      .nrst(nrst)
      );
 
@@ -139,8 +144,8 @@ module ladybird_core
      .clk(clk),
      .i_valid(mmu_req),
      .i_ready(mmu_gnt),
-     .i_addr(memory_q.addr),
-     .i_data(memory_q.data),
+     .i_addr(memory_q.rd_data),
+     .i_data(memory_q.rs2_data),
      .i_we(mmu_we),
      .i_funct(memory_q.inst[14:12]),
      .o_valid(mmu_finish),
@@ -154,6 +159,15 @@ module ladybird_core
      .inst_valid(mmu_inst_valid),
      .nrst(nrst)
      );
+
+  always_comb begin
+    i_fetch_d.pc = npc;
+    if ((idle & start) || commit.valid || (i_fetch_q.valid && mmu_pc_valid && ~mmu_pc_ready)) begin
+      i_fetch_d.valid = '1;
+    end else begin
+      i_fetch_d.valid = '0;
+    end
+  end
 
   always_comb begin
     d_fetch_d.pc = i_fetch_q.pc;
@@ -187,27 +201,17 @@ module ladybird_core
   end
 
   always_comb begin
-    automatic logic [6:0] funct7 = exec_q.inst[31:25];
-    automatic logic [4:0] rs2 = exec_q.inst[24:20];
     memory_d.pc = exec_q.pc;
-    memory_d.exception_code = exec_q.exception_code;
-    if (exec_q.inst[6:2] == OPCODE_SYSTEM && funct7 == 7'h00) begin
-      if (rs2 == 'd0) begin
-        memory_d.exception_code = TRAP_CODE_ENVIRONMENT_CALL_U | {30'd0, mode};
-      end else if (rs2 == 'd1) begin
-        memory_d.exception_code = TRAP_CODE_BREAKPOINT;
-      end
-    end
+    memory_d.npc = npc;
+    memory_d.trap_code = csr_trap_code;
     memory_d.inst = exec_q.inst;
-    memory_d.imm = exec_q.imm;
-    memory_d.addr = exec_q.rs1_data + exec_q.imm;
-    memory_d.data = exec_q.rs2_data;
+    memory_d.rs1_data = exec_q.rs1_data;
+    memory_d.rs2_data = exec_q.rs2_data;
     if (exec_q.inst[6:2] == OPCODE_SYSTEM) begin
       memory_d.rd_data = csr_res;
     end else begin
       memory_d.rd_data = alu_res;
     end
-    memory_d.rs1_data = exec_q.rs1_data;
     memory_d.valid = exec_q.valid;
   end
 
@@ -216,70 +220,40 @@ module ladybird_core
       commit_d = commit_q;
     end else begin
       commit_d.pc = memory_q.pc;
-      commit_d.exception_code = memory_q.exception_code;
+      commit_d.npc = memory_q.npc;
+      commit_d.trap_code = memory_q.trap_code;
       commit_d.inst = memory_q.inst;
+      commit_d.rs1_data = memory_q.rs1_data;
+      commit_d.rs2_data = memory_q.rs2_data;
+      commit_d.paddr = memory_q.rd_data;
       commit_d.rd_addr = memory_q.inst[11:7];
-      commit_d.paddr = memory_q.addr;
-      if (memory_q.inst[14:12] == 3'b000) begin: BEQ_impl
-        commit_d.branch_flag = ~(|memory_q.rd_data);
-      end else if (memory_q.inst[14:12] == 3'b001) begin: BNE_impl
-        commit_d.branch_flag = |memory_q.rd_data;
-      end else if ((memory_q.inst[14:12] == 3'b101) || (memory_q.inst[14:12] == 3'b111)) begin: BGE_BGEU_is_NOT
-        commit_d.branch_flag = ~memory_q.rd_data[0];
-      end else begin
-        commit_d.branch_flag = memory_q.rd_data[0];
-      end
       commit_d.rd_data = memory_q.rd_data;
       if ((memory_q.inst[6:2] == OPCODE_LOAD) || (memory_q.inst[6:2] == OPCODE_STORE)) begin
         commit_d.valid = memory_q.valid & mmu_req & mmu_gnt;
       end else begin
         commit_d.valid = memory_q.valid;
       end
-      if (memory_q.inst[6:2] == OPCODE_BRANCH || memory_q.inst[6:2] == OPCODE_JAL) begin
-        commit_d.branch_pc = memory_q.pc + memory_q.imm;
-      end else begin
-        commit_d.branch_pc = memory_q.rs1_data + memory_q.imm;
-      end
-    end
-  end
-
-  always_comb begin
-    if (idle & start) begin
-      i_fetch_d.pc = start_pc;
-      i_fetch_d.valid = '1;
-    end else begin
-      i_fetch_d = i_fetch_q;
-      // TODO: pipeline
-      if (commit_q.valid & commit.valid) begin
-        if (force_pc_valid) begin
-          i_fetch_d.pc = force_pc;
-        end else begin
-          i_fetch_d.pc = commit.pc_next;
-        end
-        i_fetch_d.valid = '1;
-      end else if (i_fetch_q.valid & mmu_pc_valid & mmu_pc_ready) begin
-        i_fetch_d.valid = '0;
-      end
     end
   end
 
   always_comb begin: ALU_SOURCE_MUX
-    if (exec_q.inst[6:2] == OPCODE_LUI) begin: LUI_src1
+    automatic logic [4:0] opcode = exec_q.inst[6:2];
+    if (opcode == OPCODE_LUI) begin: LUI_src1
       src1 = '0;
-    end else if ((exec_q.inst[6:2] == OPCODE_AUIPC) ||
-                 (exec_q.inst[6:2] == OPCODE_JAL)
+    end else if ((opcode == OPCODE_AUIPC) ||
+                 (opcode == OPCODE_JAL)
                  ) begin
       src1 = exec_q.pc;
     end else begin
       src1 = exec_q.rs1_data;
     end
-    if ((exec_q.inst[6:2] == OPCODE_LOAD) ||
-        (exec_q.inst[6:2] == OPCODE_OP_IMM) ||
-        (exec_q.inst[6:2] == OPCODE_AUIPC) ||
-        (exec_q.inst[6:2] == OPCODE_LUI) ||
-        (exec_q.inst[6:2] == OPCODE_STORE) ||
-        (exec_q.inst[6:2] == OPCODE_JALR) ||
-        (exec_q.inst[6:2] == OPCODE_JAL)
+    if ((opcode == OPCODE_LOAD) ||
+        (opcode == OPCODE_OP_IMM) ||
+        (opcode == OPCODE_AUIPC) ||
+        (opcode == OPCODE_LUI) ||
+        (opcode == OPCODE_STORE) ||
+        (opcode == OPCODE_JALR) ||
+        (opcode == OPCODE_JAL)
         ) begin
       src2 = exec_q.imm;
     end else begin: OPCODE_01100_11
@@ -287,27 +261,70 @@ module ladybird_core
     end
   end
 
+  always_comb begin
+    if (exec_q.inst[6:2] == OPCODE_BRANCH || exec_q.inst[6:2] == OPCODE_JAL) begin
+      target_pc = exec_q.pc + exec_q.imm;
+    end else begin
+      target_pc = exec_q.rs1_data + exec_q.imm;
+    end
+    branch_flag = '0;
+    if (exec_q.valid) begin
+      if (exec_q.inst[6:2] == OPCODE_BRANCH) begin
+        if (exec_q.inst[14:12] == FUNCT3_BEQ || exec_q.inst[14:12] == FUNCT3_BGE || exec_q.inst[14:12] == FUNCT3_BGEU) begin: BEQ_impl
+          branch_flag = ~(|alu_res);
+        end else begin
+          branch_flag = |alu_res;
+        end
+      end else if (exec_q.inst[6:2] == OPCODE_JAL || exec_q.inst[6:2] == OPCODE_JALR) begin
+        branch_flag = '1;
+      end
+    end
+    if (idle & start) begin
+      npc = start_pc;
+    end else if (force_pc_valid) begin
+      npc = force_pc;
+    end else if (exec_q.valid) begin
+      if (branch_flag) begin
+        npc = target_pc;
+      end else begin
+        npc = pc + 'd4;
+      end
+    end else begin
+      npc = pc;
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
+      pc <= '0;
+    end else begin
+      pc <= npc;
+    end
+  end
+
   always_comb begin: ALU_OPERATION_DECODER
-    if ((exec_q.inst[6:2] == OPCODE_OP_IMM) || (exec_q.inst[6:2] == OPCODE_OP)) begin
-      alu_operation = exec_q.inst[14:12];
-    end else if (exec_q.inst[6:2] == OPCODE_BRANCH) begin
-      if ((exec_q.inst[14:12] == 3'b000) || (exec_q.inst[14:12] == 3'b001)) begin: BEQ_BNE__XOR
-        alu_operation = 3'b100;
-      end else if ((exec_q.inst[14:12] == 3'b100) || (exec_q.inst[14:12] == 3'b101)) begin: BLT_BGE__SLT
-        alu_operation = 3'b010;
+    automatic logic [4:0] opcode = exec_q.inst[6:2];
+    automatic logic [2:0] funct3 = exec_q.inst[14:12];
+    if ((opcode == OPCODE_OP_IMM) || (opcode == OPCODE_OP)) begin
+      alu_operation = funct3;
+    end else if (opcode == OPCODE_BRANCH) begin
+      if ((funct3 == FUNCT3_BEQ) || (funct3 == FUNCT3_BNE)) begin
+        alu_operation = FUNCT3_XOR;
+      end else if ((funct3 == FUNCT3_BLT) || (funct3 == FUNCT3_BGE)) begin
+        alu_operation = FUNCT3_SLT;
       end else begin: BLTU_BGEU__SLTU
-        alu_operation = 3'b011;
+        alu_operation = FUNCT3_SLTU;
       end
     end else begin
       alu_operation = 3'b000; // default operation: ADD
     end
-    if (exec_q.inst[6:2] == OPCODE_OP_IMM) begin: operation_is_imm_arithmetic
-      if (exec_q.inst[14:12] == 3'b101) begin: operation_is_imm_shift_right
+    if (opcode == OPCODE_OP_IMM) begin: operation_is_imm_arithmetic
+      if (funct3 == FUNCT3_SRA) begin: operation_is_imm_shift_right
         alu_alternate = exec_q.inst[30];
       end else begin
         alu_alternate = 1'b0;
       end
-    end else if (exec_q.inst[6:2] == OPCODE_OP) begin: operation_is_arithmetic
+    end else if (opcode == OPCODE_OP) begin: operation_is_arithmetic
       alu_alternate = exec_q.inst[30];
     end else begin
       alu_alternate = 1'b0;
@@ -315,12 +332,6 @@ module ladybird_core
   end
 
   always_comb begin
-    if (exec_q.valid == '1 && exec_q.inst[6:2] == OPCODE_SYSTEM && exec_q.inst[14:12] != 'd0) begin
-      csr_req = '1;
-    end else begin
-      csr_req = '0;
-    end
-    csr_addr = exec_q.inst[31:20];
     if (exec_q.inst[14]) begin
       csr_src = {{27{1'b0}}, exec_q.inst[19:15]};
     end else begin
@@ -351,21 +362,13 @@ module ladybird_core
   end
 
   always_comb begin
-    commit.exception_code = commit_q.exception_code;
+    commit.trap_code = commit_q.trap_code;
     commit.pc = commit_q.pc;
+    commit.npc = commit_q.npc;
     commit.inst = commit_q.inst;
     commit.paddr = commit_q.paddr;
-    case (commit_q.inst[6:2])
-      OPCODE_BRANCH: begin
-        commit.pc_next = commit_q.branch_flag ? commit_q.branch_pc : commit_q.pc + 'h4;
-      end
-      OPCODE_JALR, OPCODE_JAL: begin
-        commit.pc_next = commit_q.branch_pc;
-      end
-      default: begin
-        commit.pc_next = commit_q.pc + 'h4;
-      end
-    endcase
+    commit.rs1_data = commit_q.rs1_data;
+    commit.rs2_data = commit_q.rs2_data;
     if (commit_q.inst[6:2] == OPCODE_LOAD) begin
       commit.wb_data = mmu_lw_data;
     end else if ((commit_q.inst[6:2] == OPCODE_JALR) ||
@@ -416,18 +419,6 @@ module ladybird_core
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (~nrst) begin
-      pc <= '0;
-    end else begin
-      if (idle && start) begin
-        pc <= start_pc;
-      end else if (commit.valid) begin
-        pc <= commit.pc_next;
-      end
-    end
-  end
-
   // pipeline
   always_ff @(posedge clk) begin
     if (~nrst) begin
@@ -443,6 +434,22 @@ module ladybird_core
         exec_q <= exec_d;
         memory_q <= memory_d;
         commit_q <= commit_d;
+      end
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (~nrst) begin
+      instret <= '0;
+      cycle <= '0;
+    end else begin
+      cycle <= cycle + 'd1;
+      if (commit.valid) begin
+        instret <= instret + 'd1;
+`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
+        $display($time, " %0d %08x, %08x, %s", rtc, commit.pc, commit.inst, ladybird_riscv_helper::riscv_disas(commit.inst, commit.pc));
+        // $display("(PA)%08x (S1)%08x (S2)%08x (D)%08x (EN)%08x (NPC)%08x %c", commit.paddr, commit.rs1_data, commit.rs2_data, commit.wb_data, commit.wb_en, commit.npc, commit.wb_data[7:0]);
+`endif
       end
     end
   end

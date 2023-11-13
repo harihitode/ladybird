@@ -42,6 +42,18 @@ package ladybird_riscv_helper;
   localparam logic [2:0] FUNCT3_SH = 3'b001;
   localparam logic [2:0] FUNCT3_SW = 3'b010;
 
+  localparam logic [2:0] FUNCT3_SLT = 3'b010;
+  localparam logic [2:0] FUNCT3_SLTU = 3'b011;
+  localparam logic [2:0] FUNCT3_XOR = 3'b100;
+  localparam logic [2:0] FUNCT3_SRA = 3'b101;
+
+  localparam logic [2:0] FUNCT3_BEQ = 3'b000;
+  localparam logic [2:0] FUNCT3_BNE = 3'b001;
+  localparam logic [2:0] FUNCT3_BLT = 3'b100;
+  localparam logic [2:0] FUNCT3_BGE = 3'b101;
+  localparam logic [2:0] FUNCT3_BLTU = 3'b110;
+  localparam logic [2:0] FUNCT3_BGEU = 3'b111;
+
   localparam logic [2:0] FUNCT3_CSRRW = 3'b001;
   localparam logic [2:0] FUNCT3_CSRRS = 3'b010;
   localparam logic [2:0] FUNCT3_CSRRC = 3'b011;

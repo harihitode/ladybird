@@ -8,7 +8,7 @@ always_ff @(posedge clk) begin \
   if (~nrst) begin \
     SIGNAL <= DEFVAL; \
   end else begin \
-    if (i_valid & i_addr == ADDR) begin \
+    if (csr_valid & csr_addr == ADDR) begin \
       SIGNAL <= masked; \
     end \
   end \
@@ -21,37 +21,27 @@ module ladybird_csr
 (
   input logic             clk,
   input logic [63:0]      rtc,
-// verilator lint_off UNUSED
-  input commit_t          commit,
-// verilator lint_on UNUSED
+  input logic [63:0]      instret,
+  input logic [63:0]      cycle,
   output logic [1:0]      mode,
-  input logic [2:0]       i_op,
-  input logic             i_valid,
-  input logic [11:0]      i_addr,
+  // SYSTEM Instruction
+  input logic             i_req,
+  // verilator lint_off UNUSED
+  input logic [XLEN-1:0]  i_inst,
+  // verilator lint_on UNUSED
+  input logic [XLEN-1:0]  i_pc,
+  input logic [XLEN-1:0]  i_exception_code,
   input logic [XLEN-1:0]  i_data,
   output logic [XLEN-1:0] o_data,
-  output logic            force_pc_valid,
-  output logic [XLEN-1:0] force_pc,
+  output logic            o_pc_valid,
+  output logic [XLEN-1:0] o_trap_code,
+  output logic [XLEN-1:0] o_pc,
   input logic             nrst
 );
 
-  logic [63:0]            minstret, mcycle;
+  logic                   csr_valid;
+  logic [11:0]            csr_addr;
   logic                   mret, sret;
-
-  always_ff @(posedge clk) begin
-    if (~nrst) begin
-      minstret <= '0;
-      mcycle <= '0;
-    end else begin
-      mcycle <= mcycle + 'd1;
-      if (commit.valid) begin
-        minstret <= minstret + 'd1;
-`ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
-        $display("%0d %08x, %08x, %s", rtc, commit.pc, commit.inst, ladybird_riscv_helper::riscv_disas(commit.inst, commit.pc));
-`endif
-      end
-    end
-  end
 
   typedef struct packed {
     logic        SD;
@@ -113,33 +103,57 @@ module ladybird_csr
   logic [1:0]             current_mode;
   logic                   trap;
   logic [1:0]             trap_to_mode;
+  logic [XLEN-1:0]        trap_code;
 
   assign mode = current_mode;
+  assign o_trap_code = trap_code;
+  assign csr_addr = i_inst[31:20];
+
   always_comb begin
-    if (commit.valid) begin
-      if (trap) begin
-        if (trap_to_mode == PRIV_MODE_M) begin
-          force_pc = m_tvec;
-          force_pc_valid = '1;
-        end else begin
-          force_pc = s_tvec;
-          force_pc_valid = '1;
-        end
-      end else if (mret) begin
-        force_pc = m_epc;
-        force_pc_valid = '1;
-      end else if (sret) begin
-        force_pc = s_epc;
-        force_pc_valid = '1;
-      end else begin
-        force_pc = '0;
-        force_pc_valid = '0;
-      end
+    if (i_req == '1 && i_inst[6:2] == OPCODE_SYSTEM && i_inst[14:12] != 'd0) begin
+      csr_valid = '1;
     end else begin
-      force_pc = '0;
-      force_pc_valid = '0;
+      csr_valid = '0;
     end
   end
+
+  always_comb begin
+    automatic logic [6:0] funct7 = i_inst[31:25];
+    automatic logic [4:0] rs2 = i_inst[24:20];
+    trap_code = i_exception_code;
+    if (i_inst[6:2] == OPCODE_SYSTEM && funct7 == 7'h00) begin
+      if (rs2 == 'd0) begin
+        trap_code = TRAP_CODE_ENVIRONMENT_CALL_U | {30'd0, mode};
+      end else if (rs2 == 'd1) begin
+        trap_code = TRAP_CODE_BREAKPOINT;
+      end
+    end
+    if (i_req == '1 && trap_code != 'd0) begin
+      trap = '1;
+    end else begin
+      trap = '0;
+    end
+    trap_to_mode = PRIV_MODE_M;
+    if (trap) begin
+      if (trap_to_mode == PRIV_MODE_M) begin
+        o_pc = m_tvec;
+        o_pc_valid = '1;
+      end else begin
+        o_pc = s_tvec;
+        o_pc_valid = '1;
+      end
+    end else if (mret) begin
+      o_pc = m_epc;
+      o_pc_valid = '1;
+    end else if (sret) begin
+      o_pc = s_epc;
+      o_pc_valid = '1;
+    end else begin
+      o_pc = '0;
+      o_pc_valid = '0;
+    end
+  end
+
   assign f_status = '0;
   assign x_status = '0;
   assign status_dirty = &f_status | &x_status;
@@ -182,37 +196,37 @@ module ladybird_csr
       m_current_interrupt_en <= '0;
       s_current_interrupt_en <= '0;
     end else begin
-      if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         s_access_usermemory <= status_d.SUM;
       end
       if (trap && trap_to_mode == PRIV_MODE_M) begin
         m_previous_mode <= current_mode;
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         m_previous_mode <= status_d.MPP;
       end
       if (trap && trap_to_mode == PRIV_MODE_S) begin
         s_previous_mode <= current_mode[0];
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         s_previous_mode <= status_d.SPP;
       end
       if (trap && trap_to_mode == PRIV_MODE_M) begin
         m_previous_interrupt_en <= m_current_interrupt_en;
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         m_previous_interrupt_en <= status_d.MPIE;
       end
       if (trap && trap_to_mode == PRIV_MODE_S) begin
         s_previous_interrupt_en <= s_current_interrupt_en;
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         s_previous_interrupt_en <= status_d.SPIE;
       end
       if (trap && trap_to_mode == PRIV_MODE_M) begin
         m_current_interrupt_en <= '0;
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         m_current_interrupt_en <= status_d.MIE;
       end
       if (trap && trap_to_mode == PRIV_MODE_M) begin
         s_current_interrupt_en <= '0;
-      end else if (i_valid && i_addr == CSR_ADDR_M_STATUS) begin
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_STATUS) begin
         s_current_interrupt_en <= status_d.SIE;
       end
     end
@@ -226,35 +240,26 @@ module ladybird_csr
       s_cause <= '0;
     end else begin
       if (trap && trap_to_mode == PRIV_MODE_M) begin
-        m_epc <= commit.pc;
-      end else if (i_valid && i_addr == CSR_ADDR_M_EPC) begin
+        m_epc <= i_pc;
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_EPC) begin
         m_epc <= masked;
       end
       if (trap && trap_to_mode == PRIV_MODE_M) begin
-        m_cause <= commit.exception_code; // TODO: interrupt
-      end else if (i_valid && i_addr == CSR_ADDR_M_EPC) begin
+        m_cause <= trap_code;
+      end else if (csr_valid && csr_addr == CSR_ADDR_M_EPC) begin
         m_cause <= masked;
       end
       if (trap && trap_to_mode == PRIV_MODE_S) begin
-        s_epc <= commit.pc;
-      end else if (i_valid && i_addr == CSR_ADDR_S_EPC) begin
+        s_epc <= i_pc;
+      end else if (csr_valid && csr_addr == CSR_ADDR_S_EPC) begin
         s_epc <= masked;
       end
       if (trap && trap_to_mode == PRIV_MODE_S) begin
-        s_cause <= commit.exception_code; // TODO: interrupt
-      end else if (i_valid && i_addr == CSR_ADDR_S_EPC) begin
+        s_cause <= trap_code;
+      end else if (csr_valid && csr_addr == CSR_ADDR_S_EPC) begin
         s_cause <= masked;
       end
     end
-  end
-
-  always_comb begin
-    if (commit.valid && commit.exception_code != 'd0) begin
-      trap = '1;
-    end else begin
-      trap = '0;
-    end
-    trap_to_mode = PRIV_MODE_M;
   end
 
 `ifdef LADYBIRD_SIMULATION
@@ -275,7 +280,7 @@ module ladybird_csr
   end
 
   always_comb begin
-    case (i_op)
+    case (i_inst[14:12])
       FUNCT3_CSRRS, FUNCT3_CSRRSI: masked = o_data | i_data;
       FUNCT3_CSRRC, FUNCT3_CSRRCI: masked = o_data & (~i_data);
       default: masked = i_data;
@@ -285,7 +290,7 @@ module ladybird_csr
 `ifdef LADYBIRD_SIMULATION
   string                  operation;
   always_comb begin
-    case (i_op)
+    case (i_inst[14:12])
       FUNCT3_CSRRW: operation = "CSRRW";
       FUNCT3_CSRRS: operation = "CSRRS";
       FUNCT3_CSRRC: operation = "CSRRC";
@@ -301,13 +306,13 @@ module ladybird_csr
 `ifdef LADYBIRD_SIMULATION
     unimpl = '0;
 `endif
-    case (i_addr)
+    case (csr_addr)
       CSR_ADDR_TIME: o_data = rtc[31:0];
-      CSR_ADDR_CYCLE: o_data = mcycle[31:0];
-      CSR_ADDR_INSTRET: o_data = minstret[31:0];
+      CSR_ADDR_CYCLE: o_data = cycle[31:0];
+      CSR_ADDR_INSTRET: o_data = instret[31:0];
       CSR_ADDR_TIMEH: o_data = rtc[63:32];
-      CSR_ADDR_CYCLEH: o_data = mcycle[63:32];
-      CSR_ADDR_INSTRETH: o_data = minstret[63:32];
+      CSR_ADDR_CYCLEH: o_data = cycle[63:32];
+      CSR_ADDR_INSTRETH: o_data = instret[63:32];
       CSR_ADDR_M_STATUS: o_data = m_status;
       CSR_ADDR_M_STATUSH: o_data = m_statush;
       CSR_ADDR_M_TVEC: o_data = m_tvec;
@@ -332,11 +337,11 @@ module ladybird_csr
   `LADYBIRD_SIMPLE_CSR(CSR_ADDR_S_TVEC, s_tvec, 'd0)
 
   always_comb begin
-    automatic logic [6:0] funct7 = commit.inst[31:25];
-    automatic logic [4:0] rs2 = commit.inst[24:20];
+    automatic logic [6:0] funct7 = i_inst[31:25];
+    automatic logic [4:0] rs2 = i_inst[24:20];
     mret = '0;
     sret = '0;
-    if (commit.valid && commit.inst[6:2] == OPCODE_SYSTEM) begin
+    if (i_req && i_inst[6:2] == OPCODE_SYSTEM) begin
       if (funct7 == 7'h18 && rs2 == 'd2) begin
         mret = '1;
       end
@@ -348,8 +353,8 @@ module ladybird_csr
 
 `ifdef LADYBIRD_SIMULATION
   always_ff @(posedge clk) begin
-    if (nrst & i_valid & unimpl) begin
-      $display("hart%0d mode%0d [%s] unimpl. addr %08x data %08x", HART_ID, current_mode, operation, i_addr, i_data);
+    if (nrst & csr_valid & unimpl) begin
+      $display("hart%0d mode%0d [%s] unimpl. addr %08x data %08x", HART_ID, current_mode, operation, csr_addr, i_data);
     end
   end
 `endif

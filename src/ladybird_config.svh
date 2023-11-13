@@ -28,11 +28,13 @@ package ladybird_config;
 
   // commit type
   typedef struct packed {
-    logic [XLEN-1:0] exception_code;
+    logic [XLEN-1:0] trap_code;
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] npc;
     logic [XLEN-1:0] inst;
     logic [XLEN-1:0] paddr;
-    logic [XLEN-1:0] pc_next;
+    logic [XLEN-1:0] rs1_data;
+    logic [XLEN-1:0] rs2_data;
     logic [XLEN-1:0] wb_data;
     logic            wb_en;
     logic            valid;
