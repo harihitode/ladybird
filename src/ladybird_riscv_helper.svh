@@ -382,7 +382,7 @@ package ladybird_riscv_helper;
     end else if (ret.opcode == OPCODE_JAL) begin
       ret.branch_offset = {{12{ret.inst[31]}}, ret.inst[19:12], ret.inst[20], ret.inst[30:21], 1'b0};
     end else begin
-      ret.branch_offset = {{19{ret.inst[31]}}, ret.inst[30], ret.inst[7], ret.inst[29:24], ret.inst[11:8], 1'b0};
+      ret.branch_offset = {{19{ret.inst[31]}}, ret.inst[31], ret.inst[7], ret.inst[30:25], ret.inst[11:8], 1'b0};
     end
     return ret;
   endfunction
@@ -537,42 +537,57 @@ package ladybird_riscv_helper;
     return ret;
   endfunction
 
+  string riscv_gpr_abi_map [32] = '{"zero", "ra", "sp", "gp", "tp",
+                                    "t0", "t1", "t2", "s0", "s1",
+                                    "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7",
+                                    "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11",
+                                    "t3", "t4", "t5", "t6"};
+
+  function string riscv_gpr_name(input logic [4:0] no, input logic abi);
+    if (abi) begin
+      return riscv_gpr_abi_map[no];
+    end else begin
+      return $sformatf("x%0d", no);
+    end
+  endfunction
+
   function string riscv_disas(input logic [31:0] inst, input logic [31:0] pc);
     automatic string asm;
     automatic string mnemonic;
     automatic result_t ret;
+    automatic logic abi_name = '1;
     ret.inst = inst;
     ret.pc = pc;
     ret = riscv_decode(ret);
     mnemonic = riscv_get_mnemonic(ret.inst);
     case (ret.opcode)
-      OPCODE_LOAD: asm = $sformatf("[%s] x%0d <- x%0d[0x%0x]", mnemonic, ret.rd_regno, ret.rs1_regno, ret.mmu_offset);
+      OPCODE_LOAD: asm = $sformatf("[%s] %s <- %0d(%s)", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), $signed(ret.mmu_offset), riscv_gpr_name(ret.rs1_regno, abi_name));
       OPCODE_MISC_MEM: asm = $sformatf("[%s]", mnemonic);
-      OPCODE_OP_IMM: asm = $sformatf("[%s] x%0d <- x%0d, %0d", mnemonic, ret.rd_regno, ret.rs1_regno, ret.alu_imm);
-      OPCODE_AUIPC: asm = $sformatf("[%s] x%0d <- 0x%0x", mnemonic, ret.rd_regno, ret.pc + ret.alu_imm);
-      OPCODE_STORE: asm = $sformatf("[%s] x%0d -> x%0d[0x%0x]", mnemonic, ret.rs2_regno, ret.rs1_regno, ret.mmu_offset);
-      OPCODE_OP: asm = $sformatf("[%s] x%0d <- x%0d, x%0d", mnemonic, ret.rd_regno, ret.rs1_regno, ret.rs2_regno);
-      OPCODE_LUI: asm = $sformatf("[%s] x%0d <- 0x%0x", mnemonic, ret.rd_regno, ret.alu_imm);
-      OPCODE_BRANCH: asm = $sformatf("[%s] x%0d, x%0d pc <- [0x%0x]", mnemonic, ret.rs1_regno, ret.rs2_regno, ret.pc + ret.branch_offset);
-      OPCODE_JALR: asm = $sformatf("[%s] x%0d <- %0x pc <- [x%0d + 0x%0x]", mnemonic, ret.rd_regno, ret.pc_fallthrough, ret.rs1_regno, ret.branch_offset);
-      OPCODE_JAL: asm = $sformatf("[%s] x%0d <- %0x pc <- [0x%0x]", mnemonic, ret.rd_regno, ret.pc_fallthrough, ret.pc + ret.branch_offset);
+      OPCODE_OP_IMM: asm = $sformatf("[%s] %s <- %s, %0d", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name), $signed(ret.alu_imm));
+      OPCODE_AUIPC: asm = $sformatf("[%s] %s <- 0x%0x", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), ret.pc + ret.alu_imm);
+      OPCODE_STORE: asm = $sformatf("[%s] %s -> %0d(%s)", mnemonic, riscv_gpr_name(ret.rs2_regno, abi_name), $signed(ret.mmu_offset), riscv_gpr_name(ret.rs1_regno, abi_name));
+      OPCODE_OP: asm = $sformatf("[%s] %s <- %s, %s", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name), riscv_gpr_name(ret.rs2_regno, abi_name));
+      OPCODE_LUI: asm = $sformatf("[%s] %s <- 0x%0x", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), ret.alu_imm);
+      OPCODE_BRANCH: asm = $sformatf("[%s] %s, %s pc <- [0x%0x]", mnemonic, riscv_gpr_name(ret.rs1_regno, abi_name), riscv_gpr_name(ret.rs2_regno, abi_name), ret.pc + ret.branch_offset);
+      OPCODE_JALR: asm = $sformatf("[%s] %s <- %0x pc <- [%s + 0x%0x]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), ret.pc_fallthrough, riscv_gpr_name(ret.rs1_regno, abi_name), ret.branch_offset);
+      OPCODE_JAL: asm = $sformatf("[%s] %s <- %0x pc <- [0x%0x]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), ret.pc_fallthrough, ret.pc + ret.branch_offset);
       OPCODE_SYSTEM:   begin
         case (ret.inst[14:12])
           3'b000: asm = $sformatf("[%s]", mnemonic);
           default: begin // CSR
             if (ret.inst[14]) begin
-              asm = $sformatf("[%s] x%0d <-> %0d CSR[0x%0x]", mnemonic, ret.rd_regno, ret.csr_imm, ret.csr_addr);
+              asm = $sformatf("[%s] %s <-> %0d CSR[0x%0x]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), ret.csr_imm, ret.csr_addr);
             end else begin
-              asm = $sformatf("[%s] x%0d <-> x%0d CSR[0x%0x]", mnemonic, ret.rd_regno, ret.rs1_regno, ret.csr_addr);
+              asm = $sformatf("[%s] %s <-> %s CSR[0x%0x]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name), ret.csr_addr);
             end
           end
         endcase
       end
       OPCODE_AMO: begin
         case (ret.inst[31:27])
-          AMO_LR: asm = $sformatf("[%s] x%0d <- x0[x%0d]", mnemonic, ret.rd_regno, ret.rs1_regno);
-          AMO_SC: asm = $sformatf("[%s] x%0d -> x0[x%0d] (x%0d <- success)", mnemonic, ret.rs2_regno, ret.rs1_regno, ret.rd_regno);
-          default: asm = $sformatf("[%s] x%0d <- x0[x%0d], x0[x%0d] <- x%0d", mnemonic, ret.rd_regno, ret.rs1_regno, ret.rs1_regno, ret.rs2_regno);
+          AMO_LR: asm = $sformatf("[%s] %s <- 0x0[%s]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name));
+          AMO_SC: asm = $sformatf("[%s] %s -> 0x0[%s] (%s <- success)", mnemonic, riscv_gpr_name(ret.rs2_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name), ret.rd_regno);
+          default: asm = $sformatf("[%s] %s <- %s, 0x0[%s]", mnemonic, riscv_gpr_name(ret.rd_regno, abi_name), riscv_gpr_name(ret.rs1_regno, abi_name), riscv_gpr_name(ret.rs2_regno, abi_name));
         endcase
       end
       default: asm = $sformatf("[unknown]");
