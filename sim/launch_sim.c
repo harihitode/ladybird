@@ -49,6 +49,9 @@ void debug_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned
       fprintf(stderr, "exec ");
     }
     fprintf(stderr, "%08x\n", addr);
+    for (int i = 0; i < 32; i++) {
+      printf("[X%02d] %08x\n", i, sim_read_register(sim, i));
+    }
     sim->state = quit;
   } else if (dcause == CSR_DCSR_CAUSE_EBREAK) {
     fprintf(stderr, "ebreak\n");
@@ -120,6 +123,9 @@ int main(int argc, char *argv[]) {
       }
     } else if (strcmp(argv[i], "--config-rom") == 0) {
       sim_config_on(sim);
+    } else if (strcmp(argv[i], "--break") == 0) {
+      i++;
+      sim_set_exec_trigger(sim, (unsigned)strtol(argv[i], NULL, 0));
     }
   }
 
