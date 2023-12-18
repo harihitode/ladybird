@@ -7,8 +7,9 @@ package ladybird_config;
   // verilator lint_off UNUSED
   localparam logic [31:0] VERSION = 32'hcafe_0a0a;
   localparam              XLEN = 32;
-  localparam string       VENDOR_NAME = "harihitde";
+  localparam string       VENDOR_NAME = "harihitode";
   localparam string       ARCH_NAME = "ladybird";
+  localparam string       RISCV_EXTENSION_STRING = "RV32IMA";
 
   // core bus type
   typedef enum            logic [0:0] {
