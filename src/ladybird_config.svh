@@ -27,20 +27,6 @@ package ladybird_config;
                                        GPIO = 3'b101
                                        } access_t;
 
-  // commit type
-  typedef struct packed {
-    logic [XLEN-1:0] trap_code;
-    logic [XLEN-1:0] pc;
-    logic [XLEN-1:0] npc;
-    logic [XLEN-1:0] inst;
-    logic [XLEN-1:0] paddr;
-    logic [XLEN-1:0] rs1_data;
-    logic [XLEN-1:0] rs2_data;
-    logic [XLEN-1:0] wb_data;
-    logic            wb_en;
-    logic            valid;
-  } commit_t;
-
   localparam MEMORY_BASEADDR_CONFROM = 32'h00001000;
   localparam MEMORY_BASEADDR_RAM = 32'h80000000;
   localparam MEMORY_BASEADDR_ACLINT = 32'h02000000;

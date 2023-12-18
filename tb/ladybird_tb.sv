@@ -28,8 +28,10 @@ module ladybird_tb
   logic        clk = '0;
   initial forever #5 clk = ~clk;
 
-  logic        start = '0;
-  logic [XLEN-1:0] start_pc = '0;
+  logic [XLEN-1:0] resume_pc = '0;
+  logic            resume_req = '0;
+  logic            halt_req = '0;
+  logic            halt;
   logic            nrst = '0;
   logic [63:0]     rtc = '0;
 
@@ -43,7 +45,7 @@ module ladybird_tb
                                           VENDOR_NAME, ARCH_NAME,
                                           ACLINT_MTIME_BASE,
                                           MEMORY_BASEADDR_RAM, MEMORY_SIZE_RAM,
-                                          "RV32IM",
+                                          RISCV_EXTENSION_STRING,
                                           ACLINT_MTIMECMP_BASE, ACLINT_MSIP_BASE);
     MEMORY.write(MEMORY_BASEADDR_CONFROM + 'd12, conf_str_addr[7:0]);
     MEMORY.write(MEMORY_BASEADDR_CONFROM + 'd13, conf_str_addr[15:8]);
@@ -64,9 +66,11 @@ module ladybird_tb
   CORE (
         .clk(clk),
         .rtc(rtc),
-        .start(start),
-        .start_pc(start_pc),
+        .resume_req(resume_req),
+        .resume_pc(resume_pc),
+        .halt_req(halt_req),
         .axi(axi.master),
+        .halt(halt),
         .nrst(nrst)
         );
 
@@ -92,10 +96,11 @@ module ladybird_tb
         MEMORY.write(elf.pheader_i[p].p_paddr + i, prog[i]);
       end
     end
-    start_pc = elf.eheader_i.e_entry;
+    resume_pc = elf.eheader_i.e_entry;
     #10;
-    start = 'b1;
-    while ($time < timeout) begin
+    resume_req = 'b1;
+    @(posedge clk);
+    while (($time < timeout)) begin
       @(posedge clk);
     end
     $finish;

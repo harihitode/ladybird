@@ -22,6 +22,8 @@ module ladybird_mmu
    output logic            pc_ready,
    output logic [XLEN-1:0] inst,
    output logic            inst_valid,
+   input logic             inst_ready,
+   output logic [XLEN-1:0] inst_pc,
    ladybird_axi_interface.master axi,
    input logic             nrst
    );
@@ -49,10 +51,16 @@ module ladybird_mmu
     logic [axi.AXI_ID_W-1:0] id;
   } request_t;
 
+  typedef struct             packed {
+    logic                    valid;
+    logic [XLEN-1:0]         addr;
+    logic [XLEN-1:0]         data;
+  } rddata_buf_t;
+
   request_t            request_q, request_d;
   logic                read_start, write_start;
   logic [XLEN-1:0]     rdata;
-  logic                inst_ready = 1'b1;
+  rddata_buf_t         i_buf_d, i_buf_q, d_buf_d, d_buf_q;
 
   always_comb begin
     read_start = '0;
@@ -112,19 +120,45 @@ module ladybird_mmu
     end
   end
 
+  always_comb begin
+    i_buf_d = i_buf_q;
+    if (i_buf_q.valid && inst_ready) begin
+      i_buf_d.valid = '0;
+    end else if (axi.arid == AXI_ID_I && axi.rvalid && axi.rready) begin
+      i_buf_d.valid = '1;
+      i_buf_d.data = rdata;
+      i_buf_d.addr = request_q.addr;
+    end
+  end
+
+  always_comb begin
+    d_buf_d = d_buf_q;
+    if (d_buf_q.valid && o_ready) begin
+      d_buf_d.valid = '0;
+    end else if (axi.arid == AXI_ID_D && axi.rvalid && axi.rready) begin
+      d_buf_d.valid = '1;
+      d_buf_d.data = rdata;
+      d_buf_d.addr = request_q.addr;
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (~nrst) begin
       request_q <= '0;
       state_q <= IDLE;
+      i_buf_q <= '0;
+      d_buf_q <= '0;
     end else begin
       request_q <= request_d;
       state_q <= state_d;
+      i_buf_q <= i_buf_d;
+      d_buf_q <= d_buf_d;
     end
   end
 
   // data bus
-  assign pc_ready = (state_q == IDLE) ? '1 : '0;
-  assign i_ready = (state_q == IDLE) ? ~pc_valid : '0;
+  assign pc_ready = (state_q == IDLE) ? ~i_valid : '0;
+  assign i_ready = (state_q == IDLE) ? '1 : '0;
   // AW channel
   assign axi.awid = request_q.id;
   assign axi.awaddr = request_q.addr & address_mask;
@@ -182,11 +216,12 @@ module ladybird_mmu
   assign axi.arprot = '0;
   assign axi.arvalid = (state_q == AR_CHANNEL) ? '1 : '0;
   // R channel;
-  assign o_valid = (state_q == R_CHANNEL && axi.rid == AXI_ID_D) ? axi.rvalid : '0;
-  assign o_data = rdata;
-  assign inst_valid = (state_q == R_CHANNEL && axi.rid == AXI_ID_I) ? axi.rvalid : '0;
-  assign inst = rdata;
-  assign axi.rready = (axi.rid == AXI_ID_I) ? inst_ready : o_ready;
+  assign o_valid = d_buf_q.valid;
+  assign o_data = d_buf_q.data;
+  assign inst_valid = i_buf_q.valid;
+  assign inst = i_buf_q.data;
+  assign inst_pc = i_buf_q.addr;
+  assign axi.rready = (axi.rid == AXI_ID_I) ? ~i_buf_q.valid : ~d_buf_q.valid;
   always_comb begin
     rdata = '0;
     if (request_q.funct == ladybird_riscv_helper::FUNCT3_LB) begin
