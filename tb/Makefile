@@ -17,7 +17,7 @@ endif
 .PHONY: all wave clean
 
 all:
-	verilator -Wall $(VDEF) --timing --cc --exe $(TOP).cpp -I../src $(PACKAGES) $(INTERFACE) --trace --top-module $(TOP) $(TOP).sv
+	verilator -Wall $(VDEF) --timing --cc --exe $(TOP).cpp -I../src $(PACKAGES) $(INTERFACE) --trace --trace --trace-params --trace-structs --trace-underscore --top-module $(TOP) $(TOP).sv
 	cd obj_dir; make -j --silent -f V$(TOP).mk V$(TOP)
 	cd obj_dir; ./V$(TOP) ../$(ELF) $(TIMEOUT) $(VCDFILE)
 
