@@ -29,6 +29,8 @@ module ladybird_core
   logic                   mmu_we;
   logic                   mmu_pc_valid, mmu_pc_ready;
   logic                   mmu_inst_valid, mmu_inst_ready;
+  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) i_axi(.aclk(clk));
+  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) d_axi(.aclk(clk));
 
   // CSR I/F
   logic [XLEN-1:0]        csr_src, csr_trap_code, csr_res;
@@ -186,7 +188,8 @@ module ladybird_core
      .o_valid(mmu_data_valid),
      .o_data(mmu_data),
      .o_ready(mmu_data_ready),
-     .axi(axi),
+     .i_axi(i_axi),
+     .d_axi(d_axi),
      .pc(i_fetch_d.pc),
      .pc_valid(mmu_pc_valid),
      .pc_ready(mmu_pc_ready),
@@ -195,6 +198,14 @@ module ladybird_core
      .inst_ready(mmu_inst_ready),
      .inst_pc(mmu_inst_pc),
      .nrst(nrst)
+     );
+
+  ladybird_axi_arbiter
+  AXI_ARB
+    (
+     .i_axi_0(i_axi),
+     .i_axi_1(d_axi),
+     .o_axi(axi)
      );
 
   always_comb begin
