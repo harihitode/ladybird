@@ -14,12 +14,15 @@ else
 VCDFILE=
 endif
 
-.PHONY: all clean
+.PHONY: all wave clean
 
 all:
 	verilator -Wall $(VDEF) --timing --cc --exe $(TOP).cpp -I../src $(PACKAGES) $(INTERFACE) --trace --top-module $(TOP) $(TOP).sv
 	cd obj_dir; make -j --silent -f V$(TOP).mk V$(TOP)
 	cd obj_dir; ./V$(TOP) ../$(ELF) $(TIMEOUT) $(VCDFILE)
+
+wave:
+	gtkwave ./obj_dir/wave.vcd
 
 clean:
 	$(RM) -rf obj_dir
