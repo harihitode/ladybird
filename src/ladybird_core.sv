@@ -18,23 +18,26 @@ module ladybird_core
    input logic            nrst
    );
 
+  // IFU I/F
+  logic [XLEN-1:0]        ifu_o_inst, ifu_o_pc;
+  logic                   ifu_i_valid, ifu_i_ready;
+  logic                   ifu_o_valid, ifu_o_ready;
+  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) i_axi(.aclk(clk));
+
   // ALU I/F
   logic [2:0]             alu_operation;
   logic                   alu_alternate;
   logic [XLEN-1:0]        alu_res;
 
-  // MMU I/F
-  logic [XLEN-1:0]        mmu_inst, mmu_inst_pc, mmu_data;
-  logic                   mmu_req, mmu_gnt, mmu_data_valid, mmu_data_ready;
-  logic                   mmu_we;
-  logic                   mmu_pc_valid, mmu_pc_ready;
-  logic                   mmu_inst_valid, mmu_inst_ready;
-  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) i_axi(.aclk(clk));
-  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) d_axi(.aclk(clk));
-
   // CSR I/F
   logic [XLEN-1:0]        csr_src, csr_trap_code, csr_res;
   logic [XLEN-1:0]        src1, src2;
+
+  // LSU I/F
+  logic [XLEN-1:0]        lsu_data;
+  logic                   lsu_req, lsu_gnt, lsu_data_valid, lsu_data_ready;
+  logic                   lsu_we;
+  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) d_axi(.aclk(clk));
 
   // Status
   // verilator lint_off UNUSED
@@ -140,10 +143,25 @@ module ladybird_core
   logic                branch_flag;
 
   assign stage_valid = {commit_q.valid, memory_q.valid, exec_q.valid, d_fetch_q.valid, i_fetch_q.valid};
-  assign mmu_pc_valid = running | (halt & resume_req);
-  assign mmu_inst_ready = df_ready;
-  assign mmu_data_ready = '1;
+  assign ifu_i_valid = running | (halt & resume_req);
+  assign ifu_o_ready = df_ready;
+  assign lsu_data_ready = '1;
   assign halt = ~running;
+
+  ladybird_ifu #(.AXI_ID_I('d0))
+  IFU
+    (
+     .clk(clk),
+     .pc(i_fetch_d.pc),
+     .pc_valid(ifu_i_valid),
+     .pc_ready(ifu_i_ready),
+     .inst(ifu_o_inst),
+     .inst_valid(ifu_o_valid),
+     .inst_ready(ifu_o_ready),
+     .inst_pc(ifu_o_pc),
+     .i_axi(i_axi),
+     .nrst(nrst)
+     );
 
   ladybird_alu #(.USE_FA_MODULE(0))
   ALU
@@ -175,28 +193,20 @@ module ladybird_core
      .nrst(nrst)
      );
 
-  ladybird_mmu
-  MMU
+  ladybird_lsu
+  LSU
     (
      .clk(clk),
-     .i_valid(mmu_req),
-     .i_ready(mmu_gnt),
+     .i_valid(lsu_req),
+     .i_ready(lsu_gnt),
      .i_addr(exec_q.rd_data),
      .i_data(exec_q.rs2_data),
-     .i_we(mmu_we),
+     .i_we(lsu_we),
      .i_funct(exec_q.inst[14:12]),
-     .o_valid(mmu_data_valid),
-     .o_data(mmu_data),
-     .o_ready(mmu_data_ready),
-     .i_axi(i_axi),
+     .o_valid(lsu_data_valid),
+     .o_data(lsu_data),
+     .o_ready(lsu_data_ready),
      .d_axi(d_axi),
-     .pc(i_fetch_d.pc),
-     .pc_valid(mmu_pc_valid),
-     .pc_ready(mmu_pc_ready),
-     .inst(mmu_inst),
-     .inst_valid(mmu_inst_valid),
-     .inst_ready(mmu_inst_ready),
-     .inst_pc(mmu_inst_pc),
      .nrst(nrst)
      );
 
@@ -210,7 +220,7 @@ module ladybird_core
 
   always_comb begin
     if (~i_fetch_q.valid) begin
-      if_ready = mmu_pc_ready;
+      if_ready = ifu_i_ready;
     end else begin
       if_ready = df_ready;
     end
@@ -221,7 +231,7 @@ module ladybird_core
         i_fetch_d.pc = force_pc;
       end else if (branch_flag) begin
         i_fetch_d.pc = target_pc;
-      end else if (mmu_inst_valid && mmu_inst_ready && i_fetch_q.pc == mmu_inst_pc) begin
+      end else if (ifu_o_valid && ifu_o_ready && i_fetch_q.pc == ifu_o_pc) begin
         i_fetch_d.pc = i_fetch_q.pc + 'd4;
       end else begin
         i_fetch_d.pc = i_fetch_q.pc;
@@ -243,20 +253,20 @@ module ladybird_core
       df_ready = '0;
     end else begin
       d_fetch_d.pc = i_fetch_q.pc;
-      d_fetch_d.inst = mmu_inst;
+      d_fetch_d.inst = ifu_o_inst;
       d_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
       d_fetch_d.rd_addr = d_fetch_d.inst[11:7];
       if (d_fetch_d.inst[6:2] == OPCODE_STORE) begin: STORE_OFFSET
-        d_fetch_d.imm = {{20{mmu_inst[31]}}, mmu_inst[31:25], mmu_inst[11:7]};
+        d_fetch_d.imm = {{20{d_fetch_d.inst[31]}}, d_fetch_d.inst[31:25], d_fetch_d.inst[11:7]};
       end else if ((d_fetch_d.inst[6:2] == OPCODE_AUIPC) ||
                    (d_fetch_d.inst[6:2] == OPCODE_LUI)) begin: AUIPC_LUI_IMMEDIATE
-        d_fetch_d.imm = {mmu_inst[31:12], 12'h000};
+        d_fetch_d.imm = {d_fetch_d.inst[31:12], 12'h000};
       end else if (d_fetch_d.inst[6:2] == OPCODE_JAL) begin: JAL_OFFSET
-        d_fetch_d.imm = {{12{mmu_inst[31]}}, mmu_inst[19:12], mmu_inst[20], mmu_inst[30:21], 1'b0};
+        d_fetch_d.imm = {{12{d_fetch_d.inst[31]}}, d_fetch_d.inst[19:12], d_fetch_d.inst[20], d_fetch_d.inst[30:21], 1'b0};
       end else if (d_fetch_d.inst[6:2] == OPCODE_BRANCH) begin: BRANCH_OFFSET
-        d_fetch_d.imm = {{19{mmu_inst[31]}}, mmu_inst[31], mmu_inst[7], mmu_inst[30:25], mmu_inst[11:8], 1'b0};
+        d_fetch_d.imm = {{19{d_fetch_d.inst[31]}}, d_fetch_d.inst[31], d_fetch_d.inst[7], d_fetch_d.inst[30:25], d_fetch_d.inst[11:8], 1'b0};
       end else begin
-        d_fetch_d.imm = {{20{mmu_inst[31]}}, mmu_inst[31:20]};
+        d_fetch_d.imm = {{20{d_fetch_d.inst[31]}}, d_fetch_d.inst[31:20]};
       end
       if (d_fetch_d.rd_addr == 5'd0) begin
         d_fetch_d.rd_wb = 'b0;
@@ -308,7 +318,7 @@ module ladybird_core
       end else begin
         df_ready = rs1_valid & rs2_valid & mx_ready;
       end
-      if (i_fetch_q.valid && mmu_inst_valid && i_fetch_q.pc == mmu_inst_pc) begin
+      if (i_fetch_q.valid && ifu_o_valid && i_fetch_q.pc == ifu_o_pc) begin
         d_fetch_d.valid = df_ready;
       end else begin
         d_fetch_d.valid = '0;
@@ -319,7 +329,7 @@ module ladybird_core
   always_comb begin
     automatic logic [XLEN-1:0] inst = d_fetch_q.inst;
     if (exec_q.valid && (exec_q.inst[6:2] == OPCODE_LOAD || exec_q.inst[6:2] == OPCODE_STORE)) begin
-      ex_ready = mmu_req & mmu_gnt & mx_ready;
+      ex_ready = lsu_req & lsu_gnt & mx_ready;
     end else begin
       ex_ready = mx_ready;
     end
@@ -376,7 +386,7 @@ module ladybird_core
 
   always_comb begin
     if (memory_q.valid && memory_q.inst[6:2] == OPCODE_LOAD) begin
-      mx_ready = mmu_data_valid & mmu_data_ready & wb_ready;
+      mx_ready = lsu_data_valid & lsu_data_ready & wb_ready;
     end else begin
       mx_ready = wb_ready;
     end
@@ -395,7 +405,7 @@ module ladybird_core
       memory_d.branch_flag = branch_flag;
       memory_d.rd_data = exec_q.rd_data;
       if ((exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE)) begin
-        memory_d.valid = exec_q.valid & mmu_req & mmu_gnt;
+        memory_d.valid = exec_q.valid & lsu_req & lsu_gnt;
       end else begin
         memory_d.valid = exec_q.valid;
       end
@@ -416,12 +426,12 @@ module ladybird_core
     commit_d.rd_wb = memory_q.rd_wb;
     commit_d.rd_pno = memory_q.rd_pno;
     if (memory_q.inst[6:2] == OPCODE_LOAD) begin
-      commit_d.rd_data = mmu_data;
+      commit_d.rd_data = lsu_data;
     end else begin
       commit_d.rd_data = memory_q.rd_data;
     end
     if (memory_q.inst[6:2] == OPCODE_LOAD) begin
-      commit_d.valid = memory_q.valid & mmu_data_valid;
+      commit_d.valid = memory_q.valid & lsu_data_valid;
     end else begin
       commit_d.valid = memory_q.valid;
     end
@@ -496,14 +506,14 @@ module ladybird_core
   always_comb begin
     if ((exec_q.valid == '1) && ((exec_q.inst[6:2] == OPCODE_LOAD) ||
                                  (exec_q.inst[6:2] == OPCODE_STORE))) begin
-      mmu_req = 'b1;
+      lsu_req = 'b1;
     end else begin
-      mmu_req = 'b0;
+      lsu_req = 'b0;
     end
     if (exec_q.inst[6:2] == OPCODE_STORE) begin
-      mmu_we = 'b1;
+      lsu_we = 'b1;
     end else begin
-      mmu_we = 'b0;
+      lsu_we = 'b0;
     end
   end
 
