@@ -6,7 +6,10 @@
 module ladybird_core
   import ladybird_config::*;
   import ladybird_riscv_helper::*;
-  #(parameter logic [XLEN-1:0] HART_ID = 'd0)
+  #(parameter logic [XLEN-1:0] HART_ID = 'd0,
+    parameter AXI_DATA_W = ladybird_config::XLEN,
+    parameter AXI_ADDR_W = ladybird_config::XLEN
+    )
   (
    input logic            clk,
    ladybird_axi_interface.master axi,
@@ -22,7 +25,7 @@ module ladybird_core
   logic [XLEN-1:0]        ifu_o_inst, ifu_o_pc;
   logic                   ifu_i_valid, ifu_i_ready;
   logic                   ifu_o_valid, ifu_o_ready;
-  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) i_axi(.aclk(clk));
+  ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) i_axi(.aclk(clk));
 
   // ALU I/F
   logic [2:0]             alu_operation;
@@ -37,7 +40,7 @@ module ladybird_core
   logic [XLEN-1:0]        lsu_data;
   logic                   lsu_req, lsu_gnt, lsu_data_valid, lsu_data_ready;
   logic                   lsu_we;
-  ladybird_axi_interface #(.AXI_DATA_W(XLEN), .AXI_ADDR_W(XLEN)) d_axi(.aclk(clk));
+  ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) d_axi(.aclk(clk));
 
   // Status
   // verilator lint_off UNUSED
@@ -148,7 +151,7 @@ module ladybird_core
   assign lsu_data_ready = '1;
   assign halt = ~running;
 
-  ladybird_ifu #(.AXI_ID_I('d0))
+  ladybird_ifu #(.AXI_ID_I('d0), .AXI_DATA_W(AXI_DATA_W))
   IFU
     (
      .clk(clk),

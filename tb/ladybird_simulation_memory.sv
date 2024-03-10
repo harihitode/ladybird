@@ -5,6 +5,8 @@
 // verilator lint_off UNUSED
 module ladybird_simulation_memory
 #(
+  parameter AXI_DATA_W = 32,
+  parameter AXI_ADDR_W = 32,
   parameter logic [31:0] MEMORY_HTIF_TOHOST = 32'h80001000,
   parameter logic [31:0] MEMORY_HTIF_FROMHOST = 32'h80001040
 )
@@ -14,8 +16,6 @@ module ladybird_simulation_memory
   input logic                  nrst
 );
   import ladybird_axi::*;
-  localparam AXI_ADDR_W = axi.AXI_ADDR_W;
-  localparam AXI_DATA_W = axi.AXI_DATA_W;
   localparam AXI_ID_W = axi.AXI_ID_W;
   localparam HTIF_SYS_write = 'd64;
   localparam HTIF_SYS_exit = 'd93;

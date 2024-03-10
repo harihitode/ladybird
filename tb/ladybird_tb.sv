@@ -62,7 +62,9 @@ module ladybird_tb
 
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) axi(.aclk(clk));
 
-  ladybird_core #(.HART_ID(0))
+  ladybird_core #(.HART_ID(0),
+                  .AXI_DATA_W(AXI_DATA_W),
+                  .AXI_ADDR_W(AXI_ADDR_W))
   CORE (
         .clk(clk),
         .rtc(rtc),
@@ -74,7 +76,8 @@ module ladybird_tb
         .nrst(nrst)
         );
 
-  ladybird_simulation_memory
+  ladybird_simulation_memory #(.AXI_DATA_W(AXI_DATA_W),
+                               .AXI_ADDR_W(AXI_ADDR_W))
   MEMORY (
           .clk(clk),
           .axi(axi.slave),
