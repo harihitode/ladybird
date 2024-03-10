@@ -82,6 +82,7 @@ module ladybird_core
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
     logic [XLEN-1:0]   rd_data;
+    logic              invalidate;
     logic              valid;
   } exec_stage_t;
   exec_stage_t exec_q, exec_d;
@@ -97,7 +98,7 @@ module ladybird_core
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
     logic [XLEN-1:0]   rd_data;
-    logic              branch_flag;
+    logic              invalidate;
     logic              valid;
   } memory_stage_t;
   memory_stage_t memory_q, memory_d;
@@ -114,7 +115,7 @@ module ladybird_core
     logic [XLEN-1:0]   rs2_data;
     logic [XLEN-1:0]   paddr;
     logic [XLEN-1:0]   rd_data;
-    logic              branch_flag;
+    logic              invalidate;
     logic              valid;
   } commit_stage_t;
   // verilator lint_off UNUSED
@@ -331,14 +332,12 @@ module ladybird_core
 
   always_comb begin
     automatic logic [XLEN-1:0] inst = d_fetch_q.inst;
-    if (exec_q.valid && (exec_q.inst[6:2] == OPCODE_LOAD || exec_q.inst[6:2] == OPCODE_STORE)) begin
+    if (exec_q.valid && ~exec_q.invalidate && (exec_q.inst[6:2] == OPCODE_LOAD || exec_q.inst[6:2] == OPCODE_STORE)) begin
       ex_ready = lsu_req & lsu_gnt & mx_ready;
     end else begin
       ex_ready = mx_ready;
     end
-    if (branch_flag) begin
-      exec_d = '0;
-    end else if (!ex_ready) begin
+    if (!ex_ready) begin
       exec_d = exec_q;
     end else begin
       exec_d.pc = d_fetch_q.pc;
@@ -350,6 +349,7 @@ module ladybird_core
       exec_d.imm = d_fetch_q.imm;
       exec_d.rs1_data = d_fetch_q.rs1_data;
       exec_d.rs2_data = d_fetch_q.rs2_data;
+      exec_d.invalidate = branch_flag;
       exec_d.valid = d_fetch_q.valid;
       if ((d_fetch_q.inst[6:2] == OPCODE_JALR) ||
           (d_fetch_q.inst[6:2] == OPCODE_JAL)) begin
@@ -388,7 +388,7 @@ module ladybird_core
   end
 
   always_comb begin
-    if (memory_q.valid && memory_q.inst[6:2] == OPCODE_LOAD) begin
+    if (memory_q.valid && ~memory_q.invalidate && memory_q.inst[6:2] == OPCODE_LOAD) begin
       mx_ready = lsu_data_valid & lsu_data_ready & wb_ready;
     end else begin
       mx_ready = wb_ready;
@@ -405,9 +405,9 @@ module ladybird_core
       memory_d.rd_pno = exec_q.rd_pno;
       memory_d.rs1_data = exec_q.rs1_data;
       memory_d.rs2_data = exec_q.rs2_data;
-      memory_d.branch_flag = branch_flag;
       memory_d.rd_data = exec_q.rd_data;
-      if ((exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE)) begin
+      memory_d.invalidate = exec_q.invalidate;
+      if (~exec_q.invalidate && (exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE)) begin
         memory_d.valid = exec_q.valid & lsu_req & lsu_gnt;
       end else begin
         memory_d.valid = exec_q.valid;
@@ -423,7 +423,6 @@ module ladybird_core
     commit_d.inst = memory_q.inst;
     commit_d.rs1_data = memory_q.rs1_data;
     commit_d.rs2_data = memory_q.rs2_data;
-    commit_d.branch_flag = memory_q.branch_flag;
     commit_d.paddr = memory_q.rd_data;
     commit_d.rd_addr = memory_q.rd_addr;
     commit_d.rd_wb = memory_q.rd_wb;
@@ -433,7 +432,8 @@ module ladybird_core
     end else begin
       commit_d.rd_data = memory_q.rd_data;
     end
-    if (memory_q.inst[6:2] == OPCODE_LOAD) begin
+    commit_d.invalidate = memory_q.invalidate;
+    if (memory_q.inst[6:2] == OPCODE_LOAD && ~memory_q.invalidate) begin
       commit_d.valid = memory_q.valid & lsu_data_valid;
     end else begin
       commit_d.valid = memory_q.valid;
@@ -447,12 +447,12 @@ module ladybird_core
       target_pc = exec_q.rs1_data + exec_q.imm;
     end
     branch_flag = '0;
-    if (exec_q.valid) begin
+    if (exec_q.valid && ~exec_q.invalidate) begin
       if (exec_q.inst[6:2] == OPCODE_BRANCH) begin
         if (exec_q.inst[14:12] == FUNCT3_BEQ || exec_q.inst[14:12] == FUNCT3_BGE || exec_q.inst[14:12] == FUNCT3_BGEU) begin: BEQ_impl
-          branch_flag = ~(|alu_res);
+          branch_flag = ~(|exec_q.rd_data);
         end else begin
-          branch_flag = |alu_res;
+          branch_flag = |exec_q.rd_data;
         end
       end else if (exec_q.inst[6:2] == OPCODE_JAL || exec_q.inst[6:2] == OPCODE_JALR) begin
         branch_flag = '1;
@@ -507,8 +507,8 @@ module ladybird_core
   end
 
   always_comb begin
-    if ((exec_q.valid == '1) && ((exec_q.inst[6:2] == OPCODE_LOAD) ||
-                                 (exec_q.inst[6:2] == OPCODE_STORE))) begin
+    if ((exec_q.valid == '1) && (exec_q.invalidate == '0) &&
+        ((exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE))) begin
       lsu_req = 'b1;
     end else begin
       lsu_req = 'b0;
@@ -524,7 +524,7 @@ module ladybird_core
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && commit_q.rd_wb == '1 && physreg[commit_q.rd_pno].valid) begin
+      if (commit_q.valid == '1 && commit_q.invalidate == '0 && commit_q.rd_wb == '1 && physreg[commit_q.rd_pno].valid) begin
         gpr[commit_q.rd_addr] <= physreg[commit_q.rd_pno].data;
       end
     end
@@ -602,7 +602,7 @@ module ladybird_core
       cycle <= '0;
     end else begin
       cycle <= cycle + 'd1;
-      if (commit_q.valid) begin
+      if (commit_q.valid && ~commit_q.invalidate) begin
         instret <= instret + 'd1;
 `ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
         $display($time, " %0d %08x, %08x, %s: next %08x", rtc, commit_q.pc, commit_q.inst, ladybird_riscv_helper::riscv_disas(commit_q.inst, commit_q.pc), commit_q.npc);
