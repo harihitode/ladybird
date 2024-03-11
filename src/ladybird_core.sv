@@ -151,7 +151,7 @@ module ladybird_core
   assign lsu_data_ready = '1;
   assign halt = ~running;
 
-  ladybird_ifu #(.AXI_ID_I('d0), .AXI_DATA_W(AXI_DATA_W))
+  ladybird_ifu #(.AXI_ID('d0), .AXI_DATA_W(AXI_DATA_W))
   IFU
     (
      .clk(clk),
@@ -196,7 +196,7 @@ module ladybird_core
      .nrst(nrst)
      );
 
-  ladybird_lsu
+  ladybird_lsu #(.AXI_ID('d1), .AXI_DATA_W(AXI_DATA_W))
   LSU
     (
      .clk(clk),

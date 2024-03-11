@@ -6,7 +6,7 @@
 
 module ladybird_ifu
   import ladybird_config::*;
-  #(parameter AXI_ID_I = 'd0,
+  #(parameter AXI_ID = 'd0,
     parameter AXI_DATA_W = 32)
   (
    input logic             clk,
@@ -19,7 +19,7 @@ module ladybird_ifu
    input logic             inst_ready,
    // verilator lint_on: UNUSED
    output logic [XLEN-1:0] inst_pc,
-                           ladybird_axi_interface.master i_axi,
+   ladybird_axi_interface.master i_axi,
    input logic             nrst
    );
 
@@ -43,7 +43,7 @@ module ladybird_ifu
     inst_pc = line_addr_d;
   end
 
-  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID_I))
+  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID))
   ICACHE
     (
      .clk(clk),
