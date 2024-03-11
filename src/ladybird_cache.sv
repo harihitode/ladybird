@@ -88,7 +88,12 @@ module ladybird_cache
         miss_without_writeback = '1;
       end
     end
-    cache_hit = ~(miss_with_writeback | miss_without_writeback) & i_valid & i_ready;
+    if ((i_valid || request_q.valid) &&
+        (current_line.valid && current_line.tag == request_addr.tag)) begin
+      cache_hit = '1;
+    end else begin
+      cache_hit = '0;
+    end
     rd_line = current_line.data;
   end
 
