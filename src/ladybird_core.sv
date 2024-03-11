@@ -136,7 +136,6 @@ module ladybird_core
   } phys_reg_t;
   logic [XLEN-1:0]     gpr [2**VREG_W];
   gpr_remap_t          gpr_remap [2**VREG_W];
-  // gpr_remap_t          gpr_remap_speculative [2**VREG_W];
   phys_reg_t           physreg [2**PREG_W];
   logic [PREG_W-1:0]   physreg_head;
   // verilator lint_off UNUSED
@@ -563,11 +562,11 @@ module ladybird_core
       if (~nrst) begin
         gpr_remap[i] <= '0;
       end else begin
-        if (gpr_remap[i].valid && i == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1) begin
-          gpr_remap[i] <= '0;
-        end else if (d_fetch_d.valid && d_fetch_d.rd_wb && d_fetch_d.rd_addr == i) begin
+        if (d_fetch_d.valid && d_fetch_d.rd_wb && d_fetch_d.rd_addr == i) begin
           gpr_remap[i].valid <= '1;
           gpr_remap[i].pno <= d_fetch_d.rd_pno;
+        end else if (gpr_remap[i].valid && i == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1 && commit_q.rd_pno == gpr_remap[i].pno) begin
+          gpr_remap[i] <= '0;
         end
       end
     end
