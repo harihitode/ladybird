@@ -44,7 +44,7 @@ module ladybird_simulation_memory
   state_t state_q, state_d;
 
   assign axi.awready = (state_q == IDLE) ? '1 : '0;
-  assign axi.arready = (state_q == IDLE) ? '1 : '0;
+  assign axi.arready = (state_q == IDLE) ? ~axi.awvalid : '0;
   assign axi.bid = request_q.id;
   assign axi.rid = request_q.id;
   assign axi.rvalid = (state_q == READING) ? '1 : '0;
