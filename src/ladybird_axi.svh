@@ -14,6 +14,9 @@ package ladybird_axi;
   localparam logic [BURST_W-1:0] axi_incrementing_burst = 'd1;
   localparam logic [BURST_W-1:0] axi_wrapping_burst = 'd2;
   localparam logic [SIZE_W-1:0]  axi_burst_size_32 = 3'b010;
+  localparam logic [SIZE_W-1:0]  axi_burst_size_64 = 3'b011;
+  localparam logic [SIZE_W-1:0]  axi_burst_size_128 = 3'b100;
+  localparam logic [SIZE_W-1:0]  axi_burst_size_256 = 3'b101;
 endpackage
   // verilator lint_on UNUSEDPARAM
 

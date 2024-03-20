@@ -19,8 +19,7 @@ package ladybird_config;
   // access type
   localparam              NUM_PERIPHERAL = 6;
   typedef enum            logic [2:0] {
-                                       IRAM = 3'b000,
-                                       BRAM = 3'b001,
+                                       ROM  = 3'b001,
                                        DRAM = 3'b010,
                                        UART = 3'b011,
                                        QSPI = 3'b100,
@@ -35,15 +34,38 @@ package ladybird_config;
   localparam ACLINT_MTIMECMP_BASE = MEMORY_BASEADDR_ACLINT + 32'h00004000;
   localparam ACLINT_SETSSIP_BASE = MEMORY_BASEADDR_ACLINT + 32'h00008000;
   localparam ACLINT_MTIME_BASE = MEMORY_BASEADDR_ACLINT + 32'h0000bff8;
+`ifdef  LADYBIRD_SIMULATION_HTIF
+  localparam MEMORY_HTIF_TOHOST = 32'h80001000;
+  localparam MEMORY_HTIF_FROMHOST = 32'h80001040;
+`endif
 
   function automatic access_t ACCESS_TYPE(input logic [XLEN-1:0] addr);
-    case (addr[XLEN-1-:4])
-      4'hF:    return UART;
-      4'hE:    return GPIO;
-      4'hD:    return QSPI;
-      4'h8:    return BRAM;
-      4'h9:    return IRAM;
-      default: return DRAM;
+    if (addr[XLEN-1] == '1) begin
+      return DRAM;
+    end else if (addr[XLEN-1:12] == 20'h00001) begin
+      return ROM;
+    end else begin
+      return GPIO;
+    end
+  endfunction
+
+  function automatic logic IS_UNCACHABLE(input logic [XLEN-1:0] addr);
+    case (ACCESS_TYPE(addr))
+      DRAM: begin
+`ifdef LADYBIRD_SIMULATION_HTIF
+        if (addr == MEMORY_HTIF_TOHOST || addr == MEMORY_HTIF_FROMHOST) begin
+          return '1;
+        end else begin
+          return '0;
+        end
+`else
+        return '0;
+`endif
+      end
+      ROM: begin
+        return '0;
+      end
+      default: return '1;
     endcase
   endfunction
   // verilator lint_on UNUSED

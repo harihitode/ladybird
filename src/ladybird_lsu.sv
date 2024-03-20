@@ -33,6 +33,7 @@ module ladybird_lsu
   logic                    line_valid;
   logic [XLEN/8-1:0]       cache_wen;
   logic [XLEN-1:0]         cache_wdata;
+  logic                    cache_uncache;
   logic [2:0]              i_funct_q;
   // verilator lint_off: UNUSED
   logic [XLEN-1:0]         line_addr;
@@ -42,6 +43,7 @@ module ladybird_lsu
   always_comb begin
     cache_req = i_valid;
     cache_addr = i_addr;
+    cache_uncache = IS_UNCACHABLE(i_addr);
     i_ready = cache_ready;
     o_valid = line_valid;
     cache_wen = '0;
@@ -82,7 +84,7 @@ module ladybird_lsu
     end
   end
 
-  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID))
+  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID), .AXI_DATA_W(AXI_DATA_W))
   DCACHE
     (
      .clk(clk),
@@ -91,6 +93,7 @@ module ladybird_lsu
      .i_data(cache_wdata),
      .i_wen(cache_wen),
      .i_ready(cache_ready),
+     .i_uncache(cache_uncache),
      .o_valid(line_valid),
      .o_addr(line_addr),
      .o_data(line_data),

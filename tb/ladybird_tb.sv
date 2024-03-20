@@ -76,8 +76,14 @@ module ladybird_tb
         .nrst(nrst)
         );
 
-  ladybird_simulation_memory #(.AXI_DATA_W(AXI_DATA_W),
-                               .AXI_ADDR_W(AXI_ADDR_W))
+  ladybird_simulation_memory #(
+`ifdef LADYBIRD_SIMULATION_HTF
+                               .MEMORY_HTIF_TOHOST(MEMORY_HTIF_TOHOST),
+                               .MEMORY_HTIF_FROMHOST(MEMORY_HTIF_FROMHOST),
+`endif
+                               .AXI_DATA_W(AXI_DATA_W),
+                               .AXI_ADDR_W(AXI_ADDR_W)
+                               )
   MEMORY (
           .clk(clk),
           .axi(axi.slave),

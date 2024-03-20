@@ -43,7 +43,7 @@ module ladybird_ifu
     inst_pc = line_addr_d;
   end
 
-  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID))
+  ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID), .AXI_DATA_W(AXI_DATA_W))
   ICACHE
     (
      .clk(clk),
@@ -52,6 +52,7 @@ module ladybird_ifu
      .i_data('0),
      .i_wen('0),
      .i_ready(cache_ready),
+     .i_uncache('0),
      .o_valid(line_valid),
      .o_addr(line_addr_d),
      .o_data(line_data_d),
