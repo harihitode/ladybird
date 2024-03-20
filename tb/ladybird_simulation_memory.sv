@@ -81,12 +81,12 @@ module ladybird_simulation_memory
         if (preparing > access_latency) begin
           state_d = READING;
 `ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
+ `ifdef LADYBIRD_SIMULATION_DEBUG_UNTOUCHED_MEM
           if (memory_model.exists(request_q.addr) == '0) begin
             $display("untouched memory read: %08x", request_q.addr);
- `ifdef LADYBIRD_SIMULATION_DEBUG_UNTOUCHED_MEM
             $finish;
- `endif
           end
+ `endif
 `endif
         end
       end
