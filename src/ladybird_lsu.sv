@@ -27,7 +27,7 @@ module ladybird_lsu
    );
 
   localparam               CACHE_LINE_W = $clog2(AXI_DATA_W);
-  localparam               CACHE_INDEX_W = 9;
+  localparam               CACHE_INDEX_W = L1D_CACHE_INDEX_W;
 
   logic                    cache_req, cache_ready;
   logic [XLEN-1:0]         cache_addr;

@@ -11,12 +11,19 @@ package ladybird_config;
   localparam string       ARCH_NAME = "ladybird";
   localparam string       RISCV_EXTENSION_STRING = "RV32IMA";
 
-  // core bus type
-  typedef enum            logic [0:0] {
-                                       D_BUS = 1'b0,
-                                       I_BUS = 1'b1
-                                       } core_bus_t;
-  // access type
+  // core bus configurations
+  localparam BUS_DATA_W = 32;
+  localparam BUS_ADDR_W = 32;
+  localparam BUS_ID_I = 0;
+  localparam BUS_ID_D = 1;
+
+  // core cache configurations
+  localparam L1I_CACHE_INDEX_W = 5;
+  localparam L1I_CACHE_LINE_W = 128;
+  localparam L1D_CACHE_INDEX_W = 8;
+  localparam L1D_CACHE_LINE_W = 128;
+
+  // platform configurations
   localparam              NUM_PERIPHERAL = 6;
   typedef enum            logic [2:0] {
                                        ROM  = 3'b001,

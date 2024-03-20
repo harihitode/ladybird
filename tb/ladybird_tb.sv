@@ -35,9 +35,6 @@ module ladybird_tb
   logic            nrst = '0;
   logic [63:0]     rtc = '0;
 
-  localparam AXI_DATA_W = 32;
-  localparam AXI_ADDR_W = 32;
-
   task config_rom_on();
     automatic logic [XLEN-1:0] conf_str_addr = MEMORY_BASEADDR_CONFROM + 'd32;
     automatic int last = 0;
@@ -60,11 +57,11 @@ module ladybird_tb
     MEMORY.write(conf_str_addr + last, '0);
   endtask
 
-  ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) axi(.aclk(clk));
+  ladybird_axi_interface #(.AXI_DATA_W(BUS_DATA_W), .AXI_ADDR_W(BUS_ADDR_W)) axi(.aclk(clk));
 
   ladybird_core #(.HART_ID(0),
-                  .AXI_DATA_W(AXI_DATA_W),
-                  .AXI_ADDR_W(AXI_ADDR_W))
+                  .AXI_DATA_W(BUS_DATA_W),
+                  .AXI_ADDR_W(BUS_ADDR_W))
   CORE (
         .clk(clk),
         .rtc(rtc),
@@ -81,8 +78,8 @@ module ladybird_tb
                                .MEMORY_HTIF_TOHOST(MEMORY_HTIF_TOHOST),
                                .MEMORY_HTIF_FROMHOST(MEMORY_HTIF_FROMHOST),
 `endif
-                               .AXI_DATA_W(AXI_DATA_W),
-                               .AXI_ADDR_W(AXI_ADDR_W)
+                               .AXI_DATA_W(BUS_DATA_W),
+                               .AXI_ADDR_W(BUS_ADDR_W)
                                )
   MEMORY (
           .clk(clk),
