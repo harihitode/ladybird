@@ -74,6 +74,7 @@ module ladybird_cache
   state_t state_d, state_q;
   request_t request_q;
   logic [2**LINE_W-1:0]         wr_line, rd_line, refresh_line;
+  logic [(2**LINE_W)/8-1:0]     wr_line_en;
   logic                         cache_hit;
   logic                         miss_with_writeback;
   logic                         miss_without_writeback;
@@ -136,11 +137,14 @@ module ladybird_cache
       if (i >= blockaddr && i < blockaddr + XLEN/8) begin
         if (wen[i - blockaddr]) begin
           wr_line[i*8+:8] = wdata[(i - blockaddr)*8+:8];
+          wr_line_en[i] = '1;
         end else begin
           wr_line[i*8+:8] = current_line.data[i*8+:8];
+          wr_line_en[i] = '0;
         end
       end else begin
         wr_line[i*8+:8] = rd_line[i*8+:8];
+        wr_line_en[i] = '0;
       end
     end
   end endgenerate
@@ -265,7 +269,7 @@ module ladybird_cache
             256: request_q.burst_size <= ladybird_axi::axi_burst_size_256;
             default: request_q.burst_size <= ladybird_axi::axi_burst_size_32;
           endcase
-          request_q.burst_len <= (2**LINE_W) / AXI_DATA_W - 1;
+          request_q.burst_len <= 2**(LINE_W - $clog2(AXI_DATA_W)) - 1;
         end
       end else if (state_q == W_CHANNEL) begin
         if (axi.wvalid & axi.wready) begin
@@ -326,8 +330,8 @@ module ladybird_cache
   assign axi.awvalid = (state_q == AW_CHANNEL) ? '1 : '0;
   // Instruction W channel
   assign axi.wid = AXI_ID;
-  assign axi.wstrb = (request_q.flush || request_q.miss_with_writeback) ? '1 : request_q.wen;
-  assign axi.wdata = (request_q.flush || request_q.miss_with_writeback) ? line[request_addr.index].data : request_q.data;
+  assign axi.wstrb = (request_q.flush || request_q.miss_with_writeback) ? '1 : wr_line_en;
+  assign axi.wdata = (request_q.flush || request_q.miss_with_writeback) ? line[request_addr.index].data : wr_line;
   assign axi.wlast = (request_q.burst_count == request_q.burst_len) ? '1 : '0;
   assign axi.wvalid = (state_q == W_CHANNEL) ? '1 : '0;
   // Instruction B channel

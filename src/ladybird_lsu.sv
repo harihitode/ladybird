@@ -136,7 +136,7 @@ module ladybird_lsu
         o_data = {{16{1'b0}}, o_data_i[31:16]};
       end
     end else begin: RD_LOAD_WORD
-      o_data = line_data;
+      o_data = o_data_i;
     end
   end
 
