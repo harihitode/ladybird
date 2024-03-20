@@ -19,16 +19,18 @@ module ladybird_cache
    input logic [XLEN-1:0]       i_data,
    input logic [XLEN/8-1:0]     i_wen,
    input logic                  i_uncache,
+   input logic                  i_flush,
+   input logic                  i_invalidate,
    output logic                 i_ready,
    output logic                 o_valid,
    output logic [XLEN-1:0]      o_addr,
    output logic [2**LINE_W-1:0] o_data,
    ladybird_axi_interface.master axi,
-   //
    input logic                  nrst
    );
 
-  localparam [XLEN-1:0]         i_address_mask = ~((AXI_DATA_W / 8) - 1);
+  localparam [XLEN-1:0]         AXI_DATA_ALIGNED_ADDR_MASK = ~((AXI_DATA_W / 8) - 1);
+  localparam [XLEN-1:0]         NEXT_LINE = 1 << (LINE_W - $clog2(8));
 
   typedef struct                packed {
     logic [TAG_W-1:0]           tag;
@@ -46,6 +48,9 @@ module ladybird_cache
   typedef struct                packed {
     logic                       valid;
     logic                       uncache;
+    logic                       flush;
+    logic                       invalidate;
+    logic                       miss_with_writeback;
     logic [XLEN-1:0]            addr;
     logic [XLEN-1:0]            data;
     logic [XLEN/8-1:0]          wen;
@@ -98,7 +103,8 @@ module ladybird_cache
         miss_without_writeback = '1;
       end
     end
-    if (((i_valid && ~i_uncache) || (request_q.valid) && ~request_q.uncache) &&
+    if (((i_valid && ~i_uncache && ~i_flush && ~i_invalidate) ||
+         (request_q.valid && ~request_q.uncache && ~request_q.flush && ~request_q.invalidate)) &&
         (current_line.valid && current_line.tag == request_addr.tag)) begin
       cache_hit = '1;
     end else begin
@@ -125,7 +131,8 @@ module ladybird_cache
         wen = i_wen;
         wdata = i_data;
       end
-      blockaddr = {{{XLEN-$bits(waddr.blockaddr)}{1'b0}}, waddr.blockaddr};
+      // TODO
+      blockaddr = {{{XLEN-$bits(waddr.blockaddr)}{1'b0}}, (waddr.blockaddr)} & 32'hfffffffc;
       current_line = line[waddr.index];
       if (i >= blockaddr && i < blockaddr + XLEN/8) begin
         if (wen[i - blockaddr]) begin
@@ -186,6 +193,8 @@ module ladybird_cache
           state_d = AW_CHANNEL; // uncache write
         end else if (i_uncache) begin
           state_d = AR_CHANNEL; // uncache read
+        end else if (i_flush) begin
+          state_d = AW_CHANNEL;
         end
       end
       if (i_valid & i_ready & miss_with_writeback) begin
@@ -203,7 +212,13 @@ module ladybird_cache
       end
     end else if (state_q == B_CHANNEL) begin
       if (axi.bready & axi.bvalid) begin
-        if (request_q.uncache) begin
+        if (request_q.flush) begin
+          if (request_addr.index == '1) begin
+            state_d = REFRESH;
+          end else begin
+            state_d = AW_CHANNEL;
+          end
+        end else if (request_q.uncache) begin
           state_d = REFRESH;
         end else begin
           state_d = AR_CHANNEL;
@@ -231,10 +246,17 @@ module ladybird_cache
       if (state_q == IDLE) begin
         if (cache_hit) begin
           request_q <= '0;
-        end else begin
+        end else if (i_valid & i_ready) begin
           request_q.valid <= '1;
           request_q.uncache <= i_uncache;
-          request_q.addr <= i_addr;
+          request_q.flush <= i_flush;
+          request_q.invalidate <= i_invalidate;
+          request_q.miss_with_writeback <= miss_with_writeback;
+          if (i_flush || i_invalidate) begin
+            request_q.addr <= '0;
+          end else begin
+            request_q.addr <= i_addr;
+          end
           request_q.data <= i_data;
           request_q.wen <= i_wen;
           case (AXI_DATA_W)
@@ -250,6 +272,12 @@ module ladybird_cache
         if (axi.wvalid & axi.wready) begin
           request_q.burst_count <= request_q.burst_count + 'd1;
         end
+      end else if (state_q == B_CHANNEL) begin
+        if (axi.bvalid & axi.bready & request_q.flush) begin
+          // $display("FLUSH: ADDR %08x INDEX %08x DATA %08x", axi.awaddr, request_addr.index, axi.wdata);
+          request_q.addr <= request_q.addr + NEXT_LINE;
+        end
+        request_q.burst_count <= 'd0;
       end else if (state_q == R_CHANNEL) begin
         if (axi.rvalid & axi.rready) begin
           request_q.burst_count <= request_q.burst_count + 'd1;
@@ -268,14 +296,16 @@ module ladybird_cache
       if (state_q == IDLE && cache_hit && |i_wen) begin
         line[request_addr.index].dirty <= '1;
         line[request_addr.index].data <= wr_line;
-      end else if (state_q == REFRESH && cache_hit && |request_q.wen) begin
-        line[request_addr.index].dirty <= '1;
-        line[request_addr.index].data <= wr_line;
+      end else if (state_q == B_CHANNEL && axi.bvalid && axi.bready) begin
+        line[request_addr.index].dirty <= '0;
       end else if (state_q == R_CHANNEL && axi.rvalid && axi.rready) begin
         line[request_addr.index].valid <= '1;
         line[request_addr.index].dirty <= '0;
         line[request_addr.index].tag <= request_addr.tag;
         line[request_addr.index].data <= axi.rdata;
+      end else if (state_q == REFRESH && cache_hit && |request_q.wen) begin
+        line[request_addr.index].dirty <= '1;
+        line[request_addr.index].data <= wr_line;
       end
       if (state_q == R_CHANNEL && axi.rvalid && axi.rready) begin
         refresh_line <= axi.rdata;
@@ -285,7 +315,9 @@ module ladybird_cache
 
   // Instruction AW channel
   assign axi.awid = AXI_ID;
-  assign axi.awaddr = request_q.addr & i_address_mask;
+  assign axi.awaddr = (request_q.flush) ?
+                      {line[request_addr.index].tag, request_addr.index, {{LINE_W-$clog2(8)}{'0}}} :
+                      request_q.addr & AXI_DATA_ALIGNED_ADDR_MASK;
   assign axi.awlen = request_q.burst_len;
   assign axi.awsize = request_q.burst_size;
   assign axi.awburst = ladybird_axi::axi_incrementing_burst;
@@ -295,15 +327,15 @@ module ladybird_cache
   assign axi.awvalid = (state_q == AW_CHANNEL) ? '1 : '0;
   // Instruction W channel
   assign axi.wid = AXI_ID;
-  assign axi.wstrb = request_q.wen;
-  assign axi.wdata = request_q.data;
+  assign axi.wstrb = (request_q.flush || request_q.miss_with_writeback) ? '1 : request_q.wen;
+  assign axi.wdata = (request_q.flush || request_q.miss_with_writeback) ? line[request_addr.index].data : request_q.data;
   assign axi.wlast = (request_q.burst_count == request_q.burst_len) ? '1 : '0;
   assign axi.wvalid = (state_q == W_CHANNEL) ? '1 : '0;
   // Instruction B channel
   assign axi.bready = (state_q == B_CHANNEL) ? '1 : '0;
   // Instruction AR channel
   assign axi.arid = AXI_ID;
-  assign axi.araddr = request_q.addr & i_address_mask;
+  assign axi.araddr = request_q.addr & AXI_DATA_ALIGNED_ADDR_MASK;
   assign axi.arlen = request_q.burst_len;
   assign axi.arsize = request_q.burst_size;
   assign axi.arburst = ladybird_axi::axi_incrementing_burst;

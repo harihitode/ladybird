@@ -39,7 +39,7 @@ module ladybird_core
   // LSU I/F
   logic [XLEN-1:0]        lsu_data;
   logic                   lsu_req, lsu_gnt, lsu_data_valid, lsu_data_ready;
-  logic                   lsu_we;
+  logic                   lsu_we, lsu_fence;
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) d_axi(.aclk(clk));
 
   // Status
@@ -206,6 +206,7 @@ module ladybird_core
      .i_data(exec_q.rs2_data),
      .i_we(lsu_we),
      .i_funct(exec_q.inst[14:12]),
+     .i_fence(lsu_fence),
      .o_valid(lsu_data_valid),
      .o_data(lsu_data),
      .o_ready(lsu_data_ready),
@@ -286,7 +287,6 @@ module ladybird_core
         end else if (d_fetch_d.inst[6:2] == OPCODE_SYSTEM && d_fetch_d.inst[14:12] != 'd0) begin
           d_fetch_d.rd_wb = 'b1;
         end else begin
-          // FENCE is treated as a NOP
           // Other opcodes have no effect for their commit
           d_fetch_d.rd_wb = 'b0;
         end
@@ -331,7 +331,8 @@ module ladybird_core
 
   always_comb begin
     automatic logic [XLEN-1:0] inst = d_fetch_q.inst;
-    if (exec_q.valid && ~exec_q.invalidate && (exec_q.inst[6:2] == OPCODE_LOAD || exec_q.inst[6:2] == OPCODE_STORE)) begin
+    if (exec_q.valid && ~exec_q.invalidate &&
+        exec_q.inst[6:2] inside {OPCODE_LOAD, OPCODE_STORE, OPCODE_MISC_MEM}) begin
       ex_ready = lsu_req & lsu_gnt & mx_ready;
     end else begin
       ex_ready = mx_ready;
@@ -406,7 +407,7 @@ module ladybird_core
       memory_d.rs2_data = exec_q.rs2_data;
       memory_d.rd_data = exec_q.rd_data;
       memory_d.invalidate = exec_q.invalidate;
-      if (~exec_q.invalidate && (exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE)) begin
+      if (~exec_q.invalidate && exec_q.inst[6:2] inside {OPCODE_LOAD, OPCODE_STORE, OPCODE_MISC_MEM}) begin
         memory_d.valid = exec_q.valid & lsu_req & lsu_gnt;
       end else begin
         memory_d.valid = exec_q.valid;
@@ -507,7 +508,8 @@ module ladybird_core
 
   always_comb begin
     if ((exec_q.valid == '1) && (exec_q.invalidate == '0) &&
-        ((exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE))) begin
+        ((exec_q.inst[6:2] == OPCODE_LOAD) || (exec_q.inst[6:2] == OPCODE_STORE) ||
+         (exec_q.inst[6:2] == OPCODE_MISC_MEM))) begin
       lsu_req = 'b1;
     end else begin
       lsu_req = 'b0;
@@ -516,6 +518,12 @@ module ladybird_core
       lsu_we = 'b1;
     end else begin
       lsu_we = 'b0;
+    end
+    if (exec_q.inst[6:2] == OPCODE_MISC_MEM) begin
+      // full fence
+      lsu_fence = 'b1;
+    end else begin
+      lsu_fence = 'b0;
     end
   end
 

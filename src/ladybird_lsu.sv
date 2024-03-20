@@ -16,6 +16,7 @@ module ladybird_lsu
    input logic [XLEN-1:0]  i_data,
    input logic             i_we,
    input logic [2:0]       i_funct,
+   input logic             i_fence,
    output logic            o_valid,
    // verilator lint_off: UNUSED
    input logic             o_ready,
@@ -34,6 +35,7 @@ module ladybird_lsu
   logic [XLEN/8-1:0]       cache_wen;
   logic [XLEN-1:0]         cache_wdata;
   logic                    cache_uncache;
+  logic                    cache_flush;
   logic [2:0]              i_funct_q;
   // verilator lint_off: UNUSED
   logic [XLEN-1:0]         line_addr;
@@ -44,6 +46,7 @@ module ladybird_lsu
     cache_req = i_valid;
     cache_addr = i_addr;
     cache_uncache = IS_UNCACHABLE(i_addr);
+    cache_flush = i_fence;
     i_ready = cache_ready;
     o_valid = line_valid;
     cache_wen = '0;
@@ -94,6 +97,8 @@ module ladybird_lsu
      .i_wen(cache_wen),
      .i_ready(cache_ready),
      .i_uncache(cache_uncache),
+     .i_flush(cache_flush),
+     .i_invalidate('0),
      .o_valid(line_valid),
      .o_addr(line_addr),
      .o_data(line_data),

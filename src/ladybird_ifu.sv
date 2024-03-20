@@ -53,6 +53,8 @@ module ladybird_ifu
      .i_wen('0),
      .i_ready(cache_ready),
      .i_uncache('0),
+     .i_flush('0),
+     .i_invalidate('0),
      .o_valid(line_valid),
      .o_addr(line_addr_d),
      .o_data(line_data_d),
