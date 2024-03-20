@@ -131,8 +131,7 @@ module ladybird_cache
         wen = i_wen;
         wdata = i_data;
       end
-      // TODO
-      blockaddr = {{{XLEN-$bits(waddr.blockaddr)}{1'b0}}, (waddr.blockaddr)} & 32'hfffffffc;
+      blockaddr = {{{XLEN-$bits(waddr.blockaddr)}{1'b0}}, (waddr.blockaddr)} & ('1 << $clog2(XLEN/8));
       current_line = line[waddr.index];
       if (i >= blockaddr && i < blockaddr + XLEN/8) begin
         if (wen[i - blockaddr]) begin
