@@ -23,6 +23,7 @@ module ladybird_simulation_memory
   logic [7:0] memory_model[int unsigned];
   logic [LEN_W-1:0] current_beat;
   logic [31:0]      access_latency, preparing;
+  logic             HTIF_request;
 
   typedef struct packed {
     logic [AXI_ID_W-1:0]   id;
@@ -146,6 +147,13 @@ module ladybird_simulation_memory
         end
       end
 `ifdef LADYBIRD_SIMULATION_HTIF
+      if (state_q == IDLE) begin
+        HTIF_request <= '0;
+      end else begin
+        if (axi.wvalid && axi.wready && request_q.addr == MEMORY_HTIF_TOHOST && axi.wstrb[3:0] == 4'hf) begin
+          HTIF_request <= '1;
+        end
+      end
       // verilator lint_off BLKSEQ
       if (axi.bvalid & axi.bready) begin
         if (request_q.addr == MEMORY_HTIF_TOHOST) begin
@@ -164,13 +172,13 @@ module ladybird_simulation_memory
   always_latch begin
     automatic logic [31:0] magic_mem, which, arg0, arg1, arg2;
     if (axi.bvalid & axi.bready) begin
-      if (request_q.addr == MEMORY_HTIF_TOHOST) begin
+      if (HTIF_request) begin
         magic_mem = {memory_model[MEMORY_HTIF_TOHOST + 3],
                      memory_model[MEMORY_HTIF_TOHOST + 2],
                      memory_model[MEMORY_HTIF_TOHOST + 1],
                      memory_model[MEMORY_HTIF_TOHOST + 0]};
         if ((magic_mem & 32'd1) == 32'd1) begin
-          $display("HTIF: Halt Request");
+          $display("HTIF: Halt Request", $time);
           $finish;
         end else if (magic_mem != 1) begin
           for (int i = 0; i < 4; i++) begin
