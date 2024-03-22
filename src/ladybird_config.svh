@@ -60,7 +60,8 @@ package ladybird_config;
     case (ACCESS_TYPE(addr))
       DRAM: begin
 `ifdef LADYBIRD_SIMULATION_HTIF
-        if (addr == MEMORY_HTIF_TOHOST || addr == MEMORY_HTIF_FROMHOST) begin
+        if (addr[31:12] == MEMORY_HTIF_TOHOST[31:12] ||
+            addr[31:12] == MEMORY_HTIF_FROMHOST[31:12]) begin
           return '1;
         end else begin
           return '0;
