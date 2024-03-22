@@ -29,7 +29,6 @@ module ladybird_core
   logic                   ifu_o_valid, ifu_o_ready;
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) i_axi(.aclk(clk));
 
-
   // ALU I/F
   logic [XLEN-1:0]        alu_src1, alu_src2;
   logic [2:0]             alu_operation;
@@ -49,6 +48,7 @@ module ladybird_core
   // Status
   logic                   running;
   logic                   if_ready, df_ready, ex_ready, mx_ready, wb_ready;
+  logic                   not_fall_through; // from exec_q
   // verilator lint_off UNUSED
   logic [1:0]             mode;
   logic [63:0]            instret, cycle;
@@ -139,10 +139,10 @@ module ladybird_core
   remap_table_entry_t  remap_table [2**RMPT_W];
   logic [RMPT_W-1:0]   remap_table_head, remap_table_tail;
 
+  assign halt = ~running;
   assign ifu_i_valid = running | (halt & resume_req);
   assign ifu_o_ready = df_ready;
-  assign lsu_data_ready = '1;
-  assign halt = ~running;
+  assign not_fall_through = exec_q.valid && ~exec_q.invalidate && (exec_q.branch_flag || exec_q.force_pc_valid);
 
   ladybird_ifu #(.AXI_ID(BUS_ID_I), .AXI_DATA_W(AXI_DATA_W))
   IFU
@@ -221,16 +221,14 @@ module ladybird_core
     end else begin
       if_ready = df_ready;
     end
-    if (if_ready) begin
-      if (halt & resume_req) begin
-        i_fetch_d.pc = resume_pc;
-      end else if (exec_q.valid && (exec_q.force_pc_valid || exec_q.branch_flag)) begin
-        i_fetch_d.pc = memory_d.npc;
-      end else if (ifu_o_valid && ifu_o_ready && i_fetch_q.pc == ifu_o_pc) begin
-        i_fetch_d.pc = i_fetch_q.pc + 'd4;
-      end else begin
-        i_fetch_d.pc = i_fetch_q.pc;
-      end
+    if (halt & resume_req) begin
+      i_fetch_d.pc = resume_pc;
+      i_fetch_d.valid = '1;
+    end else if (not_fall_through) begin
+      i_fetch_d.pc = memory_d.npc;
+      i_fetch_d.valid = '1;
+    end else if (if_ready && ifu_o_valid && ifu_o_ready && i_fetch_q.pc == ifu_o_pc) begin
+      i_fetch_d.pc = i_fetch_q.pc + 'd4;
       i_fetch_d.valid = '1;
     end else begin
       i_fetch_d = i_fetch_q;
@@ -240,7 +238,7 @@ module ladybird_core
   always_comb begin
     automatic logic rs1_valid = '0;
     automatic logic rs2_valid = '0;
-    if (exec_q.branch_flag) begin
+    if (not_fall_through) begin
       d_fetch_d = '0;
       df_ready = '1;
     end else if (!ex_ready) begin
@@ -339,7 +337,7 @@ module ladybird_core
       exec_d.imm = d_fetch_q.imm;
       exec_d.rs1_data = d_fetch_q.rs1_data;
       exec_d.rs2_data = d_fetch_q.rs2_data;
-      exec_d.invalidate = exec_q.branch_flag | exec_q.force_pc_valid;
+      exec_d.invalidate = not_fall_through;
       exec_d.valid = d_fetch_q.valid;
       exec_d.force_pc = csr_o_pc;
       exec_d.force_pc_valid = csr_o_pc_valid;
@@ -510,6 +508,7 @@ module ladybird_core
     end else begin
       lsu_fence = 'b0;
     end
+    lsu_data_ready = '1;
   end
 
   always_ff @(posedge clk) begin
