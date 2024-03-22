@@ -21,20 +21,24 @@ module ladybird_core
    input logic            nrst
    );
 
+  localparam N_RMPT = 2**RMPT_W;
+
   // IFU I/F
   logic [XLEN-1:0]        ifu_o_inst, ifu_o_pc;
   logic                   ifu_i_valid, ifu_i_ready;
   logic                   ifu_o_valid, ifu_o_ready;
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) i_axi(.aclk(clk));
 
+
   // ALU I/F
+  logic [XLEN-1:0]        alu_src1, alu_src2;
   logic [2:0]             alu_operation;
   logic                   alu_alternate;
   logic [XLEN-1:0]        alu_res;
 
   // CSR I/F
-  logic [XLEN-1:0]        csr_src, csr_trap_code, csr_res;
-  logic [XLEN-1:0]        src1, src2;
+  logic [XLEN-1:0]        csr_src, csr_trap_code, csr_res, csr_o_pc;
+  logic                   csr_o_pc_valid;
 
   // LSU I/F
   logic [XLEN-1:0]        lsu_data;
@@ -43,13 +47,12 @@ module ladybird_core
   ladybird_axi_interface #(.AXI_DATA_W(AXI_DATA_W), .AXI_ADDR_W(AXI_ADDR_W)) d_axi(.aclk(clk));
 
   // Status
+  logic                   running;
+  logic                   if_ready, df_ready, ex_ready, mx_ready, wb_ready;
   // verilator lint_off UNUSED
   logic [1:0]             mode;
-  logic                   exe_busy = '0;
+  logic [63:0]            instret, cycle;
   // verilator lint_on UNUSED
-  logic [XLEN-1:0]        force_pc;
-  logic                   force_pc_valid;
-  logic                   if_ready, df_ready, ex_ready, mx_ready, wb_ready;
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
@@ -63,7 +66,7 @@ module ladybird_core
     logic [XLEN-1:0]   inst;
     logic [XLEN-1:0]   imm;
     logic [4:0]        rd_addr;
-    logic [PREG_W-1:0] rd_pno;
+    logic [RMPT_W-1:0] table_no;
     logic              rd_wb;
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
@@ -73,11 +76,14 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0]   pc;
+    logic              branch_flag;
+    logic              force_pc_valid;
+    logic [XLEN-1:0]   force_pc;
     logic [XLEN-1:0]   exception_code;
     logic [XLEN-1:0]   inst;
     logic [XLEN-1:0]   imm;
     logic [4:0]        rd_addr;
-    logic [PREG_W-1:0] rd_pno;
+    logic [RMPT_W-1:0] table_no;
     logic              rd_wb;
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
@@ -93,7 +99,7 @@ module ladybird_core
     logic [XLEN-1:0]   trap_code;
     logic [XLEN-1:0]   inst;
     logic [4:0]        rd_addr;
-    logic [PREG_W-1:0] rd_pno;
+    logic [RMPT_W-1:0] table_no;
     logic              rd_wb;
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
@@ -108,8 +114,8 @@ module ladybird_core
     logic [XLEN-1:0]   npc;
     logic [XLEN-1:0]   trap_code;
     logic [XLEN-1:0]   inst;
-    logic [4:0]        rd_addr;
-    logic [PREG_W-1:0] rd_pno;
+    logic [VREG_W-1:0] rd_addr;
+    logic [RMPT_W-1:0] table_no;
     logic              rd_wb;
     logic [XLEN-1:0]   rs1_data;
     logic [XLEN-1:0]   rs2_data;
@@ -122,30 +128,17 @@ module ladybird_core
   commit_stage_t commit_q, commit_d;
   // verilator lint_on UNUSED
 
-  logic              running;
   // GENERAL PURPOSE REGISTER
-  localparam VREG_W = 5;
-  localparam PREG_W = 3;
-  typedef struct     packed {
-    logic              valid;
-    logic [PREG_W-1:0] pno;
-  } gpr_remap_t;
-  typedef struct       packed {
-    logic              valid;
+  typedef struct packed {
+    logic        valid;
+    logic [VREG_W-1:0] vreg;
     logic [XLEN-1:0]   data;
-  } phys_reg_t;
-  logic [XLEN-1:0]     gpr [2**VREG_W];
-  gpr_remap_t          gpr_remap [2**VREG_W];
-  phys_reg_t           physreg [2**PREG_W];
-  logic [PREG_W-1:0]   physreg_head;
-  // verilator lint_off UNUSED
-  logic [4:0]          stage_valid;
-  logic [63:0]         instret, cycle;
-  // verilator lint_on UNUSED
-  logic [XLEN-1:0]     npc, target_pc;
-  logic                branch_flag;
+  } remap_table_entry_t;
 
-  assign stage_valid = {commit_q.valid, memory_q.valid, exec_q.valid, d_fetch_q.valid, i_fetch_q.valid};
+  logic [XLEN-1:0]     gpr [2**VREG_W];
+  remap_table_entry_t  remap_table [2**RMPT_W];
+  logic [RMPT_W-1:0]   remap_table_head, remap_table_tail;
+
   assign ifu_i_valid = running | (halt & resume_req);
   assign ifu_o_ready = df_ready;
   assign lsu_data_ready = '1;
@@ -171,8 +164,8 @@ module ladybird_core
     (
      .OPERATION(alu_operation),
      .ALTERNATE(alu_alternate),
-     .SRC1(src1),
-     .SRC2(src2),
+     .SRC1(alu_src1),
+     .SRC2(alu_src2),
      .Q(alu_res)
      );
 
@@ -190,9 +183,9 @@ module ladybird_core
      .i_exception_code(exec_q.exception_code),
      .i_data(csr_src),
      .o_data(csr_res),
-     .o_pc(force_pc),
+     .o_pc(csr_o_pc),
+     .o_pc_valid(csr_o_pc_valid),
      .o_trap_code(csr_trap_code),
-     .o_pc_valid(force_pc_valid),
      .nrst(nrst)
      );
 
@@ -231,10 +224,8 @@ module ladybird_core
     if (if_ready) begin
       if (halt & resume_req) begin
         i_fetch_d.pc = resume_pc;
-      end else if (force_pc_valid) begin
-        i_fetch_d.pc = force_pc;
-      end else if (branch_flag) begin
-        i_fetch_d.pc = target_pc;
+      end else if (exec_q.valid && (exec_q.force_pc_valid || exec_q.branch_flag)) begin
+        i_fetch_d.pc = memory_d.npc;
       end else if (ifu_o_valid && ifu_o_ready && i_fetch_q.pc == ifu_o_pc) begin
         i_fetch_d.pc = i_fetch_q.pc + 'd4;
       end else begin
@@ -249,7 +240,7 @@ module ladybird_core
   always_comb begin
     automatic logic rs1_valid = '0;
     automatic logic rs2_valid = '0;
-    if (branch_flag) begin
+    if (exec_q.branch_flag) begin
       d_fetch_d = '0;
       df_ready = '1;
     end else if (!ex_ready) begin
@@ -291,32 +282,31 @@ module ladybird_core
           d_fetch_d.rd_wb = 'b0;
         end
       end
-      d_fetch_d.rd_pno = physreg_head;
-      if (gpr_remap[d_fetch_d.inst[19:15]].valid == '1) begin
-        // means vreg <-> preg remapping is valid
-        if (physreg[gpr_remap[d_fetch_d.inst[19:15]].pno].valid == '1) begin
-          rs1_valid = '1;
-          d_fetch_d.rs1_data = physreg[gpr_remap[d_fetch_d.inst[19:15]].pno].data;
-        end else begin
-          d_fetch_d.rs1_data = '0;
+      d_fetch_d.table_no = remap_table_head;
+      // TODO: FIRST remap table, Second Each Pipeline, Last GPR
+      rs1_valid = '1;
+      for (int i = 0; i < N_RMPT; i++) begin
+        if (remap_table[i].valid && remap_table[i].vreg == d_fetch_d.inst[19:15]) begin
+          rs1_valid = '0;
+          break;
         end
-      end else begin
-        rs1_valid = '1;
+      end
+      if (rs1_valid) begin
         d_fetch_d.rs1_data = gpr[d_fetch_d.inst[19:15]];
       end
-      if (gpr_remap[d_fetch_d.inst[24:20]].valid == '1) begin
-        // means vreg <-> preg remapping is valid
-        if (physreg[gpr_remap[d_fetch_d.inst[24:20]].pno].valid == '1) begin
-          rs2_valid = '1;
-          d_fetch_d.rs2_data = physreg[gpr_remap[d_fetch_d.inst[24:20]].pno].data;
-        end else begin
-          d_fetch_d.rs2_data = '0;
+      // TODO: FIRST remap table, Second Each Pipeline, Last GPR
+      rs2_valid = '1;
+      for (int i = 0; i < N_RMPT; i++) begin
+        if (remap_table[i].valid && remap_table[i].vreg == d_fetch_d.inst[24:20]) begin
+          rs2_valid = '0;
+          break;
         end
-      end else begin
-        rs2_valid = '1;
+      end
+      if (rs2_valid) begin
         d_fetch_d.rs2_data = gpr[d_fetch_d.inst[24:20]];
       end
-      if (physreg[physreg_head].valid) begin
+      // Stop the pipeline when the all remap table entry are filled
+      if (remap_table[remap_table_head].valid) begin
         df_ready = '0;
       end else begin
         df_ready = rs1_valid & rs2_valid & mx_ready;
@@ -345,12 +335,26 @@ module ladybird_core
       exec_d.inst = inst;
       exec_d.rd_addr = d_fetch_q.rd_addr;
       exec_d.rd_wb = d_fetch_q.rd_wb;
-      exec_d.rd_pno = d_fetch_q.rd_pno;
+      exec_d.table_no = d_fetch_q.table_no;
       exec_d.imm = d_fetch_q.imm;
       exec_d.rs1_data = d_fetch_q.rs1_data;
       exec_d.rs2_data = d_fetch_q.rs2_data;
-      exec_d.invalidate = branch_flag;
+      exec_d.invalidate = exec_q.branch_flag | exec_q.force_pc_valid;
       exec_d.valid = d_fetch_q.valid;
+      exec_d.force_pc = csr_o_pc;
+      exec_d.force_pc_valid = csr_o_pc_valid;
+      exec_d.branch_flag = '0;
+      if (d_fetch_q.valid) begin // TODO exception
+        if (d_fetch_q.inst[6:2] == OPCODE_BRANCH) begin
+          if (d_fetch_q.inst[14:12] == FUNCT3_BEQ || d_fetch_q.inst[14:12] == FUNCT3_BGE || d_fetch_q.inst[14:12] == FUNCT3_BGEU) begin: BEQ_impl
+            exec_d.branch_flag = ~(|alu_res);
+          end else begin
+            exec_d.branch_flag = |alu_res;
+          end
+        end else if (d_fetch_q.inst[6:2] == OPCODE_JAL || d_fetch_q.inst[6:2] == OPCODE_JALR) begin
+          exec_d.branch_flag = '1;
+        end
+      end
       if ((d_fetch_q.inst[6:2] == OPCODE_JALR) ||
           (d_fetch_q.inst[6:2] == OPCODE_JAL)) begin
         exec_d.rd_data = d_fetch_q.pc + 'h4; // return address for link register
@@ -359,31 +363,6 @@ module ladybird_core
       end else begin
         exec_d.rd_data = alu_res;
       end
-    end
-  end
-
-  always_comb begin
-    automatic logic [4:0] opcode = d_fetch_q.inst[6:2];
-    if (opcode == OPCODE_LUI) begin: LUI_src1
-      src1 = '0;
-    end else if ((opcode == OPCODE_AUIPC) ||
-                 (opcode == OPCODE_JAL)
-                 ) begin
-      src1 = d_fetch_q.pc;
-    end else begin
-      src1 = d_fetch_q.rs1_data;
-    end
-    if ((opcode == OPCODE_LOAD) ||
-        (opcode == OPCODE_OP_IMM) ||
-        (opcode == OPCODE_AUIPC) ||
-        (opcode == OPCODE_LUI) ||
-        (opcode == OPCODE_STORE) ||
-        (opcode == OPCODE_JALR) ||
-        (opcode == OPCODE_JAL)
-        ) begin
-      src2 = d_fetch_q.imm;
-    end else begin: OPCODE_01100_11
-      src2 = d_fetch_q.rs2_data;
     end
   end
 
@@ -397,12 +376,22 @@ module ladybird_core
       memory_d = memory_q;
     end else begin
       memory_d.pc = exec_q.pc;
-      memory_d.npc = npc;
+      if (exec_q.force_pc_valid) begin
+        memory_d.npc = exec_q.force_pc;
+      end else if (exec_q.inst[6:2] == OPCODE_JAL) begin
+        memory_d.npc = exec_q.pc + exec_q.imm;
+      end else if (exec_q.inst[6:2] == OPCODE_BRANCH && exec_q.branch_flag) begin
+        memory_d.npc = exec_q.pc + exec_q.imm;
+      end else if (exec_q.inst[6:2] == OPCODE_JALR) begin
+        memory_d.npc = exec_q.rs1_data + exec_q.imm;
+      end else begin
+        memory_d.npc = exec_q.pc + 'd4;
+      end
       memory_d.trap_code = csr_trap_code;
       memory_d.inst = exec_q.inst;
       memory_d.rd_addr = exec_q.rd_addr;
       memory_d.rd_wb = exec_q.rd_wb;
-      memory_d.rd_pno = exec_q.rd_pno;
+      memory_d.table_no = exec_q.table_no;
       memory_d.rs1_data = exec_q.rs1_data;
       memory_d.rs2_data = exec_q.rs2_data;
       memory_d.rd_data = exec_q.rd_data;
@@ -426,7 +415,7 @@ module ladybird_core
     commit_d.paddr = memory_q.rd_data;
     commit_d.rd_addr = memory_q.rd_addr;
     commit_d.rd_wb = memory_q.rd_wb;
-    commit_d.rd_pno = memory_q.rd_pno;
+    commit_d.table_no = memory_q.table_no;
     if (memory_q.inst[6:2] == OPCODE_LOAD) begin
       commit_d.rd_data = lsu_data;
     end else begin
@@ -441,31 +430,27 @@ module ladybird_core
   end
 
   always_comb begin
-    if (exec_q.inst[6:2] == OPCODE_BRANCH || exec_q.inst[6:2] == OPCODE_JAL) begin
-      target_pc = exec_q.pc + exec_q.imm;
+    automatic logic [4:0] opcode = d_fetch_q.inst[6:2];
+    if (opcode == OPCODE_LUI) begin: LUI_src1
+      alu_src1 = '0;
+    end else if ((opcode == OPCODE_AUIPC) ||
+                 (opcode == OPCODE_JAL)
+                 ) begin
+      alu_src1 = d_fetch_q.pc;
     end else begin
-      target_pc = exec_q.rs1_data + exec_q.imm;
+      alu_src1 = d_fetch_q.rs1_data;
     end
-    branch_flag = '0;
-    if (exec_q.valid && ~exec_q.invalidate) begin
-      if (exec_q.inst[6:2] == OPCODE_BRANCH) begin
-        if (exec_q.inst[14:12] == FUNCT3_BEQ || exec_q.inst[14:12] == FUNCT3_BGE || exec_q.inst[14:12] == FUNCT3_BGEU) begin: BEQ_impl
-          branch_flag = ~(|exec_q.rd_data);
-        end else begin
-          branch_flag = |exec_q.rd_data;
-        end
-      end else if (exec_q.inst[6:2] == OPCODE_JAL || exec_q.inst[6:2] == OPCODE_JALR) begin
-        branch_flag = '1;
-      end
-    end
-    if (halt & resume_req) begin
-      npc = resume_pc;
-    end else if (force_pc_valid) begin
-      npc = force_pc;
-    end else if (branch_flag) begin
-      npc = target_pc;
-    end else begin
-      npc = exec_q.pc + 'd4;
+    if ((opcode == OPCODE_LOAD) ||
+        (opcode == OPCODE_OP_IMM) ||
+        (opcode == OPCODE_AUIPC) ||
+        (opcode == OPCODE_LUI) ||
+        (opcode == OPCODE_STORE) ||
+        (opcode == OPCODE_JALR) ||
+        (opcode == OPCODE_JAL)
+        ) begin
+      alu_src2 = d_fetch_q.imm;
+    end else begin: OPCODE_01100_11
+      alu_src2 = d_fetch_q.rs2_data;
     end
   end
 
@@ -531,50 +516,37 @@ module ladybird_core
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && commit_q.invalidate == '0 && commit_q.rd_wb == '1 && physreg[commit_q.rd_pno].valid) begin
-        gpr[commit_q.rd_addr] <= physreg[commit_q.rd_pno].data;
+      if (commit_q.valid == '1 && commit_q.invalidate == '0 && commit_q.rd_wb == '1) begin
+        gpr[commit_q.rd_addr] <= commit_q.rd_data;
       end
     end
   end
 
   always_ff @(posedge clk) begin
     if (~nrst) begin
-      physreg_head <= '0;
+      remap_table_head <= '0;
+      remap_table_tail <= '0;
     end else begin
+      // TODO: invalidate
       if (d_fetch_d.valid && d_fetch_d.rd_wb && df_ready) begin
-        physreg_head <= physreg_head + 'd1;
+        remap_table_head <= remap_table_head + 'd1;
+      end
+      if (commit_q.valid && commit_q.rd_wb && commit_q.table_no == remap_table_tail) begin
+        remap_table_tail <= remap_table_tail + 'd1;
       end
     end
   end
 
-  generate for (genvar i = 0; i < 2**PREG_W; i++) begin: PREG_FF
+  generate for (genvar i = 0; i < N_RMPT; i++) begin: GPR_REMAP_FF
     always_ff @(posedge clk) begin
       if (~nrst) begin
-        physreg[i] <= '0;
+        remap_table[i] <= '0;
       end else begin
-        if (wb_ready && commit_q.valid && commit_q.rd_wb && i == commit_q.rd_pno) begin
-          physreg[i] <= '0;
-        end else if (ex_ready && exec_q.valid && i == exec_q.rd_pno && exec_q.inst[6:2] != OPCODE_LOAD && exec_q.rd_wb) begin
-          physreg[i].valid <= '1;
-          physreg[i].data <= memory_d.rd_data;
-        end else if (mx_ready && memory_q.valid && i == memory_q.rd_pno && memory_q.inst[6:2] == OPCODE_LOAD && memory_q.rd_wb) begin
-          physreg[i].valid <= '1;
-          physreg[i].data <= commit_d.rd_data;
-        end
-      end
-    end
-  end endgenerate
-
-  generate for (genvar i = 0; i < 2**VREG_W; i++) begin: GPR_REMAP_FF
-    always_ff @(posedge clk) begin
-      if (~nrst) begin
-        gpr_remap[i] <= '0;
-      end else begin
-        if (d_fetch_d.valid && d_fetch_d.rd_wb && d_fetch_d.rd_addr == i) begin
-          gpr_remap[i].valid <= '1;
-          gpr_remap[i].pno <= d_fetch_d.rd_pno;
-        end else if (gpr_remap[i].valid && i == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1 && commit_q.rd_pno == gpr_remap[i].pno) begin
-          gpr_remap[i] <= '0;
+        if (d_fetch_d.valid && df_ready && d_fetch_d.rd_wb && i == remap_table_head) begin
+          remap_table[i].valid <= '1;
+          remap_table[i].vreg <= d_fetch_d.rd_addr;
+        end else if (remap_table[i].valid && i == commit_q.table_no && remap_table[i].vreg == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1) begin
+          remap_table[i] <= '0;
         end
       end
     end
@@ -612,7 +584,7 @@ module ladybird_core
       if (commit_q.valid && ~commit_q.invalidate) begin
         instret <= instret + 'd1;
 `ifdef LADYBIRD_SIMULATION_DEBUG_DUMP
-        $display($time, " %0d %08x, %08x, %s: next %08x", rtc, commit_q.pc, commit_q.inst, ladybird_riscv_helper::riscv_disas(commit_q.inst, commit_q.pc), commit_q.npc);
+        $display($time, " %0d %08x, %08x, %s: next %08x %08x %08x %08x", rtc, commit_q.pc, commit_q.inst, ladybird_riscv_helper::riscv_disas(commit_q.inst, commit_q.pc), commit_q.npc, commit_q.rs1_data, commit_q.rs2_data, commit_q.rd_data);
 `endif
       end
     end
