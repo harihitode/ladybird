@@ -66,7 +66,8 @@ module ladybird_cache
                                              B_CHANNEL,
                                              AR_CHANNEL,
                                              R_CHANNEL,
-                                             REFRESH
+                                             REFRESH,
+                                             INVALIDATE
                                              } state_t;
 
   addr_t request_addr;
@@ -237,6 +238,10 @@ module ladybird_cache
       end
     end else if (state_q == REFRESH) begin
       state_d = IDLE;
+    end else if (state_q == INVALIDATE) begin
+      if (request_addr.index == '1) begin
+        state_d = IDLE;
+      end
     end
   end
 
@@ -277,7 +282,6 @@ module ladybird_cache
         end
       end else if (state_q == B_CHANNEL) begin
         if (axi.bvalid & axi.bready & request_q.flush) begin
-          // $display("FLUSH: ADDR %08x INDEX %08x DATA %08x", axi.awaddr, request_addr.index, axi.wdata);
           request_q.addr <= request_q.addr + NEXT_LINE;
         end
         request_q.burst_count <= 'd0;
@@ -287,6 +291,8 @@ module ladybird_cache
         end
       end else if (state_q == REFRESH) begin
         request_q <= '0;
+      end else if (state_q == INVALIDATE) begin
+        request_q.addr <= request_q.addr + NEXT_LINE;
       end
     end
   end
@@ -296,19 +302,21 @@ module ladybird_cache
       line <= '{default:'0};
       refresh_line <= '0;
     end else begin
-      if (state_q == IDLE && cache_hit && |i_wen) begin
+      if (state_q == IDLE && cache_hit && |i_wen && ~i_uncache && ~i_flush && ~i_invalidate) begin
         line[request_addr.index].dirty <= '1;
         line[request_addr.index].data <= wr_line;
-      end else if (state_q == B_CHANNEL && axi.bvalid && axi.bready) begin
+      end else if (state_q == B_CHANNEL && axi.bvalid && axi.bready && ~request_q.uncache) begin
         line[request_addr.index].dirty <= '0;
       end else if (state_q == R_CHANNEL && axi.rvalid && axi.rready) begin
         line[request_addr.index].valid <= '1;
         line[request_addr.index].dirty <= '0;
         line[request_addr.index].tag <= request_addr.tag;
         line[request_addr.index].data <= axi.rdata;
-      end else if (state_q == REFRESH && cache_hit && |request_q.wen) begin
+      end else if (state_q == REFRESH && cache_hit && |request_q.wen && ~request_q.uncache) begin
         line[request_addr.index].dirty <= '1;
         line[request_addr.index].data <= wr_line;
+      end else if (state_q == INVALIDATE && request_q.invalidate) begin
+        line[request_addr.index] <= '0;
       end
       if (state_q == R_CHANNEL && axi.rvalid && axi.rready) begin
         refresh_line <= axi.rdata;
