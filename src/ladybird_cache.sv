@@ -326,7 +326,7 @@ module ladybird_cache
 
   // Instruction AW channel
   assign axi.awid = AXI_ID;
-  assign axi.awaddr = (request_q.flush) ?
+  assign axi.awaddr = (request_q.flush || request_q.miss_with_writeback) ?
                       {line[request_addr.index].tag, request_addr.index, {{LINE_W-$clog2(8)}{'0}}} :
                       request_q.addr & AXI_DATA_ALIGNED_ADDR_MASK;
   assign axi.awlen = request_q.burst_len;
