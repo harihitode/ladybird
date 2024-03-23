@@ -14,15 +14,15 @@ package ladybird_config;
   localparam string       RISCV_EXTENSION_STRING = "RV32IMA";
 
   // core bus configurations
-  localparam BUS_DATA_W = 32;
+  localparam BUS_DATA_W = 128;
   localparam BUS_ADDR_W = 32;
   localparam BUS_ID_I = 0;
   localparam BUS_ID_D = 1;
 
   // core cache configurations
-  localparam L1I_CACHE_INDEX_W = 5;
+  localparam L1I_CACHE_INDEX_W = 4;
   localparam L1I_CACHE_LINE_W = 128;
-  localparam L1D_CACHE_INDEX_W = 8;
+  localparam L1D_CACHE_INDEX_W = 4;
   localparam L1D_CACHE_LINE_W = 128;
 
   // platform configurations
