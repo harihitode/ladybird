@@ -48,6 +48,7 @@ module ladybird_core
   // Status
   logic                   running;
   logic                   if_ready, df_ready, ex_ready, mx_ready, wb_ready;
+  logic [XLEN-1:0]        pc, npc;
   logic                   not_fall_through; // from exec_q
   // verilator lint_off UNUSED
   logic [1:0]             mode;
@@ -56,6 +57,8 @@ module ladybird_core
 
   typedef struct packed {
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] exception_code;
+    logic [XLEN-1:0] inst;
     logic            valid;
   } i_fetch_stage_t;
   i_fetch_stage_t i_fetch_q, i_fetch_d;
@@ -140,17 +143,16 @@ module ladybird_core
   logic [RMPT_W-1:0]   remap_table_head, remap_table_tail;
 
   assign halt = ~running;
-  assign ifu_i_valid = running | (halt & resume_req);
-  assign ifu_o_ready = df_ready;
   assign not_fall_through = exec_q.valid && ~exec_q.invalidate && (exec_q.branch_flag || exec_q.force_pc_valid);
 
   ladybird_ifu #(.AXI_ID(BUS_ID_I), .AXI_DATA_W(AXI_DATA_W))
   IFU
     (
      .clk(clk),
-     .pc(i_fetch_d.pc),
+     .pc(npc),
      .pc_valid(ifu_i_valid),
      .pc_ready(ifu_i_ready),
+     .flush(not_fall_through),
      .inst(ifu_o_inst),
      .inst_valid(ifu_o_valid),
      .inst_ready(ifu_o_ready),
@@ -216,22 +218,28 @@ module ladybird_core
      );
 
   always_comb begin
-    if (~i_fetch_q.valid) begin
-      if_ready = ifu_i_ready;
-    end else begin
-      if_ready = df_ready;
-    end
+    ifu_i_valid = running | (halt & resume_req);
+    ifu_o_ready = if_ready;
     if (halt & resume_req) begin
-      i_fetch_d.pc = resume_pc;
-      i_fetch_d.valid = '1;
+      npc = resume_pc;
     end else if (not_fall_through) begin
-      i_fetch_d.pc = memory_d.npc;
-      i_fetch_d.valid = '1;
-    end else if (if_ready && ifu_o_valid && ifu_o_ready && i_fetch_q.pc == ifu_o_pc) begin
-      i_fetch_d.pc = i_fetch_q.pc + 'd4;
-      i_fetch_d.valid = '1;
+      npc = memory_d.npc;
+    end else if (ifu_i_ready) begin
+      npc = pc + 'd4;
     end else begin
+      npc = pc;
+    end
+  end
+
+  always_comb begin
+    if_ready = df_ready;
+    if (~if_ready) begin
       i_fetch_d = i_fetch_q;
+    end else begin
+      i_fetch_d.valid = ifu_o_valid;
+      i_fetch_d.pc = ifu_o_pc;
+      i_fetch_d.inst = ifu_o_inst;
+      i_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
     end
   end
 
@@ -246,8 +254,8 @@ module ladybird_core
       df_ready = '0;
     end else begin
       d_fetch_d.pc = i_fetch_q.pc;
-      d_fetch_d.inst = ifu_o_inst;
-      d_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
+      d_fetch_d.inst = i_fetch_q.inst;
+      d_fetch_d.exception_code = i_fetch_q.exception_code; // TODO: Illegal Instruction
       d_fetch_d.rd_addr = d_fetch_d.inst[11:7];
       if (d_fetch_d.inst[6:2] == OPCODE_STORE) begin: STORE_OFFSET
         d_fetch_d.imm = {{20{d_fetch_d.inst[31]}}, d_fetch_d.inst[31:25], d_fetch_d.inst[11:7]};
@@ -309,8 +317,8 @@ module ladybird_core
       end else begin
         df_ready = rs1_valid & rs2_valid & mx_ready;
       end
-      if (i_fetch_q.valid && ifu_o_valid && i_fetch_q.pc == ifu_o_pc) begin
-        d_fetch_d.valid = df_ready;
+      if (df_ready) begin
+        d_fetch_d.valid = i_fetch_q.valid;
       end else begin
         d_fetch_d.valid = '0;
       end
@@ -542,9 +550,12 @@ module ladybird_core
         remap_table[i] <= '0;
       end else begin
         if (d_fetch_d.valid && df_ready && d_fetch_d.rd_wb && i == remap_table_head) begin
+          // allocation
           remap_table[i].valid <= '1;
           remap_table[i].vreg <= d_fetch_d.rd_addr;
+          remap_table[i].data <= '0;
         end else if (remap_table[i].valid && i == commit_q.table_no && remap_table[i].vreg == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1) begin
+          // free
           remap_table[i] <= '0;
         end
       end
@@ -555,6 +566,7 @@ module ladybird_core
   always_ff @(posedge clk) begin
     if (~nrst) begin
       running <= '0;
+      pc <= '0;
       i_fetch_q <= '0;
       d_fetch_q <= '0;
       exec_q <= '0;
@@ -566,6 +578,7 @@ module ladybird_core
       end else if (halt_req) begin
         running <= '0;
       end
+      pc <= npc;
       i_fetch_q <= i_fetch_d;
       d_fetch_q <= d_fetch_d;
       exec_q <= exec_d;
