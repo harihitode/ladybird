@@ -18,9 +18,7 @@ module ladybird_lsu
    input logic [2:0]       i_funct,
    input logic             i_fence,
    output logic            o_valid,
-   // verilator lint_off: UNUSED
    input logic             o_ready,
-   // verilator lint_on: UNUSED
    output logic [XLEN-1:0] o_data,
    ladybird_axi_interface.master d_axi,
    input logic             nrst
@@ -31,7 +29,7 @@ module ladybird_lsu
 
   logic                    cache_req, cache_ready;
   logic [XLEN-1:0]         cache_addr;
-  logic                    line_valid;
+  logic                    line_valid, line_ready;
   logic [XLEN/8-1:0]       cache_wen;
   logic [XLEN-1:0]         cache_wdata;
   logic                    cache_uncache;
@@ -87,6 +85,8 @@ module ladybird_lsu
     end
   end
 
+  assign line_ready = o_ready;
+
   ladybird_cache #(.LINE_W(CACHE_LINE_W), .INDEX_W(CACHE_INDEX_W), .AXI_ID(AXI_ID), .AXI_DATA_W(AXI_DATA_W))
   DCACHE
     (
@@ -102,6 +102,7 @@ module ladybird_lsu
      .o_valid(line_valid),
      .o_addr(line_addr),
      .o_data(line_data),
+     .o_ready(line_ready),
      .axi(d_axi),
      .nrst(nrst)
      );

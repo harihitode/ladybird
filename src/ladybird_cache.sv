@@ -25,6 +25,7 @@ module ladybird_cache
    output logic                 o_valid,
    output logic [XLEN-1:0]      o_addr,
    output logic [2**LINE_W-1:0] o_data,
+   input  logic                 o_ready,
    ladybird_axi_interface.master axi,
    input logic                  nrst
    );
@@ -179,9 +180,11 @@ module ladybird_cache
       o_valid <= '0;
       o_addr <= '0;
     end else begin
-      o_data <= o_data_d;
-      o_valid <= o_valid_d;
-      o_addr <= o_addr_d;
+      if (o_ready) begin
+        o_data <= o_data_d;
+        o_valid <= o_valid_d;
+        o_addr <= o_addr_d;
+      end
     end
   end
 
