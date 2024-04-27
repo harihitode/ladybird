@@ -71,8 +71,11 @@ module ladybird_core
     logic [4:0]        rd_addr;
     logic [RMPT_W-1:0] table_no;
     logic              rd_wb;
+    logic              rs1_valid;
     logic [XLEN-1:0]   rs1_data;
+    logic              rs2_valid;
     logic [XLEN-1:0]   rs2_data;
+    logic              invalidate;
     logic              valid;
   } d_fetch_stage_t;
   d_fetch_stage_t d_fetch_q, d_fetch_d;
@@ -134,12 +137,14 @@ module ladybird_core
   // GENERAL PURPOSE REGISTER
   typedef struct packed {
     logic        valid;
+    logic        filled;
     logic [VREG_W-1:0] vreg;
     logic [XLEN-1:0]   data;
   } remap_table_entry_t;
 
   logic [XLEN-1:0]     gpr [2**VREG_W];
-  remap_table_entry_t  remap_table [2**RMPT_W];
+  remap_table_entry_t  remap_table_d [2**RMPT_W];
+  remap_table_entry_t  remap_table_q [2**RMPT_W];
   logic [RMPT_W-1:0]   remap_table_head, remap_table_tail;
 
   assign halt = ~running;
@@ -219,7 +224,7 @@ module ladybird_core
 
   always_comb begin
     ifu_i_valid = running | (halt & resume_req);
-    ifu_o_ready = if_ready;
+    ifu_o_ready = df_ready;
     if (halt & resume_req) begin
       npc = resume_pc;
     end else if (not_fall_through) begin
@@ -232,31 +237,38 @@ module ladybird_core
   end
 
   always_comb begin
-    if_ready = df_ready;
-    if (~if_ready) begin
+    if_ready = df_ready & running;
+    if (!df_ready) begin
       i_fetch_d = i_fetch_q;
     end else begin
-      i_fetch_d.valid = ifu_o_valid;
-      i_fetch_d.pc = ifu_o_pc;
-      i_fetch_d.inst = ifu_o_inst;
-      i_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
+      if (ifu_o_valid) begin
+        i_fetch_d.valid = ifu_o_valid & if_ready;
+        i_fetch_d.pc = ifu_o_pc;
+        i_fetch_d.inst = ifu_o_inst;
+        i_fetch_d.exception_code = '0; // TODO: Instruction (Access/Page) Fault
+      end else begin
+        i_fetch_d = '0;
+      end
     end
   end
 
   always_comb begin
-    automatic logic rs1_valid = '0;
-    automatic logic rs2_valid = '0;
-    if (not_fall_through) begin
-      d_fetch_d = '0;
-      df_ready = '1;
-    end else if (!ex_ready) begin
-      d_fetch_d = d_fetch_q;
+    if (i_fetch_q.valid && riscv_dst_is_reg(i_fetch_q.inst) && remap_table_q[remap_table_head].valid) begin
       df_ready = '0;
     end else begin
+      df_ready = ex_ready;
+    end
+    if (!ex_ready) begin
+      d_fetch_d = d_fetch_q;
+      d_fetch_d.invalidate = d_fetch_q.invalidate | not_fall_through;
+    end else begin
+      d_fetch_d.valid = i_fetch_q.valid & df_ready;
       d_fetch_d.pc = i_fetch_q.pc;
+      d_fetch_d.invalidate = not_fall_through;
       d_fetch_d.inst = i_fetch_q.inst;
       d_fetch_d.exception_code = i_fetch_q.exception_code; // TODO: Illegal Instruction
       d_fetch_d.rd_addr = d_fetch_d.inst[11:7];
+      d_fetch_d.rd_wb = riscv_dst_is_reg(i_fetch_q.inst);
       if (d_fetch_d.inst[6:2] == OPCODE_STORE) begin: STORE_OFFSET
         d_fetch_d.imm = {{20{d_fetch_d.inst[31]}}, d_fetch_d.inst[31:25], d_fetch_d.inst[11:7]};
       end else if ((d_fetch_d.inst[6:2] == OPCODE_AUIPC) ||
@@ -269,84 +281,69 @@ module ladybird_core
       end else begin
         d_fetch_d.imm = {{20{d_fetch_d.inst[31]}}, d_fetch_d.inst[31:20]};
       end
-      if (d_fetch_d.rd_addr == 5'd0) begin
-        d_fetch_d.rd_wb = 'b0;
-      end else begin
-        if ((d_fetch_d.inst[6:2] == OPCODE_LOAD) ||
-            (d_fetch_d.inst[6:2] == OPCODE_OP_IMM) ||
-            (d_fetch_d.inst[6:2] == OPCODE_AUIPC) ||
-            (d_fetch_d.inst[6:2] == OPCODE_LUI) ||
-            (d_fetch_d.inst[6:2] == OPCODE_OP) ||
-            (d_fetch_d.inst[6:2] == OPCODE_JALR) ||
-            (d_fetch_d.inst[6:2] == OPCODE_JAL)
-            ) begin
-          d_fetch_d.rd_wb = 'b1;
-        end else if (d_fetch_d.inst[6:2] == OPCODE_SYSTEM && d_fetch_d.inst[14:12] != 'd0) begin
-          d_fetch_d.rd_wb = 'b1;
-        end else begin
-          // Other opcodes have no effect for their commit
-          d_fetch_d.rd_wb = 'b0;
-        end
-      end
       d_fetch_d.table_no = remap_table_head;
-      // TODO: FIRST remap table, Second Each Pipeline, Last GPR
-      rs1_valid = '1;
+    end
+
+    // if (riscv_src1_is_reg(d_fetch_d.inst)) begin
+
+    // end else begin
+    //   d_fetch_d.rs1_valid = '1;
+    // end
+    // if (riscv_src2_is_reg(d_fetch_d.inst)) begin
+
+    // end else begin
+    //   d_fetch_d.rs2_valid = '1;
+    // end
+
+    // // TODO: FIRST remap table, Second Each Pipeline, Last GPR
+    d_fetch_d.rs1_valid = '1;
+    if (riscv_src1_is_reg(d_fetch_d.inst)) begin
       for (int i = 0; i < N_RMPT; i++) begin
-        if (remap_table[i].valid && remap_table[i].vreg == d_fetch_d.inst[19:15]) begin
-          rs1_valid = '0;
+        if (remap_table_q[i].valid && remap_table_q[i].vreg == d_fetch_d.inst[19:15]) begin
+          d_fetch_d.rs1_valid = '0;
           break;
         end
       end
-      if (rs1_valid) begin
+      if (d_fetch_d.rs1_valid) begin
         d_fetch_d.rs1_data = gpr[d_fetch_d.inst[19:15]];
       end
-      // TODO: FIRST remap table, Second Each Pipeline, Last GPR
-      rs2_valid = '1;
+    end
+    // TODO: FIRST remap table, Second Each Pipeline, Last GPR
+    d_fetch_d.rs2_valid = '1;
+    if (riscv_src2_is_reg(d_fetch_d.inst)) begin
       for (int i = 0; i < N_RMPT; i++) begin
-        if (remap_table[i].valid && remap_table[i].vreg == d_fetch_d.inst[24:20]) begin
-          rs2_valid = '0;
+        if (remap_table_q[i].valid && remap_table_q[i].vreg == d_fetch_d.inst[24:20]) begin
+          d_fetch_d.rs2_valid = '0;
           break;
         end
       end
-      if (rs2_valid) begin
+      if (d_fetch_d.rs2_valid) begin
         d_fetch_d.rs2_data = gpr[d_fetch_d.inst[24:20]];
-      end
-      // Stop the pipeline when the all remap table entry are filled
-      if (remap_table[remap_table_head].valid) begin
-        df_ready = '0;
-      end else begin
-        df_ready = rs1_valid & rs2_valid & mx_ready;
-      end
-      if (df_ready) begin
-        d_fetch_d.valid = i_fetch_q.valid;
-      end else begin
-        d_fetch_d.valid = '0;
       end
     end
   end
 
   always_comb begin
-    automatic logic [XLEN-1:0] inst = d_fetch_q.inst;
-    if (exec_q.valid && ~exec_q.invalidate &&
-        exec_q.inst[6:2] inside {OPCODE_LOAD, OPCODE_STORE, OPCODE_MISC_MEM}) begin
-      ex_ready = lsu_req & lsu_gnt & mx_ready;
-    end else begin
+    if (not_fall_through || ~d_fetch_q.valid || d_fetch_q.invalidate) begin
       ex_ready = mx_ready;
+    end else begin
+      ex_ready = mx_ready & d_fetch_q.valid & d_fetch_q.rs1_valid & d_fetch_q.rs2_valid;
     end
-    if (!ex_ready) begin
+    if (!mx_ready) begin
       exec_d = exec_q;
+      exec_d.invalidate = exec_q.invalidate | not_fall_through;
     end else begin
       exec_d.pc = d_fetch_q.pc;
       exec_d.exception_code = d_fetch_q.exception_code; // TODO: Illegal Instruction
-      exec_d.inst = inst;
+      exec_d.inst = d_fetch_q.inst;
       exec_d.rd_addr = d_fetch_q.rd_addr;
       exec_d.rd_wb = d_fetch_q.rd_wb;
       exec_d.table_no = d_fetch_q.table_no;
       exec_d.imm = d_fetch_q.imm;
       exec_d.rs1_data = d_fetch_q.rs1_data;
       exec_d.rs2_data = d_fetch_q.rs2_data;
-      exec_d.invalidate = not_fall_through;
-      exec_d.valid = d_fetch_q.valid;
+      exec_d.invalidate = d_fetch_q.invalidate | not_fall_through;
+      exec_d.valid = d_fetch_q.valid & ex_ready;
       exec_d.force_pc = csr_o_pc;
       exec_d.force_pc_valid = csr_o_pc_valid;
       exec_d.branch_flag = '0;
@@ -373,12 +370,8 @@ module ladybird_core
   end
 
   always_comb begin
-    if (memory_q.valid && ~memory_q.invalidate && memory_q.inst[6:2] == OPCODE_LOAD) begin
-      mx_ready = lsu_data_valid & lsu_data_ready & wb_ready;
-    end else begin
-      mx_ready = wb_ready;
-    end
-    if (!mx_ready) begin
+    mx_ready = wb_ready & lsu_gnt;
+    if (!wb_ready) begin
       memory_d = memory_q;
     end else begin
       memory_d.pc = exec_q.pc;
@@ -402,16 +395,16 @@ module ladybird_core
       memory_d.rs2_data = exec_q.rs2_data;
       memory_d.rd_data = exec_q.rd_data;
       memory_d.invalidate = exec_q.invalidate;
-      if (~exec_q.invalidate && exec_q.inst[6:2] inside {OPCODE_LOAD, OPCODE_STORE, OPCODE_MISC_MEM}) begin
-        memory_d.valid = exec_q.valid & lsu_req & lsu_gnt;
-      end else begin
-        memory_d.valid = exec_q.valid;
-      end
+      memory_d.valid = exec_q.valid & mx_ready;
     end
   end
 
   always_comb begin
-    wb_ready = '1;
+    if (memory_q.valid && ~memory_q.invalidate && memory_q.inst[6:2] == OPCODE_LOAD) begin
+      wb_ready = lsu_data_valid & lsu_data_ready;
+    end else begin
+      wb_ready = '1;
+    end
     commit_d.pc = memory_q.pc;
     commit_d.npc = memory_q.npc;
     commit_d.trap_code = memory_q.trap_code;
@@ -523,8 +516,32 @@ module ladybird_core
     if (~nrst) begin
       gpr <= '{default:'0};
     end else begin
-      if (commit_q.valid == '1 && commit_q.invalidate == '0 && commit_q.rd_wb == '1) begin
-        gpr[commit_q.rd_addr] <= commit_q.rd_data;
+      if (commit_d.valid == '1 && commit_d.invalidate == '0 && commit_d.rd_wb == '1) begin
+        gpr[commit_d.rd_addr] <= commit_d.rd_data;
+      end
+      // DEBUG
+      if (commit_q.valid == '1 && commit_q.invalidate == '0) begin
+        if (commit_q.rd_wb == '1 && commit_q.rd_addr == 'd2) begin
+          $display("%08x (%0d) sp <- %08x", commit_q.inst, instret, commit_q.rd_data);
+        end
+        if (commit_q.inst[6:2] == OPCODE_LOAD && commit_q.inst[14:12] == FUNCT3_LBU) begin
+          if (commit_q.rd_data[7:0] == '0) begin
+            $display("%08x LB: (%08x) \\0", commit_q.pc, commit_q.paddr);
+          end else if (commit_q.rd_data[7:0] == 8'h0a) begin
+            $display("%08x LB: (%08x) \\n", commit_q.pc, commit_q.paddr);
+          end else begin
+            $display("%08x LB: (%08x) %c", commit_q.pc, commit_q.paddr, commit_q.rd_data[7:0]);
+          end
+        end
+        if (commit_q.inst[6:2] == OPCODE_STORE && commit_q.inst[14:12] == FUNCT3_SB) begin
+          if (commit_q.rs2_data[7:0] == '0) begin
+            $display("%08x SB: (%08x) \\0", commit_q.pc, commit_q.paddr);
+          end else if (commit_q.rs2_data[7:0] == 8'h0a) begin
+            $display("%08x SB: (%08x) \\n", commit_q.pc, commit_q.paddr);
+          end else begin
+            $display("%08x SB: (%08x) %c", commit_q.pc, commit_q.paddr, commit_q.rs2_data[7:0]);
+          end
+        end
       end
     end
   end
@@ -535,7 +552,7 @@ module ladybird_core
       remap_table_tail <= '0;
     end else begin
       // TODO: invalidate
-      if (d_fetch_d.valid && d_fetch_d.rd_wb && df_ready) begin
+      if (i_fetch_q.valid && riscv_dst_is_reg(i_fetch_q.inst) && df_ready) begin
         remap_table_head <= remap_table_head + 'd1;
       end
       if (commit_q.valid && commit_q.rd_wb && commit_q.table_no == remap_table_tail) begin
@@ -545,19 +562,35 @@ module ladybird_core
   end
 
   generate for (genvar i = 0; i < N_RMPT; i++) begin: GPR_REMAP_FF
+    always_comb begin
+      remap_table_d[i] = remap_table_q[i];
+      if (i_fetch_q.valid && riscv_dst_is_reg(i_fetch_q.inst) && df_ready && i == remap_table_head) begin
+        // allocation
+        remap_table_d[i].valid = '1;
+        remap_table_d[i].filled = '0;
+        remap_table_d[i].vreg = d_fetch_d.rd_addr;
+        remap_table_d[i].data = '0;
+      // end else if (exec_q.valid && ~exec_q.invalidate && exec_q.rd_wb && remap_table_q[i].valid && i == exec_q.table_no && remap_table_q[i].vreg == exec_q.rd_addr && ex_ready) begin
+      //   // EX -> forwarding
+      //   remap_table_d[i].filled = '1;
+      //   remap_table_d[i].data = exec_q.rd_data;
+      // end else if (memory_q.valid && ~memory_q.invalidate && memory_q.rd_wb && remap_table_q[i].valid && i == memory_q.table_no && remap_table_q[i].vreg == memory_q.rd_addr && mx_ready) begin
+      //   // MX -> forwarding
+      //   remap_table_d[i].filled = '1;
+      //   remap_table_d[i].data = commit_d.rd_data;
+      end else if (commit_d.valid && ~commit_d.invalidate && commit_d.rd_wb &&
+                   remap_table_q[i].valid && i == commit_d.table_no &&
+                   remap_table_q[i].vreg == commit_d.rd_addr) begin
+        // free
+        remap_table_d[i] = '0;
+      end
+    end
+
     always_ff @(posedge clk) begin
       if (~nrst) begin
-        remap_table[i] <= '0;
+        remap_table_q[i] <= '0;
       end else begin
-        if (d_fetch_d.valid && df_ready && d_fetch_d.rd_wb && i == remap_table_head) begin
-          // allocation
-          remap_table[i].valid <= '1;
-          remap_table[i].vreg <= d_fetch_d.rd_addr;
-          remap_table[i].data <= '0;
-        end else if (remap_table[i].valid && i == commit_q.table_no && remap_table[i].vreg == commit_q.rd_addr && commit_q.rd_wb && commit_q.valid == '1) begin
-          // free
-          remap_table[i] <= '0;
-        end
+        remap_table_q[i] <= remap_table_d[i];
       end
     end
   end endgenerate
