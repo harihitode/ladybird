@@ -611,21 +611,22 @@ static void disk_process_queue(disk_t *disk) {
   fprintf(stderr, "used_event %u\n", avail.used_event);
 #endif
   memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&used, desc_addr + disk->page_size, sizeof(virtq_used));
+  virtio_blk_req req;
+
   // process descriptors
   for (unsigned short idx = disk->last_avail_idx; idx < avail.idx; idx++, disk->last_avail_idx++) {
     unsigned short current_desc_idx = avail.ring[idx % VIRTIO_MMIO_MAX_QUEUE];
     for (unsigned i = 0; i < VIRTIO_BLK_DESC_CHAIN_LEN; i++) {
       virtq_desc current_desc;
-      virtio_blk_req req;
       memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&current_desc, desc_addr + current_desc_idx * sizeof(virtq_desc), sizeof(virtq_desc));
 #if VIRTIO_DEBUG_DUMP
       fprintf(stderr, "CURRENT DESC [%u] addr %016llx len %08x flags %08x next %08x\n",
               current_desc_idx, current_desc.addr, current_desc.len, current_desc.flags, current_desc.next);
 #endif
       int is_write_only = (current_desc.flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
-      memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&req, current_desc.addr, sizeof(virtio_blk_req));
       // read from descripted address
       if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write_only) {
+        memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&req, current_desc.addr, sizeof(virtio_blk_req));
 #if VIRTIO_DEBUG_DUMP
         fprintf(stderr, "\tBLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req.type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req.reserved, req.sector);
 #endif
