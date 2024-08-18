@@ -147,10 +147,6 @@ static int uart_input_routine(void *arg) {
 }
 
 void uart_init(uart_t *uart) {
-  uart->base.base = 0;
-  uart->base.size = 4096;
-  uart->base.readb = uart_read;
-  uart->base.writeb = uart_write;
   uart->base.get_irq = uart_irq;
   uart->base.ack_irq = uart_irq_ack;
   uart->buf = (char *)malloc(UART_BUF_SIZE * sizeof(char));
@@ -174,6 +170,7 @@ void uart_init(uart_t *uart) {
   uart->dlab = 0;
   uart->tx_sent = 0;
   uart->rx_reading = 0;
+  memory_target_init((struct memory_target_t *)uart, 0, 4096, NULL, uart_read, uart_write);
 }
 
 static void uart_unset_io(uart_t *uart) {
@@ -220,7 +217,7 @@ void uart_set_io(uart_t *uart, const char *in_path, const char *out_path) {
   return;
 }
 
-char uart_read(struct mmio_t *unit, unsigned addr) {
+char uart_read(struct memory_target_t *unit, unsigned addr) {
   addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
@@ -291,7 +288,7 @@ char uart_read(struct mmio_t *unit, unsigned addr) {
   }
 }
 
-void uart_write(struct mmio_t *unit, unsigned addr, char value) {
+void uart_write(struct memory_target_t *unit, unsigned addr, char value) {
   addr -= unit->base;
   uart_t *uart = (uart_t *)unit;
   switch (addr) {
@@ -384,6 +381,7 @@ void uart_fini(uart_t *uart) {
   }
   close(uart->i_pipe[0]);
   close(uart->i_pipe[1]);
+  memory_target_fini((struct memory_target_t *)uart);
   return;
 }
 
@@ -410,16 +408,11 @@ void uart_fini(uart_t *uart) {
 #define VIRTIO_F_NOTIFICATION_DATA (38)
 
 void disk_init(disk_t *disk) {
-  disk->base.base = 0;
-  disk->base.size = 4096;
-  disk->base.readb = disk_read;
-  disk->base.writeb = disk_write;
   disk->base.get_irq = disk_irq;
   disk->base.ack_irq = disk_irq_ack;
   disk->capacity = 0;
   disk->mem = NULL;
-  disk->rom = (rom_t *)calloc(1, sizeof(rom_t));
-  rom_init(disk->rom);
+  disk->rom = NULL;
   disk->current_queue = 0;
   disk->queue_num = 0;
   disk->queue_notify = 0;
@@ -434,10 +427,12 @@ void disk_init(disk_t *disk) {
   disk->guest_features = 0; // init value
   disk->guest_features_sel = 0;
   disk->last_avail_idx = 0;
+  memory_target_init((struct memory_target_t *)disk, 0, 4096, NULL, disk_read, disk_write);
 }
 
 int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
-  rom_mmap(disk->rom, img_path, rom_mode);
+  disk->rom = (sram_t *)calloc(1, sizeof(sram_t));
+  sram_init_with_file(disk->rom, img_path, rom_mode);
   disk->capacity = disk->rom->file_stat.st_blocks;
   return 0;
 }
@@ -480,7 +475,7 @@ int disk_load(disk_t *disk, const char *img_path, int rom_mode) {
 #define VIRTIO_MMIO_MAX_QUEUE 8
 #define VIRTIO_DEBUG_DUMP 0
 
-char disk_read(struct mmio_t *unit, unsigned addr) {
+char disk_read(struct memory_target_t *unit, unsigned addr) {
   addr -= unit->base;
   unsigned ret = 0;
   unsigned base = addr & 0xFFFFFFFC;
@@ -600,91 +595,88 @@ typedef struct {
 static void disk_process_queue(disk_t *disk) {
   // run the disk r/w
   unsigned desc_addr = disk->queue_ppn * disk->page_size;
-  virtq_desc *desc = (virtq_desc *)memory_get_page(disk->mem, desc_addr, 0, DEVICE_ID_DMA);
+  virtq_desc desc;
+  virtq_avail avail;
+  virtq_used used;
+  memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&desc, desc_addr, sizeof(virtq_desc));
 #if VIRTIO_DEBUG_DUMP
   fprintf(stderr, "ADDR %08x PAGESIZE %d (%08x) LAST_AVAIL_IDX %u\n", disk->queue_ppn, disk->page_size, disk->page_size, disk->last_avail_idx);
 #endif
-  virtq_avail *avail = (virtq_avail *)(memory_get_page(disk->mem, desc_addr, 0, DEVICE_ID_DMA) +
-                                       VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc));
+  memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&avail, desc_addr + VIRTIO_MMIO_MAX_QUEUE * sizeof(virtq_desc), sizeof(virtq_avail));
 #if VIRTIO_DEBUG_DUMP
-  fprintf(stderr, "AVAIL (GUEST -> HOST) flag %08x idx %08x ring ", avail->flags, avail->idx);
+  fprintf(stderr, "AVAIL (GUEST -> HOST) flag %08x idx %08x ring ", avail.flags, avail.idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-    fprintf(stderr, "%d ", avail->ring[i]);
+    fprintf(stderr, "%d ", avail.ring[i]);
   }
-  fprintf(stderr, "used_event %u\n", avail->used_event);
+  fprintf(stderr, "used_event %u\n", avail.used_event);
 #endif
-  virtq_used *used = (virtq_used *)memory_get_page(disk->mem, desc_addr + disk->page_size, 1, DEVICE_ID_DMA);
-  virtio_blk_req *req = NULL;
+  memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&used, desc_addr + disk->page_size, sizeof(virtq_used));
   // process descriptors
-  for (unsigned short idx = disk->last_avail_idx; idx < avail->idx; idx++, disk->last_avail_idx++) {
-    unsigned short current_desc_idx = avail->ring[idx % VIRTIO_MMIO_MAX_QUEUE];
+  for (unsigned short idx = disk->last_avail_idx; idx < avail.idx; idx++, disk->last_avail_idx++) {
+    unsigned short current_desc_idx = avail.ring[idx % VIRTIO_MMIO_MAX_QUEUE];
     for (unsigned i = 0; i < VIRTIO_BLK_DESC_CHAIN_LEN; i++) {
-      virtq_desc *current_desc = desc + current_desc_idx;
+      virtq_desc current_desc;
+      virtio_blk_req req;
+      memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&current_desc, desc_addr + current_desc_idx * sizeof(virtq_desc), sizeof(virtq_desc));
 #if VIRTIO_DEBUG_DUMP
       fprintf(stderr, "CURRENT DESC [%u] addr %016llx len %08x flags %08x next %08x\n",
-              current_desc_idx, current_desc->addr, current_desc->len, current_desc->flags, current_desc->next);
+              current_desc_idx, current_desc.addr, current_desc.len, current_desc.flags, current_desc.next);
 #endif
-      int is_write_only = (current_desc->flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
+      int is_write_only = (current_desc.flags & VIRTQ_DESC_F_WRITE) ? 1 : 0;
+      memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, (char *)&req, current_desc.addr, sizeof(virtio_blk_req));
       // read from descripted address
       if (i == VIRTQ_STAGE_READ_BLK_REQ && !is_write_only) {
-        req = (virtio_blk_req *)(memory_get_page(disk->mem, current_desc->addr, 0, DEVICE_ID_DMA)
-                                 + (current_desc->addr & disk->page_size_mask));
 #if VIRTIO_DEBUG_DUMP
-        fprintf(stderr, "\tBLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req->type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req->reserved, req->sector);
+        fprintf(stderr, "\tBLK REQ: %s, (req->reserved) = %08x  (req_sector) = %llu\n", (req.type == VIRTIO_BLK_T_IN) ? "READ" : "WRITE", req.reserved, req.sector);
 #endif
       } else if (i == VIRTQ_STAGE_RW_SECTOR) {
         if (disk->rom->data == NULL) {
           fprintf(stderr, "mmio disk (RW queue): no disk\n");
         } else {
-          char *sector = disk->rom->data + (512 * req->sector);
-          unsigned dma_base = current_desc->addr;
+          char *sector = disk->rom->data + (512 * req.sector);
+          unsigned dma_base = current_desc.addr;
 #if VIRTIO_DEBUG_DUMP
-          fprintf(stderr, "\tBLK CMD: sector %016llx <-> DMA %08x\n", req->sector, dma_base);
+          fprintf(stderr, "\tBLK CMD: sector %016llx <-> DMA %08x\n", req.sector, dma_base);
 #endif
-          if (req->type == VIRTIO_BLK_T_IN) {
+          if (req.type == VIRTIO_BLK_T_IN) {
             // disk -> memory
-            for (unsigned j = 0; j < current_desc->len; j++) {
-              char *page = memory_get_page(disk->mem, dma_base + j, 1, DEVICE_ID_DMA);
-              page[(dma_base + j) & disk->page_size_mask] = sector[j];
-            }
-          } else if (req->type == VIRTIO_BLK_T_OUT) {
+            memory_cpy_to(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, dma_base, sector, current_desc.len);
+          } else if (req.type == VIRTIO_BLK_T_OUT) {
             // memory -> disk
-            for (unsigned j = 0; j < current_desc->len; j++) {
-              char *page = memory_get_page(disk->mem, dma_base + j, 0, DEVICE_ID_DMA);
-              sector[j] = page[(dma_base + j) & disk->page_size_mask];
-            }
+            memory_cpy_from(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, sector, dma_base, current_desc.len);
           } else {
             fprintf(stderr, "[MMIO ERROR] invalid sequence\n");
           }
         }
       } else if (i == VIRTQ_STAGE_COMPLETE && is_write_only) {
+        char data = VIRTQ_DONE;
         // done
-        char *page = memory_get_page(disk->mem, current_desc->addr, 1, DEVICE_ID_DMA);
-        page[current_desc->addr & disk->page_size_mask] = VIRTQ_DONE;
+        memory_cpy_to(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, current_desc.addr, &data, 1);
         // complete
-        used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].id = avail->ring[idx % VIRTIO_MMIO_MAX_QUEUE];
-        used->ring[used->idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
-        used->idx++; // increment when completed
+        used.ring[used.idx % VIRTIO_MMIO_MAX_QUEUE].id = avail.ring[idx % VIRTIO_MMIO_MAX_QUEUE];
+        used.ring[used.idx % VIRTIO_MMIO_MAX_QUEUE].len = i + 1;
+        used.idx++; // increment when completed
+        memory_cpy_to(disk->mem, MEMORY_ACCESS_DEVICE_ID_DMA, desc_addr + disk->page_size, (const char *)&used, sizeof(virtq_used));
       }
       // does next queue exist ?
-      if (!(current_desc->flags & VIRTQ_DESC_F_NEXT)) {
+      if (!(current_desc.flags & VIRTQ_DESC_F_NEXT)) {
         break;
       };
-      current_desc_idx = current_desc->next;
+      current_desc_idx = current_desc.next;
     }
   }
 #if VIRTIO_DEBUG_DUMP
-  fprintf(stderr, "UPDATE USED  (Host -> GUEST) flag %08x idx %08x ids", used->flags, used->idx);
+  fprintf(stderr, "UPDATE USED  (Host -> GUEST) flag %08x idx %08x ids", used.flags, used.idx);
   for (int i = 0; i < VIRTIO_MMIO_MAX_QUEUE; i++) {
-    fprintf(stderr, " %u [%u]", used->ring[i].id, used->ring[i].len);
+    fprintf(stderr, " %u [%u]", used.ring[i].id, used.ring[i].len);
   }
-  fprintf(stderr, " avail_event %u\n", used->avail_event);
+  fprintf(stderr, " avail_event %u\n", used.avail_event);
 #endif
   // raise interrupt
   disk->queue_notify = 1;
 }
 
-void disk_write(struct mmio_t *unit, unsigned addr, char value) {
+void disk_write(struct memory_target_t *unit, unsigned addr, char value) {
   addr -= unit->base;
   disk_t *disk = (disk_t *)unit;
   unsigned base = addr & 0xfffffffc;
@@ -817,7 +809,10 @@ void disk_irq_ack(struct mmio_t *mmio) {
 }
 
 void disk_fini(disk_t *disk) {
-  rom_fini(disk->rom);
-  free(disk->rom);
+  if (disk->rom) {
+    sram_fini(disk->rom);
+    free(disk->rom);
+  }
+  memory_target_fini((struct memory_target_t *)disk);
   return;
 }

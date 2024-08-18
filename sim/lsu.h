@@ -14,6 +14,9 @@ struct core_step_result;
 #define CACHE_ACCESS_READ 0
 #define CACHE_ACCESS_WRITE 1
 
+#define CACHE_TAG_MODE_PIPT 0
+#define CACHE_TAG_MODE_VIPT 1
+
 typedef struct cache_line_t {
   unsigned char state;
   unsigned char reserved;
@@ -22,6 +25,8 @@ typedef struct cache_line_t {
 } cache_line_t;
 
 typedef struct cache_t {
+  int id;
+  int tag_mode;
   struct memory_t *mem;
   unsigned line_len; // should be power of 2
   unsigned line_size; // should be power of 2
@@ -33,7 +38,6 @@ typedef struct cache_t {
   // performance counter
   unsigned long access_count;
   unsigned long hit_count;
-  int hart_id;
 } cache_t;
 
 typedef struct tlb_line_t {
@@ -54,7 +58,7 @@ typedef struct tlb_t {
   // performance counter
   unsigned long access_count;
   unsigned long hit_count;
-  int hart_id;
+  int id;
 } tlb_t;
 
 typedef struct lsu_t {
@@ -100,8 +104,8 @@ void lsu_fini(lsu_t *);
 
 // cache (instruction or data)
 void cache_init(cache_t *, struct memory_t *, unsigned line_len, unsigned line_size);
-cache_line_t *cache_get_line(cache_t *, unsigned addr, int is_write);
-char *cache_get_line_ptr(cache_t *, unsigned addr, int is_write);
+cache_line_t *cache_get_line(cache_t *, unsigned vaddr, unsigned paddr, int is_write);
+char *cache_get_line_ptr(cache_t *, unsigned vaddr, unsigned paddr, int is_write);
 int cache_write_back(cache_t *, unsigned index);
 void cache_fini(cache_t *);
 

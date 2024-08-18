@@ -41,15 +41,12 @@
 
 #define CORE_WINDOW_SIZE 16
 
-#define BUS_ACCESS_READ 0
-#define BUS_ACCESS_WRITE 1
-#define DEVICE_ID_DMA -1
-
 #define REGISTER_STATISTICS 1
 
 enum sim_state { running, quit };
 
 struct core_step_result {
+  unsigned hart_id;
   unsigned char prv;
   unsigned long long cycle;
   unsigned pc;
@@ -95,6 +92,9 @@ typedef struct sim_t {
   struct core_t **core;
   unsigned num_core;
   struct memory_t *mem;
+  struct dram_t *dram;
+  struct sram_t *dtb_rom;
+  struct sram_t *config_rom;
   struct elf_t *elf;
   struct trigger_t *trigger;
   struct uart_t *uart;

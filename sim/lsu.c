@@ -114,7 +114,7 @@ unsigned lsu_load(lsu_t *lsu, unsigned len, struct core_step_result *result) {
     return result->exception_code;
   }
   if (is_cacheable(result->m_paddr)) {
-    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
+    char *line = cache_get_line_ptr(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_READ);
     if (line != NULL) {
       switch (len) {
       case 1:
@@ -133,7 +133,7 @@ unsigned lsu_load(lsu_t *lsu, unsigned len, struct core_step_result *result) {
       result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
     }
   } else {
-    result->exception_code = memory_load(lsu->mem, len, result);
+    result->exception_code = memory_load(lsu->mem, len, MEMORY_LOAD_DEFAULT, result);
   }
   return result->exception_code;
 }
@@ -144,7 +144,7 @@ unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
     return result->exception_code;
   }
   if (is_cacheable(result->m_paddr)) {
-    char *line = cache_get_line_ptr(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+    char *line = cache_get_line_ptr(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_WRITE);
     if (line != NULL) {
       switch (len) {
       case 1:
@@ -163,7 +163,7 @@ unsigned lsu_store(lsu_t *lsu, unsigned len, struct core_step_result *result) {
       result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
     }
   } else {
-    result->exception_code = memory_store(lsu->mem, len, result);
+    result->exception_code = memory_store(lsu->mem, len, MEMORY_STORE_DEFAULT, result);
   }
   return result->exception_code;
 }
@@ -175,7 +175,7 @@ unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result 
   }
   if (is_cacheable(result->m_paddr)) {
     if (aquire) lsu_dcache_write_back(lsu);
-    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_READ);
+    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_READ);
     result->rd_data = *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask]));
     cline->reserved = 1;
   } else {
@@ -190,7 +190,7 @@ unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_re
     return result->exception_code;
   }
   if (is_cacheable(result->m_paddr)) {
-    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_paddr, CACHE_ACCESS_WRITE);
+    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_WRITE);
     if (cline->reserved == 1) {
       *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask])) = result->m_data;
       if (!result->exception_code) {
@@ -299,6 +299,8 @@ void lsu_fini(lsu_t *lsu) {
 }
 
 void cache_init(cache_t *cache, memory_t *mem, unsigned line_len, unsigned line_size) {
+  cache->id = 0;
+  cache->tag_mode = CACHE_TAG_MODE_PIPT;
   cache->mem = mem;
   cache->access_count = 0;
   cache->hit_count = 0;
@@ -311,61 +313,48 @@ void cache_init(cache_t *cache, memory_t *mem, unsigned line_len, unsigned line_
   for (unsigned i = 0; i < line_size; i++) {
     cache->line[i].data = (char *)malloc(line_len * sizeof(char));
   }
-  cache->hart_id = 0;
 }
 
-cache_line_t *cache_get_line(cache_t *cache, unsigned addr, int is_write) {
-  unsigned index = (addr & cache->index_mask) / cache->line_len;
-  unsigned tag = addr & cache->tag_mask;
-  unsigned ppage_found = 0;
+cache_line_t *cache_get_line(cache_t *cache, unsigned vaddr, unsigned paddr, int is_write) {
+  // supporting VIPT and PIPT. ordinary L1 cache is VIPT reducing latency,
+  // but this simulator's implementation assumes PIPT as default
+  unsigned index = (cache->tag_mode == CACHE_TAG_MODE_PIPT) ?
+    (paddr & cache->index_mask) / cache->line_len :
+    (vaddr & cache->index_mask) / cache->line_len;
+  unsigned tag = paddr & cache->tag_mask;
   // broadcast to other cashe
-  memory_access_broadcast(cache->mem, addr, is_write, cache->hart_id);
+  memory_cache_coherent(cache->mem, paddr, cache->line_len, is_write, cache->id);
   cache->access_count++;
   if (cache->line[index].state != CACHE_INVALID) {
     if (cache->line[index].tag == tag) {
       // hit
       cache->hit_count++;
-      ppage_found = 1;
     } else {
-      unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
-      // write back
+      // writeback to memory
       cache_write_back(cache, index);
-      // read memory
-      char *page = memory_get_page(cache->mem, addr, is_write, cache->hart_id);
-      if (page) {
-        memcpy(cache->line[index].data, &page[block_base], cache->line_len);
-        cache->line[index].state = CACHE_SHARED;
-        cache->line[index].reserved = 0;
-        cache->line[index].tag = tag;
-        ppage_found = 1;
-      }
-    }
-  } else {
-    unsigned block_base = (addr & (~cache->line_mask)) & (cache->mem->ram_block_size - 1);
-    // read memory
-    char *page = memory_get_page(cache->mem, addr, is_write, cache->hart_id);
-    if (page) {
-      memcpy(cache->line[index].data, &page[block_base], cache->line_len);
+      // read from memory
+      memory_cpy_from(cache->mem, cache->id, cache->line[index].data, paddr & (~cache->line_mask), cache->line_len);
       cache->line[index].state = CACHE_SHARED;
       cache->line[index].reserved = 0;
       cache->line[index].tag = tag;
-      ppage_found = 1;
     }
+  } else {
+    // read from memory
+    memory_cpy_from(cache->mem, cache->id, cache->line[index].data, paddr & (~cache->line_mask), cache->line_len);
+    cache->line[index].state = CACHE_SHARED;
+    cache->line[index].reserved = 0;
+    cache->line[index].tag = tag;
   }
-  if (is_write && ppage_found) {
+  if (is_write) {
     cache->line[index].state = CACHE_MODIFIED;
   }
-  if (ppage_found) {
-    return &cache->line[index];
-  } else {
-    return NULL;
-  }
+  return &cache->line[index];
 }
 
-char *cache_get_line_ptr(cache_t *cache, unsigned addr, int is_write) {
-  cache_line_t *line = cache_get_line(cache, addr, is_write);
+char *cache_get_line_ptr(cache_t *cache, unsigned vaddr, unsigned paddr, int is_write) {
+  cache_line_t *line = cache_get_line(cache, vaddr, paddr, is_write);
   if (line != NULL) {
-    return &(line->data[addr & cache->line_mask]);
+    return &(line->data[paddr & cache->line_mask]);
   } else {
     return NULL;
   }
@@ -374,10 +363,8 @@ char *cache_get_line_ptr(cache_t *cache, unsigned addr, int is_write) {
 int cache_write_back(cache_t *cache, unsigned index) {
   if (cache->line[index].state == CACHE_MODIFIED) {
     unsigned victim_addr = cache->line[index].tag | index * cache->line_len;
-    unsigned victim_block_base = victim_addr & (cache->mem->ram_block_size - 1);
-    char *page = memory_get_page(cache->mem, victim_addr, 1, cache->hart_id);
+    memory_cpy_to(cache->mem, cache->id, victim_addr, cache->line[index].data, cache->line_len);
     // MSI Protocol - write back SHARED
-    memcpy(&page[victim_block_base], cache->line[index].data, cache->line_len);
     cache->line[index].state = CACHE_SHARED;
     return 1;
   } else {
@@ -401,7 +388,7 @@ void tlb_init(tlb_t *tlb, memory_t *mem, unsigned size) {
   tlb->line = (tlb_line_t *)calloc(size, sizeof(tlb_line_t));
   tlb->access_count = 0;
   tlb->hit_count = 0;
-  tlb->hart_id = 0;
+  tlb->id = 0;
 }
 
 void tlb_clear(tlb_t *tlb) {
@@ -441,7 +428,8 @@ static int page_check_privilege(unsigned pte, unsigned access_type, unsigned prv
 #define PAGE_PRIVILEGE_ERROR 2
 #define PAGE_SUCCESS_MEGAPAGE 3
 
-static unsigned page_walk(memory_t *mem, int hart_id, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
+static unsigned tlb_page_walk(tlb_t *tlb, unsigned vaddr, unsigned pte_base, unsigned *pte, unsigned access_type, unsigned prv) {
+  memory_t *mem = tlb->mem;
   unsigned access_fault = 0;
   unsigned protect_fault = 0;
   unsigned current_pte = 0;
@@ -449,14 +437,14 @@ static unsigned page_walk(memory_t *mem, int hart_id, unsigned vaddr, unsigned p
   for (level = 1; level >= 0; level--) {
     unsigned pte_id = ((vaddr >> ((2 + (10 * (level + 1))) & 0x0000001f)) & 0x000003ff); // word offset
     unsigned pte_addr = pte_base + (pte_id * PTE_SIZE);
-    if (pte_addr < mem->ram_base || (pte_addr > mem->ram_base + mem->ram_size)) {
+    if (pte_addr < MEMORY_BASE_ADDR_RAM || (pte_addr > MEMORY_BASE_ADDR_RAM + RAM_SIZE)) {
 #if 0
       fprintf(stderr, "access fault pte%d: addr: %08x base: %08x id: %08x\n", level, pte_addr, pte_base, pte_id);
 #endif
       access_fault = 1;
       break;
     }
-    current_pte = ((unsigned *)memory_get_page(mem, pte_base, 0, hart_id))[pte_id];
+    memory_cpy_from(mem, tlb->id, (char *)&current_pte, pte_base + 4 * pte_id, 4);
     if (level == 0) {
       if (page_check_leaf(current_pte) && page_check_privilege(current_pte, access_type, prv)) {
         protect_fault = 0;
@@ -535,7 +523,7 @@ unsigned tlb_get(tlb_t *tlb, unsigned vmrppn, unsigned vaddr, unsigned *paddr, u
 #endif
 
     // Pagewalking
-    pw_result = page_walk(tlb->mem, tlb->hart_id, vaddr, pte_base, &pte, access_type, prv);
+    pw_result = tlb_page_walk(tlb, vaddr, pte_base, &pte, access_type, prv);
     if (pw_result == PAGE_SUCCESS_MEGAPAGE) {
       *paddr = ((pte & 0xfff00000) << 2) | (vaddr & 0x003fffff);
     } else {

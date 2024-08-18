@@ -20,8 +20,8 @@ void plic_init(plic_t *);
 void plic_add_hart(plic_t *);
 unsigned plic_get_interrupt(plic_t *, unsigned context_id);
 void plic_set_peripheral(plic_t *, struct mmio_t *, unsigned irq_no);
-char plic_read(struct mmio_t *, unsigned addr);
-void plic_write(struct mmio_t *, unsigned addr, char value);
+char plic_read(memory_target_t *, unsigned addr);
+void plic_write(memory_target_t *, unsigned addr, char value);
 void plic_fini(plic_t *);
 
 typedef struct aclint_t {
@@ -36,8 +36,8 @@ typedef struct aclint_t {
 
 void aclint_init(aclint_t *);
 void aclint_add_hart(aclint_t *);
-char aclint_read(struct mmio_t *, unsigned addr);
-void aclint_write(struct mmio_t *, unsigned addr, char value);
+char aclint_read(memory_target_t *, unsigned addr);
+void aclint_write(memory_target_t *, unsigned addr, char value);
 void aclint_cycle(aclint_t *);
 unsigned long long aclint_get_mtimecmp(aclint_t *, int hart_id);
 unsigned aclint_get_msip(aclint_t *, int hart_id);

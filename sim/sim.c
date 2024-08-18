@@ -14,23 +14,27 @@
 #define MAX_DBG_HANDLER 10
 
 void sim_dtb_on(sim_t *sim, const char *dtb_path) {
-  memory_set_rom(sim->mem, dtb_path, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE, MEMORY_ROM_TYPE_MMAP);
+  sim->dtb_rom = (sram_t *)malloc(sizeof(sram_t));
+  sram_init_with_file(sim->dtb_rom, dtb_path, MEMORY_SRAM_MODE_READ_ONLY);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->dtb_rom, DEVTREE_ROM_ADDR, DEVTREE_ROM_SIZE);
 }
 
 void sim_config_on(sim_t *sim) {
   /// for riscv config string ROM
   char *config_rom = (char *)calloc(CONFIG_ROM_SIZE, sizeof(char));
   *(unsigned *)(config_rom + 0x0c) = 0x00001020;
-  sprintf(&config_rom[32],
-          "platform { vendor %s; arch %s; };\n"
-          "rtc { addr %08x; };\n"
-          "ram { 0 { addr %08x; size %08x; }; };\n"
-          "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
-          VENDOR_NAME, ARCH_NAME,
-          ACLINT_MTIME_BASE,
-          MEMORY_BASE_ADDR_RAM, RAM_SIZE,
-          riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSIP_BASE);
-  memory_set_rom(sim->mem, config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE, MEMORY_ROM_TYPE_DEFAULT);
+  snprintf(&config_rom[32], CONFIG_ROM_SIZE - 32,
+           "platform { vendor %s; arch %s; };\n"
+           "rtc { addr %08x; };\n"
+           "ram { 0 { addr %08x; size %08x; }; };\n"
+           "core { 0 { 0 { isa %s; timecmp %08x; ipi %08x; }; }; };\n",
+           VENDOR_NAME, ARCH_NAME,
+           ACLINT_MTIME_BASE,
+           MEMORY_BASE_ADDR_RAM, RAM_SIZE,
+           riscv_get_extension_string(), ACLINT_MTIMECMP_BASE, ACLINT_MSIP_BASE);
+  sim->config_rom = (sram_t *)malloc(sizeof(sram_t));
+  sram_init_with_str(sim->config_rom, config_rom, CONFIG_ROM_SIZE);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->config_rom, CONFIG_ROM_ADDR, CONFIG_ROM_SIZE);
   free(config_rom);
 }
 
@@ -51,27 +55,32 @@ void sim_add_core(sim_t *sim) {
 void sim_init(sim_t *sim) {
   // init memory
   sim->mem = (memory_t *)malloc(sizeof(memory_t));
-  memory_init(sim->mem, MEMORY_BASE_ADDR_RAM, RAM_SIZE, RAM_PAGE_SIZE);
+  memory_init(sim->mem);
+  sim->dram = (dram_t *)malloc(sizeof(dram_t));
+  dram_init(sim->dram, RAM_SIZE, RAM_PAGE_SIZE);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->dram, MEMORY_BASE_ADDR_RAM, RAM_SIZE);
+  sim->dtb_rom = NULL;
+  sim->config_rom = NULL;
   // MMIO's
   /// uart for console/file
   sim->uart = (uart_t *)malloc(sizeof(uart_t));
   uart_init(sim->uart);
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->uart, MEMORY_BASE_ADDR_UART);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->uart, MEMORY_BASE_ADDR_UART, sim->uart->base.base.size);
   /// disk
   sim->disk = (disk_t *)malloc(sizeof(disk_t));
   disk_init(sim->disk);
   sim->disk->mem = sim->mem; // for DMA
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->disk, MEMORY_BASE_ADDR_DISK);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->disk, MEMORY_BASE_ADDR_DISK, sim->disk->base.base.size);
   /// platform level interrupt controller
   sim->plic = (plic_t *)malloc(sizeof(plic_t));
   plic_init(sim->plic);
   plic_set_peripheral(sim->plic, (struct mmio_t *)sim->uart, PLIC_UART_IRQ_NO);
   plic_set_peripheral(sim->plic, (struct mmio_t *)sim->disk, PLIC_VIRTIO_MMIO_IRQ_NO);
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->plic, MEMORY_BASE_ADDR_PLIC);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->plic, MEMORY_BASE_ADDR_PLIC, sim->plic->base.base.size);
   /// core local interrupt module
   sim->aclint = (aclint_t *)malloc(sizeof(aclint_t));
   aclint_init(sim->aclint);
-  memory_set_mmio(sim->mem, (struct mmio_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT);
+  memory_add_target(sim->mem, (struct memory_target_t *)sim->aclint, MEMORY_BASE_ADDR_ACLINT, sim->aclint->base.base.size);
   /// trigger module
   sim->trigger = (trigger_t *)malloc(sizeof(trigger_t));
   trig_init(sim->trigger);
@@ -122,9 +131,9 @@ int sim_load_elf(sim_t *sim, const char *elf_path) {
 #if 0
     printf("ELF LOAD paddr %08x len %08x filesz %08x\n", sim->elf->program_base[i], sim->elf->program_mem_size[i], sim->elf->program_file_size[i]);
 #endif
-    memory_dma_send(sim->mem, sim->elf->program_base[i], sim->elf->program_file_size[i], sim->elf->program[i]);
-    memory_dma_send_c(sim->mem, sim->elf->program_base[i] + sim->elf->program_file_size[i],
-                      sim->elf->program_mem_size[i] - sim->elf->program_file_size[i], 0);
+    memory_cpy_to(sim->mem, MEMORY_ACCESS_DEVICE_ID_DMA, sim->elf->program_base[i], sim->elf->program[i], sim->elf->program_file_size[i]);
+    memory_set(sim->mem, MEMORY_ACCESS_DEVICE_ID_DMA, sim->elf->program_base[i] + sim->elf->program_file_size[i], 0,
+               sim->elf->program_mem_size[i] - sim->elf->program_file_size[i]);
   }
   // set entry program counter
   for (unsigned i = 0; i < sim->num_core; i++) {
@@ -151,6 +160,12 @@ void sim_fini(sim_t *sim) {
     core_fini(sim->core[i]);
     free(sim->core[i]);
   }
+  dram_fini(sim->dram);
+  free(sim->dram);
+  if (sim->dtb_rom) sram_fini(sim->dtb_rom);
+  free(sim->dtb_rom);
+  if (sim->config_rom) sram_fini(sim->config_rom);
+  free(sim->config_rom);
   free(sim->core);
   memory_fini(sim->mem);
   free(sim->mem);

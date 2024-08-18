@@ -8,10 +8,6 @@
 #include <stdint.h>
 
 void plic_init(plic_t *plic) {
-  plic->base.base = 0;
-  plic->base.size = (1 << 24);
-  plic->base.readb = plic_read;
-  plic->base.writeb = plic_write;
   plic->base.get_irq = NULL;
   plic->base.ack_irq = NULL;
   plic->num_hart = 0;
@@ -21,6 +17,7 @@ void plic_init(plic_t *plic) {
   plic->interrupt_threshold = NULL;
   plic->interrupt_complete = NULL;
   plic->hart_rr = 0;
+  memory_target_init((struct memory_target_t *)plic, 0, (1 << 24), NULL, plic_read, plic_write);
   return;
 }
 
@@ -37,7 +34,7 @@ void plic_add_hart(plic_t *plic) {
   plic->num_hart++;
 }
 
-char plic_read(struct mmio_t *unit, unsigned addr) {
+char plic_read(struct memory_target_t *unit, unsigned addr) {
   addr -= unit->base;
   plic_t *plic = (plic_t *)unit;
   unsigned woff = addr & 0x00000003;
@@ -62,7 +59,7 @@ char plic_read(struct mmio_t *unit, unsigned addr) {
   return (value >> (8 * woff));
 }
 
-void plic_write(struct mmio_t *unit, unsigned addr, char value) {
+void plic_write(struct memory_target_t *unit, unsigned addr, char value) {
   addr -= unit->base;
   plic_t *plic = (plic_t *)unit;
   unsigned woff = addr & 0x00000003;
@@ -130,14 +127,11 @@ void plic_fini(plic_t *plic) {
   free(plic->interrupt_enable);
   free(plic->interrupt_threshold);
   free(plic->interrupt_complete);
+  memory_target_fini((struct memory_target_t *)plic);
   return;
 }
 
 void aclint_init(aclint_t *aclint) {
-  aclint->base.base = 0;
-  aclint->base.size = (1 << 16);
-  aclint->base.readb = aclint_read;
-  aclint->base.writeb = aclint_write;
   aclint->base.get_irq = NULL;
   aclint->base.ack_irq = NULL;
   aclint->num_hart = 0;
@@ -146,6 +140,7 @@ void aclint_init(aclint_t *aclint) {
   aclint->msip = NULL;
   aclint->ssip = NULL;
   aclint->cycle_count = 0;
+  memory_target_init((struct memory_target_t *)aclint, 0, (1 << 16), NULL, aclint_read, aclint_write);
 }
 
 void aclint_add_hart(aclint_t *aclint) {
@@ -161,7 +156,7 @@ void aclint_add_hart(aclint_t *aclint) {
   aclint->num_hart++;
 }
 
-char aclint_read(struct mmio_t *unit, unsigned addr) {
+char aclint_read(struct memory_target_t *unit, unsigned addr) {
   aclint_t *aclint = (aclint_t *)unit;
   char value;
   unsigned long long byte_offset = 0;
@@ -189,7 +184,7 @@ char aclint_read(struct mmio_t *unit, unsigned addr) {
   return value;
 }
 
-void aclint_write(struct mmio_t *unit, unsigned addr, char value) {
+void aclint_write(struct memory_target_t *unit, unsigned addr, char value) {
   aclint_t *aclint = (aclint_t *)unit;
   if (addr >= ACLINT_MSIP_BASE &&
       addr < ACLINT_MSIP_BASE + (aclint->num_hart * 4)) {
@@ -248,5 +243,6 @@ void aclint_fini(aclint_t *aclint) {
   free(aclint->mtimecmp);
   free(aclint->msip);
   free(aclint->ssip);
+  memory_target_fini((struct memory_target_t *)aclint);
   return;
 }

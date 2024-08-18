@@ -1,71 +1,101 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
-// memory layout
+// atomic operations
+#define MEMORY_LOAD_DEFAULT 0
+#define MEMORY_LOAD_RESERVE 1
+#define MEMORY_STORE_DEFAULT 0
+#define MEMORY_STORE_CONDITIONAL 1
 #define MEMORY_STORE_SUCCESS 0
 #define MEMORY_STORE_FAILURE 1
 
-// rom type
-#define MEMORY_ROM_TYPE_DEFAULT 0
-#define MEMORY_ROM_TYPE_MMAP 1
+// sram type
+#define MEMORY_SRAM_TYPE_DEFAULT 0
+#define MEMORY_SRAM_TYPE_MMAP 1
+#define MEMORY_SRAM_MODE_READ_WRITE 0
+#define MEMORY_SRAM_MODE_READ_ONLY 1
+
+// bus access
+#define MEMORY_ACCESS_READ 0
+#define MEMORY_ACCESS_WRITE 1
+#define MEMORY_ACCESS_DEVICE_ID_DMA -1
 
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-struct mmio_t;
 struct cache_t;
 struct core_step_result;
 
-struct mmio_t {
+typedef struct memory_target_t {
   unsigned base;
   unsigned size;
-  char (*readb)(struct mmio_t* unit, unsigned addr);
-  void (*writeb)(struct mmio_t* unit, unsigned addr, char value);
+  unsigned reserve_list_len;
+  struct { unsigned transaction_id; unsigned begin_addr; unsigned end_addr; } *reserve_list;
+  char *(*get_ptr)(struct memory_target_t *target, unsigned addr);
+  char (*readb)(struct memory_target_t *unit, unsigned addr);
+  void (*writeb)(struct memory_target_t *unit, unsigned addr, char value);
+} memory_target_t;
+
+typedef struct mmio_t {
+  struct memory_target_t base;
   unsigned (*get_irq)(const struct mmio_t *unit);
   void (*ack_irq)(struct mmio_t *unit);
-};
+} mmio_t;
 
-typedef struct rom_t {
-  unsigned base;
-  unsigned size;
+typedef struct sram_t {
+  struct memory_target_t base;
+  unsigned type;
   char *data;
-  unsigned rom_type;
   struct stat file_stat;
-  struct rom_t *next;
-} rom_t;
+} sram_t;
+
+typedef struct dram_t {
+  struct memory_target_t base;
+  unsigned block_size;
+  unsigned blocks;
+  char **block;
+} dram_t;
 
 typedef struct memory_t {
-  // RAM
-  unsigned ram_base;
-  unsigned ram_size;
-  unsigned ram_block_size;
-  unsigned ram_blocks;
-  char **ram_block;
-  // MMIO
-  struct mmio_t **mmio_list;
-  // ROM
-  struct rom_t *rom_list;
+  unsigned num_targets;
+  struct memory_target_t **targets;
   unsigned num_cache;
-  struct cache_t **cache_list;
+  struct cache_t **cache;
 } memory_t;
 
-void memory_init(memory_t *, unsigned ram_base, unsigned ram_size, unsigned ram_block_size);
-unsigned memory_load(memory_t *, unsigned len, struct core_step_result *result);
-unsigned memory_store(memory_t *, unsigned len, struct core_step_result *result);
-unsigned memory_dma_send(memory_t *, unsigned pbase, int len, char *data);
-unsigned memory_dma_send_c(memory_t *, unsigned pbase, int len, char data);
-void memory_fini(memory_t *);
-// ram and rom
-char *memory_get_page(memory_t *, unsigned addr, unsigned is_write, int device_id);
-// [NOTE] memory does not free rom_ptr on fini
-void memory_set_rom(memory_t *, const char *, unsigned base, unsigned size, unsigned type);
-void memory_set_mmio(memory_t *, struct mmio_t *mmio, unsigned base);
+void memory_init(memory_t *);
+unsigned memory_load(memory_t *, unsigned len, unsigned reserved, struct core_step_result *result);
+unsigned memory_store(memory_t *, unsigned len, unsigned conditional, struct core_step_result *result);
+unsigned memory_cpy_to(memory_t *, int device_id, unsigned dst, const char *data, int len);
+unsigned memory_cpy_from(memory_t *, int device_id, char *dst, unsigned src, int len);
+unsigned memory_set(memory_t *, int device_id, unsigned dst, char c, int len);
+void memory_add_target(memory_t *, memory_target_t *, unsigned base, unsigned size);
 void memory_add_cache(memory_t *, struct cache_t *);
-void memory_access_broadcast(memory_t *, unsigned addr, int is_write, int device_id);
+void memory_cache_coherent(memory_t *, unsigned addr, unsigned len, int is_write, int device_id);
+void memory_fini(memory_t *);
 
-void rom_init(rom_t *rom);
-void rom_str(rom_t *rom, const char *data, unsigned size);
-void rom_mmap(rom_t *rom, const char *img_path, int rom_mode);
-void rom_fini(rom_t *rom);
+void memory_target_init(memory_target_t *target, unsigned base, unsigned size,
+                        char *(*get_ptr)(struct memory_target_t *target, unsigned addr),
+                        char (*readb)(struct memory_target_t *target, unsigned addr),
+                        void (*writeb)(struct memory_target_t *target, unsigned addr, char value));
+char memory_target_readb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr);
+void memory_target_writeb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, char value);
+void memory_target_set_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len);
+int memory_target_get_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len);
+char *memory_target_get_ptr(struct memory_target_t *unit, unsigned addr);
+void memory_target_fini(memory_target_t *target);
+
+void sram_init_with_char(sram_t *sram, const char data, unsigned size);
+void sram_init_with_str(sram_t *sram, const char *data, unsigned size);
+void sram_init_with_file(sram_t *sram, const char *img_path, int mode);
+char sram_readb(struct memory_target_t *sram, unsigned addr);
+void sram_writeb(struct memory_target_t *sram, unsigned addr, char value);
+void sram_fini(sram_t *sram);
+
+void dram_init(dram_t *dram, unsigned size, unsigned block_size);
+char *dram_get_ptr(struct memory_target_t *dram, unsigned addr);
+char dram_readb(struct memory_target_t *dram, unsigned addr);
+void dram_writeb(struct memory_target_t *dram, unsigned addr, char value);
+void dram_fini(dram_t *dram);
 
 #endif

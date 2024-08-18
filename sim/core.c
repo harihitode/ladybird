@@ -28,9 +28,9 @@ void core_init(core_t *core, int hart_id, struct memory_t *mem, struct plic_t *p
   core->window.exception = (unsigned *)calloc(CORE_WINDOW_SIZE, sizeof(unsigned));
   core->lsu = (struct lsu_t *)malloc(sizeof(struct lsu_t));
   lsu_init(core->lsu, mem);
-  core->lsu->tlb->hart_id = hart_id;
-  core->lsu->dcache->hart_id = hart_id;
-  core->lsu->icache->hart_id = hart_id;
+  core->lsu->tlb->id = 3 * hart_id + 0;
+  core->lsu->dcache->id = 3 * hart_id + 1;
+  core->lsu->icache->id = 3 * hart_id + 2;
   // init csr
   core->csr = (csr_t *)malloc(sizeof(csr_t));
   csr_init(core->csr);
@@ -150,7 +150,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
     exception = lsu_address_translation(core->lsu, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
     if (!exception) {
       unsigned index = 0;
-      line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
+      line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (window_pc & ~(core->lsu->icache->line_mask)), (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
       index = first_paddr & core->lsu->icache->line_mask;
       // update window
       for (int i = 0; i < CORE_WINDOW_SIZE; i++) {
@@ -160,7 +160,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
           index = 0;
           exception = lsu_address_translation(core->lsu, window_pc, &first_paddr, ACCESS_TYPE_INSTRUCTION, prv);
           if (exception == 0) {
-            line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
+            line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (window_pc & ~(core->lsu->icache->line_mask)), (first_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
           }
         }
         core->window.pc_paddr[i] = first_paddr;
@@ -172,7 +172,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
             unsigned second_paddr;
             exception = lsu_address_translation(core->lsu, window_pc + 2, &second_paddr, ACCESS_TYPE_INSTRUCTION, prv);
             if (exception == 0) {
-              line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, (second_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
+              line = (unsigned char *)cache_get_line_ptr(core->lsu->icache, ((window_pc + 2) & ~(core->lsu->icache->line_mask)), (second_paddr & ~(core->lsu->icache->line_mask)), CACHE_ACCESS_READ);
             }
             core->window.inst[i] |= ((line[index + 1] << 24) | (line[index] << 16));
             index = 2; // this 2 is ok, not a typo
@@ -225,6 +225,7 @@ static unsigned op_maxu(unsigned src1, unsigned src2) { return (src1 < src2) ? s
 
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
+  result->hart_id = core->csr->hart_id;
   result->pc = pc;
   result->cycle = core->csr->cycle;
   result->prv = prv;
