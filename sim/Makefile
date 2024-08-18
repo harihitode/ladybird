@@ -42,10 +42,10 @@ launch_sim: $(OBJS) launch_sim.o
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-xv6: launch_sim
+xv6: launch_sim $(DTBS)
 	./$< $(XV6KRNL) $(SIMFLAGS) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
 
-linux: launch_sim
+linux: launch_sim $(DTBS)
 	./$< $(LINUXKRNL) $(SIMFLAGS) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
 
 $(POJBS): sim.h
