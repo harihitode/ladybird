@@ -4,6 +4,11 @@
 
 #define ALT_INST 0x40000000
 
+static unsigned inst_illegal() {
+  return 0;
+}
+
+#if C_EXTENSION
 static unsigned inst_addi(unsigned rd, unsigned rs1, unsigned imm) {
   return (imm << 20) | (rs1 << 15) | (0b000 << 12) | (rd << 7) | OPCODE_OP_IMM;
 }
@@ -77,9 +82,22 @@ static unsigned inst_srai(unsigned rd, unsigned rs1, unsigned shamt) {
   return ((shamt & 0x3f) << 20) | (rs1 << 15) | (0b101 << 12) | (rd << 7) | OPCODE_OP_IMM | ALT_INST;
 }
 
+#if F_EXTENSION
+static unsigned inst_flw(unsigned rd, unsigned base, unsigned offs) {
+  return (offs << 20) | (base << 15) | (0b010 << 12) | (rd << 7) | OPCODE_LOAD_FP;
+}
+
+static unsigned inst_fsw(unsigned base, unsigned src, unsigned offs) {
+  return ((offs & 0x0fe0) << 20) | (src << 20) | (base << 15) | (0b010 << 12) |
+    ((offs & 0x01f) << 7) | OPCODE_STORE_FP;
+}
+#endif
+#endif
+
 unsigned riscv_decompress(unsigned inst) {
-  unsigned ret = 0; // illegal
+  unsigned ret = inst_illegal();
   switch (inst & 0x03) {
+#if C_EXTENSION
   case 0x00: {
     unsigned rs1 = ((inst >> 7) & 0x00000007) | 0x00000008;
     unsigned rs2 = ((inst >> 2) & 0x00000007) | 0x00000008;
@@ -101,6 +119,15 @@ unsigned riscv_decompress(unsigned inst) {
       ret = inst_lw(rd, rs1, offs);
       break;
     }
+    case 0b011: { // FLW
+#if F_EXTENSION
+      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
+                       (((inst >> 6) & 0x00000001) << 2) |
+                       (((inst >> 10) & 0x00000007) << 3));
+      ret = inst_flw(rd, rs1, offs);
+#endif
+      break;
+    }
     case 0b110: { // SW
       unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
                        (((inst >> 6) & 0x00000001) << 2) |
@@ -108,8 +135,16 @@ unsigned riscv_decompress(unsigned inst) {
       ret = inst_sw(rs1, rs2, offs);
       break;
     }
+    case 0b111: { // FSW
+#if F_EXTENSION
+      unsigned offs = ((((inst >> 5) & 0x00000001) << 6) |
+                       (((inst >> 6) & 0x00000001) << 2) |
+                       (((inst >> 10) & 0x00000007) << 3));
+      ret = inst_fsw(rs1, rs2, offs);
+#endif
+      break;
+    }
     default:
-      ret = 0;
       break;
     }
     break;
@@ -235,7 +270,6 @@ unsigned riscv_decompress(unsigned inst) {
       break;
     }
     default:
-      ret = 0;
       break;
     }
     break;
@@ -249,12 +283,22 @@ unsigned riscv_decompress(unsigned inst) {
       ret = inst_slli(rd, rs1, shamt);
       break;
     }
-    case 0b010: { // Load Word with Stack Pointer
+    case 0b010: { // Load Word to GPR with Stack Pointer
       unsigned rd = (inst >> 7) & 0x1f;
       unsigned offs = ((((inst >> 2) & 0x03) << 6) |
                        (((inst >> 4) & 0x07) << 2) |
                        (((inst >> 12) & 0x01) << 5));
       ret = inst_lw(rd, REG_SP, offs);
+      break;
+    }
+    case 0b011: { // Load Word to FPR with Stack Pointer
+#if F_EXTENSION
+      unsigned rd = (inst >> 7) & 0x1f;
+      unsigned offs = ((((inst >> 2) & 0x03) << 6) |
+                       (((inst >> 4) & 0x07) << 2) |
+                       (((inst >> 12) & 0x01) << 5));
+      ret = inst_flw(rd, REG_SP, offs);
+#endif
       break;
     }
     case 0b100: {
@@ -280,23 +324,30 @@ unsigned riscv_decompress(unsigned inst) {
       }
       break;
     }
-    case 0b110: { // Store Word with Stack Pointer
+    case 0b110: { // Store Word from GPR with Stack Pointer
       unsigned rs2 = (inst >> 2) & 0x1f;
       unsigned offs = ((((inst >> 7) & 0x03) << 6) |
                        (((inst >> 9) & 0x0f) << 2));
       ret = inst_sw(REG_SP, rs2, offs);
       break;
     }
+    case 0b111: { // Store Word from FPR with Stack Pointer
+#if F_EXTENSION
+      unsigned rs2 = (inst >> 2) & 0x1f;
+      unsigned offs = ((((inst >> 7) & 0x03) << 6) |
+                       (((inst >> 9) & 0x0f) << 2));
+      ret = inst_fsw(REG_SP, rs2, offs);
+#endif
+      break;
+    }
     case 0b001:
-    case 0b011:
     case 0b101:
-    case 0b111:
     default:
-      ret = 0;
       break;
     }
     break;
-  default:
+#endif
+  case 0x03:
     ret = inst;
     break;
   }
