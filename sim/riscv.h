@@ -376,7 +376,6 @@
 #define CSR_ADDR_M_ARCHID 0x00000f12
 #define CSR_ADDR_M_IMPID 0x00000f13
 
-// opcode
 #define OPCODE_LOAD 0x00000003
 #define OPCODE_LOAD_FP 0x00000007
 #define OPCODE_MISC_MEM 0x0000000f
@@ -387,6 +386,11 @@
 #define OPCODE_AMO 0x0000002f
 #define OPCODE_OP 0x00000033
 #define OPCODE_LUI 0x00000037
+#define OPCODE_MADD 0x00000043
+#define OPCODE_MSUB 0x00000047
+#define OPCODE_NMSUB 0x0000004b
+#define OPCODE_NMADD 0x0000004f
+#define OPCODE_OP_FP 0x00000053
 #define OPCODE_BRANCH 0x00000063
 #define OPCODE_JALR 0x00000067
 #define OPCODE_JAL 0x0000006f
@@ -434,6 +438,7 @@ unsigned riscv_decompress(unsigned inst);
 unsigned riscv_get_opcode(unsigned inst);
 unsigned riscv_get_rs1(unsigned inst);
 unsigned riscv_get_rs2(unsigned inst);
+unsigned riscv_get_rs3(unsigned inst);
 unsigned riscv_get_rd(unsigned inst);
 unsigned riscv_get_funct3(unsigned inst);
 unsigned riscv_get_funct5(unsigned inst);

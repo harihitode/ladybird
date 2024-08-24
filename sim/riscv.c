@@ -703,6 +703,7 @@ const char *riscv_get_mnemonic(unsigned inst) {
 unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
 unsigned riscv_get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 unsigned riscv_get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
+unsigned riscv_get_rs3(unsigned inst) { return (inst >> 27) & 0x0000001f; }
 unsigned riscv_get_rd(unsigned inst) { return (inst >> 7) & 0x0000001f; }
 unsigned riscv_get_funct3(unsigned inst) { return (inst >> 12) & 0x00000007; }
 unsigned riscv_get_funct5(unsigned inst) { return (inst >> 27) & 0x0000001f; }

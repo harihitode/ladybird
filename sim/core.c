@@ -7,6 +7,7 @@
 #include "trigger.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define CORE_MA_NONE 0
 #define CORE_MA_LOAD (CSR_MATCH6_LOAD)
@@ -40,88 +41,6 @@ void core_init(core_t *core, int hart_id, struct memory_t *mem, struct plic_t *p
   core->csr->aclint = aclint;
   core->csr->trig = trigger;
   core->csr->hart_id = hart_id;
-}
-
-static void process_alu(unsigned funct, unsigned src1, unsigned src2, unsigned alt, struct core_step_result *result) {
-  switch (funct) {
-  case 0x0: // ADD, SUB, ADDI
-    if (alt) {
-      result->rd_data = src1 - src2; // SUB
-    } else {
-      result->rd_data = src1 + src2; // ADD, ADDI
-    }
-    break;
-  case 0x1: // SLL
-    result->rd_data = (src1 << (src2 & 0x0000001F));
-    break;
-  case 0x2: // Set Less-Than
-    result->rd_data = ((int)src1 < (int)src2) ? 1 : 0;
-    break;
-  case 0x3: // Set Less-Than Unsigned
-    result->rd_data = (src1 < src2) ? 1 : 0;
-    break;
-  case 0x4: // Logical XOR
-    result->rd_data = src1 ^ src2;
-    break;
-  case 0x5: // SRA, SRL
-    if (alt) {
-      result->rd_data = (int)src1 >> (src2 & 0x0000001F);
-    } else {
-      result->rd_data = src1 >> (src2 & 0x0000001F);
-    }
-    break;
-  case 0x6: // Logical OR
-    result->rd_data = src1 | src2;
-    break;
-  case 0x7: // Logical AND
-    result->rd_data = src1 & src2;
-    break;
-  }
-}
-
-void process_muldiv(unsigned funct, unsigned src1, unsigned src2, struct core_step_result *result) {
-  switch (funct) {
-  case 0x0:
-    result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
-    break;
-  case 0x1: // MULH (extended: signed * signedb)
-    result->rd_data = ((long long)src1 * (long long)src2) >> 32;
-    break;
-  case 0x2: // MULHSU (extended: signed * unsigned)
-    result->rd_data = ((long long)src1 * (unsigned long long)src2) >> 32;
-    break;
-  case 0x3: // MULHU (extended: unsigned * unsigned)
-    result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
-    break;
-  case 0x4: // DIV
-    if (src2 == 0) {
-      result->rd_data = -1;
-    } else {
-      result->rd_data = (int)src1 / (int)src2;
-    }
-    break;
-  case 0x5: // DIVU
-    if (src2 == 0) {
-      result->rd_data = 0xffffffff;
-    } else {
-      result->rd_data = (unsigned)src1 / (unsigned)src2;
-    }
-    break;
-  case 0x6: // REM
-    if (src2 == 0) {
-      result->rd_data = src1;
-    } else {
-      result->rd_data = (int)src1 % (int)src2;
-    }
-    break;
-  case 0x7: // REMU
-    if (src2 == 0) {
-      result->rd_data = src1;
-    } else {
-      result->rd_data = (unsigned)src1 % (unsigned)src2;
-    }
-    break;
-  }
 }
 
 void core_window_flush(core_t *core) {
@@ -254,78 +173,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->opcode = opcode = riscv_get_opcode(inst);
   // exec
   switch (opcode) {
-  case OPCODE_OP_IMM: {
-    result->rd_regno = riscv_get_rd(inst);
-    result->rs1_regno = riscv_get_rs1(inst);
-    unsigned src1 = core->gpr[result->rs1_regno];
-    unsigned src2 = riscv_get_immediate(inst);
-    unsigned funct = riscv_get_funct3(inst);
-    if (funct == 0x0) { // SUBI does not exist
-      process_alu(funct, src1, src2, 0, result);
-    } else {
-      process_alu(funct, src1, src2, (inst & 0x40000000), result);
-    }
-    break;
-  }
-  case OPCODE_OP: {
-    result->rd_regno = riscv_get_rd(inst);
-    result->rs1_regno = riscv_get_rs1(inst);
-    result->rs2_regno = riscv_get_rs2(inst);
-    unsigned src1 = core->gpr[result->rs1_regno];
-    unsigned src2 = core->gpr[result->rs2_regno];
-    if (riscv_get_funct7(inst) == 0x01) {
-#if M_EXTENSION
-      process_muldiv(riscv_get_funct3(inst), src1, src2, result);
-#else
-      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-#endif
-    } else {
-      process_alu(riscv_get_funct3(inst), src1, src2, (inst & 0x40000000), result);
-    }
-    break;
-  }
-  case OPCODE_AUIPC:
-    result->rd_regno = riscv_get_rd(inst);
-    result->rd_data = pc + (inst & 0xfffff000);
-    break;
-  case OPCODE_LUI:
-    result->rd_regno = riscv_get_rd(inst);
-    result->rd_data = (inst & 0xfffff000);
-    break;
-  case OPCODE_JALR:
-    result->rd_regno = riscv_get_rd(inst);
-    result->rd_data = pc_next;
-    result->rs1_regno = riscv_get_rs1(inst);
-    pc_next = core->gpr[result->rs1_regno] + riscv_get_jalr_offset(inst);
-    break;
-  case OPCODE_JAL:
-    result->rd_regno = riscv_get_rd(inst);
-    result->rd_data = pc_next;
-    pc_next = pc + riscv_get_jal_offset(inst);
-    break;
-  case OPCODE_STORE: {
-    result->m_access = CORE_MA_STORE;
-    result->rs1_regno = riscv_get_rs1(inst);
-    result->rs2_regno = riscv_get_rs2(inst);
-    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
-    result->m_data = core->gpr[result->rs2_regno];
-    switch (riscv_get_funct3(inst)) {
-    case 0x0:
-      lsu_store(core->lsu, 1, result);
-      break;
-    case 0x1:
-      lsu_store(core->lsu, 2, result);
-      break;
-    case 0x2:
-      lsu_store(core->lsu, 4, result);
-      break;
-    default:
-      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-      break;
-    }
-    break;
-  }
-  case OPCODE_LOAD: {
+  case OPCODE_LOAD:
     result->m_access = CORE_MA_LOAD;
     result->rd_regno = riscv_get_rd(inst);
     result->rs1_regno = riscv_get_rs1(inst);
@@ -353,35 +201,166 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       break;
     }
     break;
-  }
-  case OPCODE_STORE_FP: {
 #if F_EXTENSION
-    result->m_access = CORE_MA_STORE;
-    result->rs1_regno = riscv_get_rs1(inst);
-    result->rs2_regno = riscv_get_rs2(inst);
-    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
-    result->m_data = core->fpr[result->rs2_regno];
-    lsu_store(core->lsu, 4, result);
-#else
-    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-#endif
-    break;
-  }
-  case OPCODE_LOAD_FP: {
-#if F_EXTENSION
+  case OPCODE_LOAD_FP:
     result->m_access = CORE_MA_LOAD;
     result->rd_is_fpr = 1;
     result->rd_regno = riscv_get_rd(inst);
     result->rs1_regno = riscv_get_rs1(inst);
     result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_load_offset(inst);
     lsu_load(core->lsu, 4, result);
-#else
-    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    break;
 #endif
+  case OPCODE_MISC_MEM:
+    if (riscv_get_funct3(inst) == 0x1) {
+      lsu_fence_instruction(core->lsu);
+      result->flush = 1;
+    } else {
+      if (0x80000000 & inst) {
+        lsu_fence_tso(core->lsu);
+      } else {
+        lsu_fence(core->lsu, (inst >> 24) & 0xf, (inst >> 20) & 0xf);
+      }
+    }
+    break;
+  case OPCODE_OP_IMM:
+  case OPCODE_OP: {
+    unsigned src1, src2;
+    unsigned funct3 = riscv_get_funct3(inst);
+    if (opcode == OPCODE_OP_IMM) {
+      result->rd_regno = riscv_get_rd(inst);
+      result->rs1_regno = riscv_get_rs1(inst);
+      src1 = core->gpr[result->rs1_regno];
+      src2 = riscv_get_immediate(inst);
+    } else {
+      result->rd_regno = riscv_get_rd(inst);
+      result->rs1_regno = riscv_get_rs1(inst);
+      result->rs2_regno = riscv_get_rs2(inst);
+      src1 = core->gpr[result->rs1_regno];
+      src2 = core->gpr[result->rs2_regno];
+    }
+    if (opcode == OPCODE_OP && riscv_get_funct7(inst) == 0x01) {
+#if M_EXTENSION
+      switch (funct3) {
+      case 0x0: // MUL
+        result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
+        break;
+      case 0x1: // MULH (extended: signed * signedb)
+        result->rd_data = ((long long)src1 * (long long)src2) >> 32;
+        break;
+      case 0x2: // MULHSU (extended: signed * unsigned)
+        result->rd_data = ((long long)src1 * (unsigned long long)src2) >> 32;
+        break;
+      case 0x3: // MULHU (extended: unsigned * unsigned)
+        result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
+        break;
+      case 0x4: // DIV
+        if (src2 == 0) {
+          result->rd_data = -1;
+        } else {
+          result->rd_data = (int)src1 / (int)src2;
+        }
+        break;
+      case 0x5: // DIVU
+        if (src2 == 0) {
+          result->rd_data = 0xffffffff;
+        } else {
+          result->rd_data = (unsigned)src1 / (unsigned)src2;
+        }
+        break;
+      case 0x6: // REM
+        if (src2 == 0) {
+          result->rd_data = src1;
+        } else {
+          result->rd_data = (int)src1 % (int)src2;
+        }
+        break;
+      case 0x7: // REMU
+        if (src2 == 0) {
+          result->rd_data = src1;
+        } else {
+          result->rd_data = (unsigned)src1 % (unsigned)src2;
+        }
+        break;
+      }
+#else
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#endif
+    } else {
+      switch (funct3) {
+      case 0x0: // ADD, SUB, ADDI
+        if (opcode == OPCODE_OP && (inst & 0x40000000)) {
+          result->rd_data = src1 - src2; // SUB (SUBI does not exist)
+        } else {
+          result->rd_data = src1 + src2; // ADD, ADDI
+        }
+        break;
+      case 0x1: // SLL
+        result->rd_data = (src1 << (src2 & 0x0000001f));
+        break;
+      case 0x2: // Set Less-Than
+        result->rd_data = ((int)src1 < (int)src2) ? 1 : 0;
+        break;
+      case 0x3: // Set Less-Than Unsigned
+        result->rd_data = (src1 < src2) ? 1 : 0;
+        break;
+      case 0x4: // Logical XOR
+        result->rd_data = src1 ^ src2;
+        break;
+      case 0x5: // SRA, SRL
+        if ((inst & 0x40000000)) {
+          result->rd_data = (int)src1 >> (src2 & 0x0000001f);
+        } else {
+          result->rd_data = src1 >> (src2 & 0x0000001f);
+        }
+        break;
+      case 0x6: // Logical OR
+        result->rd_data = src1 | src2;
+        break;
+      case 0x7: // Logical AND
+        result->rd_data = src1 & src2;
+        break;
+      }
+    }
     break;
   }
-  case OPCODE_AMO: {
+  case OPCODE_AUIPC:
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_data = pc + (inst & 0xfffff000);
+    break;
+  case OPCODE_STORE:
+    result->m_access = CORE_MA_STORE;
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
+    result->m_data = core->gpr[result->rs2_regno];
+    switch (riscv_get_funct3(inst)) {
+    case 0x0:
+      lsu_store(core->lsu, 1, result);
+      break;
+    case 0x1:
+      lsu_store(core->lsu, 2, result);
+      break;
+    case 0x2:
+      lsu_store(core->lsu, 4, result);
+      break;
+    default:
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+      break;
+    }
+    break;
+#if F_EXTENSION
+  case OPCODE_STORE_FP:
+    result->m_access = CORE_MA_STORE;
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
+    result->m_data = core->fpr[result->rs2_regno];
+    lsu_store(core->lsu, 4, result);
+    break;
+#endif
 #if A_EXTENSION
+  case OPCODE_AMO:
     result->m_access = CORE_MA_ACCESS;
     result->rd_regno = riscv_get_rd(inst);
     result->rs1_regno = riscv_get_rs1(inst); // addr
@@ -426,22 +405,222 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
-#else
-    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    break;
 #endif
+  case OPCODE_LUI:
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_data = (inst & 0xfffff000);
+    break;
+#if F_EXTENSION
+  case OPCODE_MADD:
+  case OPCODE_MSUB:
+  case OPCODE_NMSUB:
+  case OPCODE_NMADD: {
+    union { unsigned u; float f; } src1, src2, src3, dst;
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->rs3_regno = riscv_get_rs3(inst);
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_is_fpr = 1;
+    src1.u = core->fpr[result->rs1_regno];
+    src2.u = core->fpr[result->rs2_regno];
+    src3.u = core->fpr[result->rs3_regno];
+    if (opcode == OPCODE_MADD) {
+      dst.f = src1.f * src2.f + src3.f;
+    } else if (opcode == OPCODE_MSUB) {
+      dst.f = src1.f * src2.f - src3.f;
+    } else if (opcode == OPCODE_NMSUB) {
+      dst.f = -src1.f * src2.f + src3.f;
+    } else {
+      dst.f = -src1.f * src2.f - src3.f;
+    }
+    result->rd_data = dst.u;
     break;
   }
-  case OPCODE_MISC_MEM:
-    if (riscv_get_funct3(inst) == 0x1) {
-      lsu_fence_instruction(core->lsu);
-      result->flush = 1;
-    } else {
-      if (0x80000000 & inst) {
-        lsu_fence_tso(core->lsu);
-      } else {
-        lsu_fence(core->lsu, (inst >> 24) & 0xf, (inst >> 20) & 0xf);
+  case OPCODE_OP_FP: {
+    union { unsigned u; int i; float f; } src1, src2, dst;
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_is_fpr = 1;
+    src1.u = core->fpr[result->rs1_regno];
+    src2.u = core->fpr[result->rs2_regno];
+    dst.u = 0;
+    switch (riscv_get_funct7(inst)) {
+    case 0x00: // FADD
+      dst.f = src1.f + src2.f;
+      break;
+    case 0x04: // FSUB
+      dst.f = src1.f - src2.f;
+      break;
+    case 0x08: // FMUL
+      dst.f = src1.f * src2.f;
+      break;
+    case 0x0c: // FDIV
+      dst.f = src1.f / src2.f;
+      break;
+    case 0x2c: // FSQRT
+      dst.f = sqrtf(src1.f);
+      break;
+    case 0x10: // FSGNJ
+      switch (riscv_get_funct3(inst)) {
+      case 0x0: // Normal
+        dst.u = (src2.u & 0x80000000) | (src1.u & 0x7fffffff);
+        break;
+      case 0x1: // Negative
+        dst.u = ~(src2.u & 0x80000000) | (src1.u & 0x7fffffff);
+        break;
+      case 0x2: // Exclusive OR
+        dst.u = ((src1.u ^ src2.u) & 0x80000000) | (src1.u & 0x7fffffff);
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
       }
+      break;
+    case 0x14: // MINMAX
+      switch (riscv_get_funct3(inst)) {
+      case 0x0: // Minimum
+        dst.f = (src1.f < src2.f) ? src1.f : src2.f;
+        break;
+      case 0x1: // Maximum
+        dst.f = (src1.f < src2.f) ? src2.f : src1.f;
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
+      }
+      break;
+    case 0x50: // Comparison
+      result->rd_is_fpr = 0;
+      switch (riscv_get_funct3(inst)) {
+      case 0x0: // FLE
+        dst.u = (src1.f <= src2.f) ? 1 : 0;
+        break;
+      case 0x1: // FLT
+        dst.u = (src1.f < src2.f) ? 1 : 0;
+        break;
+      case 0x2: // FEQ
+        dst.u = (src1.f == src2.f) ? 1 : 0;
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
+      }
+      break;
+    case 0x60: // Convert to word
+      result->rd_is_fpr = 0;
+      switch (result->rs2_regno) {
+      case 0x0: // FCVT.W.S
+        dst.i = (int)src1.f;
+        break;
+      case 0x1: // FCVT.WU.S
+        dst.u = (unsigned)src1.f;
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
+      }
+      break;
+    case 0x68: // Convert to float
+      src1.u = core->gpr[result->rs1_regno];
+      switch (result->rs2_regno) {
+      case 0x0: // Signed
+        dst.f = (float)src1.i;
+        break;
+      case 0x1: // Unsigned
+        dst.f = (float)src1.u;
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
+      }
+      break;
+    case 0x70: // Move/Class
+      result->rd_is_fpr = 0;
+      switch (riscv_get_funct3(inst)) {
+      case 0x0: // Move FPR to GPR
+        dst.u = src1.u;
+        break;
+      case 0x1: // Classification
+        if (isinf(src1.f) == -1) dst.u |= 0x00000001;
+        if (isnormal(src1.f) && (src1.u & 0x80000000)) dst.u |= 0x00000002;
+        if ((fpclassify(src1.f) == FP_SUBNORMAL) && (src1.u & 0x80000000)) dst.u |= 0x00000004;
+        if ((fpclassify(src1.f) == FP_ZERO) && (src1.u & 0x80000000)) dst.u |= 0x00000008;
+        if ((fpclassify(src1.f) == FP_ZERO) && !(src1.u & 0x80000000)) dst.u |= 0x00000010;
+        if ((fpclassify(src1.f) == FP_SUBNORMAL) && !(src1.u & 0x80000000)) dst.u |= 0x00000020;
+        if (isnormal(src1.f) && !(src1.u & 0x80000000)) dst.u |= 0x00000040;
+        if (isinf(src1.f) == 1) dst.u |= 0x00000080;
+        if ((fpclassify(src1.f) == FP_NAN)) {
+          if (!(src1.u & 0x00400000)) {
+            dst.u |= 0x00000200; // signaling NaN
+          } else {
+            dst.u |= 0x00000100; // quiet NaN
+          }
+        }
+        break;
+      default:
+        result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+        break;
+      }
+      break;
+    case 0x78: // Move GPR to FPR
+      src1.u = core->gpr[result->rs1_regno];
+      dst.u = src1.u;
+      break;
+    default:
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+      break;
     }
+    result->rd_data = dst.u;
+    break;
+  }
+#endif
+  case OPCODE_BRANCH: {
+    // read
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    unsigned src1 = core->gpr[result->rs1_regno];
+    unsigned src2 = core->gpr[result->rs2_regno];
+    unsigned pred = 0;
+    switch (riscv_get_funct3(inst)) {
+    case 0x0:
+      pred = (src1 == src2) ? 1 : 0;
+      break;
+    case 0x1:
+      pred = (src1 != src2) ? 1 : 0;
+      break;
+    case 0x4:
+      pred = ((int)src1 < (int)src2) ? 1 : 0;
+      break;
+    case 0x5:
+      pred = ((int)src1 >= (int)src2) ? 1 : 0;
+      break;
+    case 0x6:
+      pred = (src1 < src2) ? 1 : 0;
+      break;
+    case 0x7:
+      pred = (src1 >= src2) ? 1 : 0;
+      break;
+    default:
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+      break;
+    }
+    if (pred == 1) {
+      pc_next = pc + riscv_get_branch_offset(inst);
+    }
+    break;
+  }
+  case OPCODE_JALR:
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_data = pc_next;
+    result->rs1_regno = riscv_get_rs1(inst);
+    pc_next = core->gpr[result->rs1_regno] + riscv_get_jalr_offset(inst);
+    break;
+  case OPCODE_JAL:
+    result->rd_regno = riscv_get_rd(inst);
+    result->rd_data = pc_next;
+    pc_next = pc + riscv_get_jal_offset(inst);
     break;
   case OPCODE_SYSTEM:
     // Reg WB only occurs in CSR instructions
@@ -509,41 +688,6 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       }
     }
     break;
-  case OPCODE_BRANCH: {
-    // read
-    result->rs1_regno = riscv_get_rs1(inst);
-    result->rs2_regno = riscv_get_rs2(inst);
-    unsigned src1 = core->gpr[result->rs1_regno];
-    unsigned src2 = core->gpr[result->rs2_regno];
-    unsigned pred = 0;
-    switch (riscv_get_funct3(inst)) {
-    case 0x0:
-      pred = (src1 == src2) ? 1 : 0;
-      break;
-    case 0x1:
-      pred = (src1 != src2) ? 1 : 0;
-      break;
-    case 0x4:
-      pred = ((int)src1 < (int)src2) ? 1 : 0;
-      break;
-    case 0x5:
-      pred = ((int)src1 >= (int)src2) ? 1 : 0;
-      break;
-    case 0x6:
-      pred = (src1 < src2) ? 1 : 0;
-      break;
-    case 0x7:
-      pred = (src1 >= src2) ? 1 : 0;
-      break;
-    default:
-      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
-      break;
-    }
-    if (pred == 1) {
-      pc_next = pc + riscv_get_branch_offset(inst);
-    }
-    break;
-  }
   default:
     // invalid opcode
     result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;

@@ -75,6 +75,7 @@ struct core_step_result {
   unsigned char rs2_regno;
   unsigned char rs2_read_skip;
   unsigned rs2_cycle_from_producer;
+  unsigned char rs3_regno;
 
   unsigned inst_window_pos;
   unsigned inst_window_pc[CORE_WINDOW_SIZE];
