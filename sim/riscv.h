@@ -452,5 +452,6 @@ unsigned riscv_get_load_offset(unsigned inst);
 unsigned riscv_get_csr_addr(unsigned inst);
 unsigned riscv_get_csr_imm(unsigned inst);
 unsigned riscv_get_immediate(unsigned inst);
+unsigned char riscv_get_rm(unsigned inst);
 
 #endif

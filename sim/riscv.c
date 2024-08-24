@@ -830,9 +830,7 @@ unsigned riscv_get_branch_offset(unsigned inst) {
           (((inst >> 25) << 5) & 0x000007e0) |
           (((inst >> 7) & 0x00000001) << 11) | ((inst >> 7) & 0x0000001e));
 }
-unsigned riscv_get_jalr_offset(unsigned inst) {
-  return ((int)inst >> 20);
-}
+unsigned riscv_get_jalr_offset(unsigned inst) { return ((int)inst >> 20); }
 unsigned riscv_get_jal_offset(unsigned inst) {
   return ((((int)inst >> 11) & 0xfff00000) | (inst & 0x000ff000) |
           (((inst >> 20) & 0x00000001) << 11) |
@@ -841,13 +839,8 @@ unsigned riscv_get_jal_offset(unsigned inst) {
 unsigned riscv_get_store_offset(unsigned inst) {
   return ((((int)inst >> 25) << 5) | ((inst >> 7) & 0x0000001f));
 }
-unsigned riscv_get_load_offset(unsigned inst) {
-  return ((int)inst >> 20);
-}
-unsigned riscv_get_csr_addr(unsigned inst) {
-  return ((inst >> 20) & 0x00000fff);
-}
+unsigned riscv_get_load_offset(unsigned inst) { return ((int)inst >> 20); }
+unsigned riscv_get_csr_addr(unsigned inst) { return ((inst >> 20) & 0x00000fff); }
 unsigned riscv_get_csr_imm(unsigned inst) { return (inst >> 15) & 0x0000001f; }
-unsigned riscv_get_immediate(unsigned inst) {
-  return ((int)inst >> 20);
-}
+unsigned riscv_get_immediate(unsigned inst) { return ((int)inst >> 20); }
+unsigned char riscv_get_rm(unsigned inst) { return (inst >> 12) & 0x00000007; }

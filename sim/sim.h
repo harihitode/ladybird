@@ -55,6 +55,7 @@ struct core_step_result {
   unsigned inst;
   unsigned opcode;
   unsigned char flush;
+  unsigned char fflags;
   unsigned exception_code;
   unsigned char m_access;
   unsigned m_vaddr;

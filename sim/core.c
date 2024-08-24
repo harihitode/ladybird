@@ -153,8 +153,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->pc_next = pc;
   result->flush = 0;
   // note: rd is not fpr and rd num = 0, writeback will be skipped.
-  result->rd_is_fpr = 0;
   result->rd_regno = 0;
+  result->rd_is_fpr = 0;
+  result->fflags = 0;
   // instruction fetch & decode
   unsigned inst;
   unsigned pc_next;
@@ -417,6 +418,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_NMSUB:
   case OPCODE_NMADD: {
     union { unsigned u; float f; } src1, src2, src3, dst;
+    unsigned char rm = (core->csr->frm == FEXT_ROUNDING_MODE_DYN) ? riscv_get_rm(inst) : core->csr->frm;
     result->rs1_regno = riscv_get_rs1(inst);
     result->rs2_regno = riscv_get_rs2(inst);
     result->rs3_regno = riscv_get_rs3(inst);
@@ -439,6 +441,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   }
   case OPCODE_OP_FP: {
     union { unsigned u; int i; float f; } src1, src2, dst;
+    unsigned char rm = (core->csr->frm == FEXT_ROUNDING_MODE_DYN) ? riscv_get_rm(inst) : core->csr->frm;
     result->rs1_regno = riscv_get_rs1(inst);
     result->rs2_regno = riscv_get_rs2(inst);
     result->rd_regno = riscv_get_rd(inst);
@@ -698,6 +701,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
 #if F_EXTENSION
   } else if (result->rd_is_fpr == 1) {
     core->fpr[result->rd_regno] = result->rd_data;
+    core->csr->fflags |= result->fflags;
+    core->csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
 #endif
   } else if (result->rd_regno != 0) {
     core->gpr[result->rd_regno] = result->rd_data;
