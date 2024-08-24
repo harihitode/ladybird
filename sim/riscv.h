@@ -3,13 +3,13 @@
 
 #define A_EXTENSION 1
 #define C_EXTENSION 1
-#define D_EXTENSION 0
+#define D_EXTENSION 0 // not supported
 #define F_EXTENSION 0
 #define E_EXTENSION 0 // reduced integer
 #define M_EXTENSION 1
 #define S_EXTENSION 1 // supervisor mode
 #define U_EXTENSION 1 // user mode
-#define V_EXTENSION 0
+#define V_EXTENSION 0 // not supported
 // additional
 #define Z_ICSR_EXTENSION  1
 #define Z_ICNTR_EXTENSION 1

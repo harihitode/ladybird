@@ -212,6 +212,7 @@ static unsigned core_fetch_instruction(core_t *core, unsigned pc, struct core_st
   return w_index;
 }
 
+#if A_EXTENSION
 // atomic operations
 static unsigned op_add(unsigned src1, unsigned src2) { return src1 + src2; }
 static unsigned op_swap(unsigned src1, unsigned src2) { return src2; }
@@ -222,6 +223,7 @@ static unsigned op_min(unsigned src1, unsigned src2) { return ((int)src1 < (int)
 static unsigned op_max(unsigned src1, unsigned src2) { return ((int)src1 < (int)src2) ? src2 : src1; }
 static unsigned op_minu(unsigned src1, unsigned src2) { return (src1 < src2) ? src1 : src2; }
 static unsigned op_maxu(unsigned src1, unsigned src2) { return (src1 < src2) ? src2 : src1; }
+#endif
 
 void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsigned prv) {
   // init result
@@ -269,7 +271,11 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     unsigned src1 = core->gpr[result->rs1_regno];
     unsigned src2 = core->gpr[result->rs2_regno];
     if (riscv_get_funct7(inst) == 0x01) {
+#if M_EXTENSION
       process_muldiv(riscv_get_funct3(inst), src1, src2, result);
+#else
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#endif
     } else {
       process_alu(riscv_get_funct3(inst), src1, src2, (inst & 0x40000000), result);
     }
@@ -346,6 +352,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     break;
   }
   case OPCODE_AMO: {
+#if A_EXTENSION
     result->m_access = CORE_MA_ACCESS;
     result->rd_regno = riscv_get_rd(inst);
     result->rs1_regno = riscv_get_rs1(inst); // addr
@@ -390,6 +397,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
+#else
+    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#endif
     break;
   }
   case OPCODE_MISC_MEM:
