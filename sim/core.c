@@ -233,6 +233,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   result->prv = prv;
   result->pc_next = pc;
   result->flush = 0;
+  // note: rd is not fpr and rd num = 0, writeback will be skipped.
+  result->rd_is_fpr = 0;
+  result->rd_regno = 0;
   // instruction fetch & decode
   unsigned inst;
   unsigned pc_next;
@@ -349,6 +352,32 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
       break;
     }
+    break;
+  }
+  case OPCODE_STORE_FP: {
+#if F_EXTENSION
+    result->m_access = CORE_MA_STORE;
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->rs2_regno = riscv_get_rs2(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_store_offset(inst);
+    result->m_data = core->fpr[result->rs2_regno];
+    lsu_store(core->lsu, 4, result);
+#else
+    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#endif
+    break;
+  }
+  case OPCODE_LOAD_FP: {
+#if F_EXTENSION
+    result->m_access = CORE_MA_LOAD;
+    result->rd_is_fpr = 1;
+    result->rd_regno = riscv_get_rd(inst);
+    result->rs1_regno = riscv_get_rs1(inst);
+    result->m_vaddr = core->gpr[result->rs1_regno] + riscv_get_load_offset(inst);
+    lsu_load(core->lsu, 4, result);
+#else
+    result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+#endif
     break;
   }
   case OPCODE_AMO: {
@@ -522,6 +551,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   }
   if (result->exception_code != 0) {
     return;
+#if F_EXTENSION
+  } else if (result->rd_is_fpr == 1) {
+    core->fpr[result->rd_regno] = result->rd_data;
+#endif
   } else if (result->rd_regno != 0) {
     core->gpr[result->rd_regno] = result->rd_data;
   }

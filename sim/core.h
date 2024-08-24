@@ -18,6 +18,9 @@ typedef struct window_t {
 
 typedef struct core_t {
   unsigned gpr[NUM_GPR];
+#if F_EXTENSION
+  unsigned fpr[NUM_FPR];
+#endif
   struct csr_t *csr;
   struct lsu_t *lsu;
   window_t window; // instruction window
