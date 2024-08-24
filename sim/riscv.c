@@ -400,6 +400,56 @@ const char *riscv_get_mnemonic(unsigned inst) {
   unsigned rs2 = (inst >> 20) & 0x0000001f;
   unsigned alternate = (inst & ALT_INST);
   switch (inst & 0x7f) {
+  case OPCODE_LOAD:
+    switch (funct3) {
+    case 0x0:
+      sprintf(buf, "LB");
+      break;
+    case 0x1:
+      sprintf(buf, "LH");
+      break;
+    case 0x2:
+      sprintf(buf, "LW");
+      break;
+    case 0x4:
+      sprintf(buf, "LBU");
+      break;
+    case 0x5:
+      sprintf(buf, "LHU");
+      break;
+    default:
+      break;
+    }
+    break;
+  case OPCODE_LOAD_FP:
+    sprintf(buf, "FLW");
+    break;
+  case OPCODE_MISC_MEM: {
+    unsigned char fm = ((inst >> 28) & 0x0f);
+    unsigned rs1 = ((inst >> 15) & 0x1f);
+    unsigned rd = ((inst >> 7) & 0x1f);
+    unsigned pred = ((inst >> 24) & 0x0f);
+    unsigned succ = ((inst >> 20) & 0x0f);
+    if (funct3 == 0x0 && rs1 == 0 && rd == 0 && pred != 0 && succ != 0) {
+      if (fm == 0) {
+        sprintf(buf, "FENCE.");
+        if (inst & FENCE_PRED_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_PRED_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_PRED_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_PRED_W) sprintf(&buf[strlen(buf)], "W");
+        sprintf(&buf[strlen(buf)], ",");
+        if (inst & FENCE_SUCC_I) sprintf(&buf[strlen(buf)], "I");
+        if (inst & FENCE_SUCC_O) sprintf(&buf[strlen(buf)], "O");
+        if (inst & FENCE_SUCC_R) sprintf(&buf[strlen(buf)], "R");
+        if (inst & FENCE_SUCC_W) sprintf(&buf[strlen(buf)], "W");
+      } else if (fm == 0x08 && pred == 0x3 && succ == 0x3) {
+        sprintf(buf, "FENCE.TSO");
+      }
+    } else if (funct3 == 0x1) {
+      sprintf(buf, "FENCE.I");
+    }
+    break;
+  }
   case OPCODE_OP_IMM:
     switch (funct3) {
     case 0x0:
@@ -430,6 +480,72 @@ const char *riscv_get_mnemonic(unsigned inst) {
     case 0x7:
       sprintf(buf, "ANDI");
       break;
+    }
+    break;
+  case OPCODE_AUIPC:
+    sprintf(buf, "AUIPC");
+    break;
+  case OPCODE_STORE:
+    switch (funct3) {
+    case 0x0:
+      sprintf(buf, "SB");
+      break;
+    case 0x1:
+      sprintf(buf, "SH");
+      break;
+    case 0x2:
+      sprintf(buf, "SW");
+      break;
+    default:
+      break;
+    }
+    break;
+  case OPCODE_STORE_FP:
+    sprintf(buf, "FSW");
+    break;
+  case OPCODE_AMO:
+    switch (funct5) {
+    case 0x002: // Load Reserved
+      sprintf(buf, "LR");
+      break;
+    case 0x003: // Store Conditional
+      sprintf(buf, "SC");
+      break;
+    case 0x000: // AMOADD
+      sprintf(buf, "AMOADD");
+      break;
+    case 0x001: // AMOSWAP
+      sprintf(buf, "AMOSWAP");
+      break;
+    case 0x004: // AMOXOR
+      sprintf(buf, "AMOXOR");
+      break;
+    case 0x008: // AMOOR
+      sprintf(buf, "AMOOR");
+      break;
+    case 0x00c: // AMOAND
+      sprintf(buf, "AMOAND");
+      break;
+    case 0x010: // AMOMIN
+      sprintf(buf, "AMOMIN");
+      break;
+    case 0x014: // AMOMAX
+      sprintf(buf, "AMOMAX");
+      break;
+    case 0x018: // AMOMINU
+      sprintf(buf, "AMOMINU");
+      break;
+    case 0x01c: // AMOMAXU
+      sprintf(buf, "AMOMAXU");
+      break;
+    default:
+      break;
+    }
+    if (inst & AMO_AQ) {
+      sprintf(&buf[strlen(buf)], ".AQ");
+    }
+    if (inst & AMO_RL) {
+      sprintf(&buf[strlen(buf)], ".RL");
     }
     break;
   case OPCODE_OP:
@@ -497,11 +613,146 @@ const char *riscv_get_mnemonic(unsigned inst) {
       }
     }
     break;
-  case OPCODE_AUIPC:
-    sprintf(buf, "AUIPC");
-    break;
   case OPCODE_LUI:
     sprintf(buf, "LUI");
+    break;
+  case OPCODE_MADD:
+    sprintf(buf, "FMADD.S");
+    break;
+  case OPCODE_MSUB:
+    sprintf(buf, "FMSUB.S");
+    break;
+  case OPCODE_NMSUB:
+    sprintf(buf, "FNMSUB.S");
+    break;
+  case OPCODE_NMADD:
+    sprintf(buf, "FNMADD.S");
+    break;
+  case OPCODE_OP_FP:
+    switch (funct7) {
+    case 0x00: // FADD
+      sprintf(buf, "FADD.S");
+      break;
+    case 0x04: // FSUB
+      sprintf(buf, "FSUB.S");
+      break;
+    case 0x08: // FMUL
+      sprintf(buf, "FMUL.S");
+      break;
+    case 0x0c: // FDIV
+      sprintf(buf, "FDIV.S");
+      break;
+    case 0x2c: // FSQRT
+      sprintf(buf, "FSQRT.S");
+      break;
+    case 0x10: // FSGNJ
+      switch (funct3) {
+      case 0x0: // Normal
+        sprintf(buf, "FSGNJ.S");
+        break;
+      case 0x1: // Negative
+        sprintf(buf, "FSGNJN.S");
+        break;
+      case 0x2: // Exclusive OR
+        sprintf(buf, "FSGNJX.S");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x14: // MINMAX
+      switch (funct3) {
+      case 0x0: // Minimum
+        sprintf(buf, "FMIN.S");
+        break;
+      case 0x1: // Maximum
+        sprintf(buf, "FMAX.S");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x50: // Comparison
+      switch (funct3) {
+      case 0x0: // FLE
+        sprintf(buf, "FLE.S");
+        break;
+      case 0x1: // FLT
+        sprintf(buf, "FLT.S");
+        break;
+      case 0x2: // FEQ
+        sprintf(buf, "FEQ.S");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x60: // Convert to word
+      switch (rs2) {
+      case 0x0: // FCVT.W.S
+        sprintf(buf, "FCVT.W.S");
+        break;
+      case 0x1: // FCVT.WU.S
+        sprintf(buf, "FCVT.WU.S");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x68: // Convert to float
+      switch (rs2) {
+      case 0x0: // FCVT.S.W
+        sprintf(buf, "FCVT.S.W");
+        break;
+      case 0x1: // FCVT.S.WU
+        sprintf(buf, "FCVT.S.WU");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x70: // Move/Class
+      switch (funct3) {
+      case 0x0: // Move FPR to GPR
+        sprintf(buf, "FMV.X.W");
+        break;
+      case 0x1: // Classification
+        sprintf(buf, "FCLASS.S");
+        break;
+      default:
+        break;
+      }
+      break;
+    case 0x78: // Move GPR to FPR
+      sprintf(buf, "FMV.W.X");
+      break;
+    default:
+      break;
+    }
+    break;
+  case OPCODE_BRANCH:
+    switch (funct3) {
+    case 0x0:
+      sprintf(buf, "BEQ");
+      break;
+    case 0x1:
+      sprintf(buf, "BNE");
+      break;
+    case 0x4:
+      sprintf(buf, "BLT");
+      break;
+    case 0x5:
+      sprintf(buf, "BGE");
+      break;
+    case 0x6:
+      sprintf(buf, "BLTU");
+      break;
+    case 0x7:
+      sprintf(buf, "BGEU");
+      break;
+    default:
+      break;
+    }
     break;
   case OPCODE_JALR:
     sprintf(buf, "JALR");
@@ -509,116 +760,6 @@ const char *riscv_get_mnemonic(unsigned inst) {
   case OPCODE_JAL:
     sprintf(buf, "JAL");
     break;
-  case OPCODE_STORE: {
-    switch (funct3) {
-    case 0x0:
-      sprintf(buf, "SB");
-      break;
-    case 0x1:
-      sprintf(buf, "SH");
-      break;
-    case 0x2:
-      sprintf(buf, "SW");
-      break;
-    default:
-      break;
-    }
-    break;
-  }
-  case OPCODE_LOAD: {
-    switch (funct3) {
-    case 0x0:
-      sprintf(buf, "LB");
-      break;
-    case 0x1:
-      sprintf(buf, "LH");
-      break;
-    case 0x2:
-      sprintf(buf, "LW");
-      break;
-    case 0x4:
-      sprintf(buf, "LBU");
-      break;
-    case 0x5:
-      sprintf(buf, "LHU");
-      break;
-    default:
-      break;
-    }
-    break;
-  }
-  case OPCODE_AMO: {
-    switch (funct5) {
-    case 0x002: // Load Reserved
-      sprintf(buf, "LR");
-      break;
-    case 0x003: // Store Conditional
-      sprintf(buf, "SC");
-      break;
-    case 0x000: // AMOADD
-      sprintf(buf, "AMOADD");
-      break;
-    case 0x001: // AMOSWAP
-      sprintf(buf, "AMOSWAP");
-      break;
-    case 0x004: // AMOXOR
-      sprintf(buf, "AMOXOR");
-      break;
-    case 0x008: // AMOOR
-      sprintf(buf, "AMOOR");
-      break;
-    case 0x00c: // AMOAND
-      sprintf(buf, "AMOAND");
-      break;
-    case 0x010: // AMOMIN
-      sprintf(buf, "AMOMIN");
-      break;
-    case 0x014: // AMOMAX
-      sprintf(buf, "AMOMAX");
-      break;
-    case 0x018: // AMOMINU
-      sprintf(buf, "AMOMINU");
-      break;
-    case 0x01c: // AMOMAXU
-      sprintf(buf, "AMOMAXU");
-      break;
-    default:
-      break;
-    }
-    if (inst & AMO_AQ) {
-      sprintf(&buf[strlen(buf)], ".AQ");
-    }
-    if (inst & AMO_RL) {
-      sprintf(&buf[strlen(buf)], ".RL");
-    }
-    break;
-  }
-  case OPCODE_MISC_MEM: {
-    unsigned char fm = ((inst >> 28) & 0x0f);
-    unsigned rs1 = ((inst >> 15) & 0x1f);
-    unsigned rd = ((inst >> 7) & 0x1f);
-    unsigned pred = ((inst >> 24) & 0x0f);
-    unsigned succ = ((inst >> 20) & 0x0f);
-    if (funct3 == 0x0 && rs1 == 0 && rd == 0 && pred != 0 && succ != 0) {
-      if (fm == 0) {
-        sprintf(buf, "FENCE.");
-        if (inst & FENCE_PRED_I) sprintf(&buf[strlen(buf)], "I");
-        if (inst & FENCE_PRED_O) sprintf(&buf[strlen(buf)], "O");
-        if (inst & FENCE_PRED_R) sprintf(&buf[strlen(buf)], "R");
-        if (inst & FENCE_PRED_W) sprintf(&buf[strlen(buf)], "W");
-        sprintf(&buf[strlen(buf)], ",");
-        if (inst & FENCE_SUCC_I) sprintf(&buf[strlen(buf)], "I");
-        if (inst & FENCE_SUCC_O) sprintf(&buf[strlen(buf)], "O");
-        if (inst & FENCE_SUCC_R) sprintf(&buf[strlen(buf)], "R");
-        if (inst & FENCE_SUCC_W) sprintf(&buf[strlen(buf)], "W");
-      } else if (fm == 0x08 && pred == 0x3 && succ == 0x3) {
-        sprintf(buf, "FENCE.TSO");
-      }
-    } else if (funct3 == 0x1) {
-      sprintf(buf, "FENCE.I");
-    }
-    break;
-  }
   case OPCODE_SYSTEM:
     switch (funct3) {
     case 0x1: // READ_WRITE
@@ -669,31 +810,6 @@ const char *riscv_get_mnemonic(unsigned inst) {
       }
     }
     break;
-  case OPCODE_BRANCH: {
-    switch (funct3) {
-    case 0x0:
-      sprintf(buf, "BEQ");
-      break;
-    case 0x1:
-      sprintf(buf, "BNE");
-      break;
-    case 0x4:
-      sprintf(buf, "BLT");
-      break;
-    case 0x5:
-      sprintf(buf, "BGE");
-      break;
-    case 0x6:
-      sprintf(buf, "BLTU");
-      break;
-    case 0x7:
-      sprintf(buf, "BGEU");
-      break;
-    default:
-      break;
-    }
-    break;
-  }
   default:
     break;
   }

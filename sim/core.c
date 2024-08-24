@@ -525,10 +525,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     case 0x68: // Convert to float
       src1.u = core->gpr[result->rs1_regno];
       switch (result->rs2_regno) {
-      case 0x0: // Signed
+      case 0x0: // FCVT.S.W
         dst.f = (float)src1.i;
         break;
-      case 0x1: // Unsigned
+      case 0x1: // FCVT.S.WU
         dst.f = (float)src1.u;
         break;
       default:
