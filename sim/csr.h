@@ -14,6 +14,9 @@ typedef struct csr_t {
   struct plic_t *plic;
   struct aclint_t *aclint;
   struct trigger_t *trig;
+  // fcsr
+  unsigned char fflags;
+  unsigned char frm;
   // shadow registers
   unsigned mode;
   unsigned pc;
@@ -28,6 +31,7 @@ typedef struct csr_t {
   unsigned status_spie; // global previous interrupt enable
   unsigned status_mpie; // global previous interrupt enable
   unsigned char status_sum; // supervisor-mode can access usermode memory
+  unsigned char status_fs; // f-extension context status
   unsigned interrupts_enable;
   unsigned mideleg;
   unsigned medeleg;

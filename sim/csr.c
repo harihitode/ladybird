@@ -24,6 +24,13 @@ void csr_init(csr_t *csr) {
   csr->status_spp = 0;
   csr->status_sie = 0;
   csr->status_spie = 0;
+#if F_EXTENSION
+  csr->status_fs = CSR_EXTENSION_STATUS_INITIAL;
+#else
+  csr->status_fs = CSR_EXTENSION_STATUS_OFF;
+#endif
+  csr->fflags = 0;
+  csr->frm = FEXT_ROUNDING_MODE_DYN;
   csr->status_sum = 0;
   // counters
   csr->cycle = 0;
@@ -102,6 +109,21 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
 
 unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   switch (addr) {
+  case CSR_ADDR_U_FFLAGS:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    }
+    return csr->fflags;
+  case CSR_ADDR_U_FRM:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    }
+    return csr->frm;
+  case CSR_ADDR_U_FCSR:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    }
+    return (csr->frm << 5) | csr->fflags;
   case CSR_ADDR_M_EPC:
     return csr->mepc;
   case CSR_ADDR_M_HARTID:
@@ -110,7 +132,9 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
   case CSR_ADDR_S_STATUS:
     {
       unsigned value = 0;
+      value |= ((csr->status_fs == CSR_EXTENSION_STATUS_DIRTY) ? (1u << 31) : 0);
       value |= (csr->status_sum << 18);
+      value |= (csr->status_fs << 13);
       value |= (csr->status_sie << 1);
       value |= (csr->status_spie << 5);
       value |= (csr->status_spp << 8);
@@ -426,6 +450,31 @@ unsigned csr_csrr(csr_t *csr, unsigned addr, struct core_step_result *result) {
 
 void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result *result) {
   switch (addr) {
+  case CSR_ADDR_U_FFLAGS:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    } else {
+      csr->fflags = value & 0x0000001f;
+      csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
+    }
+    break;
+  case CSR_ADDR_U_FRM:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    } else {
+      csr->frm = value & 0x00000007;
+      csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
+    }
+    break;
+  case CSR_ADDR_U_FCSR:
+    if (csr->status_fs == CSR_EXTENSION_STATUS_OFF) {
+      result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
+    } else {
+      csr->fflags = value & 0x0000001f;
+      csr->frm = (value >> 5) & 0x00000007;
+      csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
+    }
+    break;
   case CSR_ADDR_M_EPC:
     csr->mepc = value;
     break;
@@ -439,6 +488,7 @@ void csr_csrw(csr_t *csr, unsigned addr, unsigned value, struct core_step_result
     csr->status_sie = (value >> 1) & 0x00000001;
     csr->status_spie = (value >> 5) & 0x00000001;
     csr->status_spp = (value >> 8) & 0x00000001;
+    csr->status_fs = (value >> 13) & 0x00000003;
     break;
   case CSR_ADDR_M_HARTID:
     break;
