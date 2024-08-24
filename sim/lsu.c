@@ -174,10 +174,14 @@ unsigned lsu_load_reserved(lsu_t *lsu, unsigned aquire, struct core_step_result 
     return result->exception_code;
   }
   if (is_cacheable(result->m_paddr)) {
-    if (aquire) lsu_dcache_write_back(lsu);
-    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_READ);
-    result->rd_data = *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask]));
-    cline->reserved = 1;
+    // issue the reserving load to memory bus
+    memory_load(lsu->mem, 4, MEMORY_LOAD_RESERVE, result);
+    // if reserve set success, start loading from cache
+    if (result->exception_code == TRAP_CODE_NONE) {
+      if (aquire) lsu_dcache_write_back(lsu);
+      cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_READ);
+      result->rd_data = *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask]));
+    }
   } else {
     result->exception_code = TRAP_CODE_LOAD_ACCESS_FAULT;
   }
@@ -190,17 +194,16 @@ unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_re
     return result->exception_code;
   }
   if (is_cacheable(result->m_paddr)) {
-    cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_WRITE);
-    if (cline->reserved == 1) {
+    // issue the conditional store to memory bus
+    memory_store(lsu->mem, 4, MEMORY_STORE_CONDITIONAL, result);
+    // if still reserved, start storing to cache
+    if (result->exception_code == TRAP_CODE_NONE && result->rd_data == MEMORY_STORE_SUCCESS) {
+      cache_line_t *cline = cache_get_line(lsu->dcache, result->m_vaddr, result->m_paddr, CACHE_ACCESS_WRITE);
       *((unsigned *)(&cline->data[result->m_paddr & lsu->dcache->line_mask])) = result->m_data;
-      if (!result->exception_code) {
-        cline->reserved = 0;
-        result->rd_data = MEMORY_STORE_SUCCESS;
-      }
+      if (release) lsu_dcache_write_back(lsu);
     } else {
       result->rd_data = MEMORY_STORE_FAILURE;
     }
-    if (release) lsu_dcache_write_back(lsu);
   } else {
     result->exception_code = TRAP_CODE_STORE_ACCESS_FAULT;
   }
@@ -210,11 +213,12 @@ unsigned lsu_store_conditional(lsu_t *lsu, unsigned release, struct core_step_re
 unsigned lsu_atomic_operation(lsu_t *lsu, unsigned aquire, unsigned release,
                               unsigned (*op)(unsigned, unsigned),
                               struct core_step_result *result) {
-  if (aquire) lsu_dcache_write_back(lsu);
-  result->exception_code = lsu_load(lsu, 4, result);
+  unsigned rd_data;
+  result->exception_code = lsu_load_reserved(lsu, aquire, result);
   result->m_data = op(result->rd_data, result->m_data);
-  result->exception_code = lsu_store(lsu, 4, result);
-  if (release) lsu_dcache_write_back(lsu);
+  rd_data = result->rd_data;
+  result->exception_code = lsu_store_conditional(lsu, release, result);
+  result->rd_data = rd_data;
   return result->exception_code;
 }
 
@@ -335,14 +339,12 @@ cache_line_t *cache_get_line(cache_t *cache, unsigned vaddr, unsigned paddr, int
       // read from memory
       memory_cpy_from(cache->mem, cache->id, cache->line[index].data, paddr & (~cache->line_mask), cache->line_len);
       cache->line[index].state = CACHE_SHARED;
-      cache->line[index].reserved = 0;
       cache->line[index].tag = tag;
     }
   } else {
     // read from memory
     memory_cpy_from(cache->mem, cache->id, cache->line[index].data, paddr & (~cache->line_mask), cache->line_len);
     cache->line[index].state = CACHE_SHARED;
-    cache->line[index].reserved = 0;
     cache->line[index].tag = tag;
   }
   if (is_write) {

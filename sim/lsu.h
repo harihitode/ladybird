@@ -19,7 +19,6 @@ struct core_step_result;
 
 typedef struct cache_line_t {
   unsigned char state;
-  unsigned char reserved;
   unsigned tag;
   char *data;
 } cache_line_t;

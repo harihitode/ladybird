@@ -26,11 +26,17 @@
 struct cache_t;
 struct core_step_result;
 
+typedef struct memory_reserve_list_t {
+  unsigned transaction_id;
+  unsigned begin_addr;
+  unsigned end_addr;
+  struct memory_reserve_list_t *next;
+} memory_reserve_list_t;
+
 typedef struct memory_target_t {
   unsigned base;
   unsigned size;
-  unsigned reserve_list_len;
-  struct { unsigned transaction_id; unsigned begin_addr; unsigned end_addr; } *reserve_list;
+  memory_reserve_list_t *reserve_list;
   char *(*get_ptr)(struct memory_target_t *target, unsigned addr);
   char (*readb)(struct memory_target_t *unit, unsigned addr);
   void (*writeb)(struct memory_target_t *unit, unsigned addr, char value);
@@ -81,7 +87,7 @@ void memory_target_init(memory_target_t *target, unsigned base, unsigned size,
 char memory_target_readb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr);
 void memory_target_writeb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, char value);
 void memory_target_set_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len);
-int memory_target_get_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len);
+int memory_target_get_reserve_flag(const struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len);
 char *memory_target_get_ptr(struct memory_target_t *unit, unsigned addr);
 void memory_target_fini(memory_target_t *target);
 

@@ -248,44 +248,106 @@ void memory_target_init(memory_target_t *target, unsigned base, unsigned size,
                         void (*writeb)(struct memory_target_t *target, unsigned addr, char value)) {
   target->base = base;
   target->size = size;
-  target->reserve_list_len = 0;
   target->reserve_list = NULL;
   target->get_ptr = get_ptr;
   target->readb = readb;
   target->writeb = writeb;
 }
 
-char memory_target_readb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr) {
-  // TODO reserved flag
-  return unit->readb(unit, addr);
+static int memory_target_search_reserve_flag(struct memory_target_t *target, unsigned addr) {
+  // 1. searching all list for one matching addr
+  // 2. if matched delete the entry
+  memory_reserve_list_t *prev = target->reserve_list;
+  if (prev) {
+    if (prev->begin_addr <= addr && addr < prev->end_addr) {
+      target->reserve_list = NULL;
+      free(prev);
+      return 1;
+    }
+    memory_reserve_list_t *next = target->reserve_list->next;
+    while (next) {
+      if (next->begin_addr <= addr && addr < next->end_addr) {
+        prev->next = next->next;
+        free(next);
+        return 1;
+      }
+      next = next->next;
+    }
+    return 0;
+  } else {
+    return 0;
+  }
 }
 
-void memory_target_writeb(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, char value) {
-  // TODO reserved flag
-  unit->writeb(unit, addr, value);
+char memory_target_readb(struct memory_target_t *target, unsigned transaction_id, unsigned addr) {
+  memory_target_search_reserve_flag(target, addr);
+  return target->readb(target, addr);
+}
+
+void memory_target_writeb(struct memory_target_t *target, unsigned transaction_id, unsigned addr, char value) {
+  memory_target_search_reserve_flag(target, addr);
+  target->writeb(target, addr, value);
   return;
 }
 
-void memory_target_set_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len) {
-  // TODO
+void memory_target_set_reserve_flag(struct memory_target_t *target, unsigned transaction_id, unsigned addr, unsigned len) {
+  // 1. searching all list for one matching addr to addr+len
+  // 2. if matched
+  //    a. if the transaction_id is the same, modify begin addr and end addr if needed
+  //    b. if the transaction_id is not the same, overwrite it
+  // 3. if unmatched
+  //    a. register new list to top of the list
+  memory_reserve_list_t *next = target->reserve_list;
+  while (next != NULL) {
+    if ((next->begin_addr <= addr) && ((addr + len - 1) < next->end_addr)) {
+      next->transaction_id = transaction_id;
+      next->begin_addr = addr;
+      next->end_addr = addr + len;
+      return;
+    }
+    next = next->next;
+  }
+  memory_reserve_list_t *new_entry = (memory_reserve_list_t *)calloc(1, sizeof(memory_reserve_list_t));
+  new_entry->transaction_id = transaction_id;
+  new_entry->begin_addr = addr;
+  new_entry->end_addr = addr + len;
+  new_entry->next = target->reserve_list;
+  target->reserve_list = new_entry;
   return;
 }
 
-int memory_target_get_reserve_flag(struct memory_target_t *unit, unsigned transaction_id, unsigned addr, unsigned len) {
-  // TODO
+int memory_target_get_reserve_flag(const struct memory_target_t *target, unsigned transaction_id, unsigned addr, unsigned len) {
+  // 1. serching all list for one matching addr to addr+len
+  // 2. if matched
+  //    a. return 1
+  // 3. if unmatched
+  //    a. return 0
+  memory_reserve_list_t *next = target->reserve_list;
+  while (next != NULL) {
+    if (next->transaction_id == transaction_id && next->begin_addr <= addr && (addr + len - 1) < next->end_addr) {
+      return 1;
+    }
+    next = next->next;
+  }
   return 0;
 }
 
-char *memory_target_get_ptr(struct memory_target_t *unit, unsigned addr) {
-  if (unit->get_ptr) {
-    return unit->get_ptr(unit, addr);
+char *memory_target_get_ptr(struct memory_target_t *target, unsigned addr) {
+  if (target->get_ptr) {
+    return target->get_ptr(target, addr);
   } else {
     return NULL;
   }
 }
 
 void memory_target_fini(memory_target_t *target) {
-  free(target->reserve_list);
+  memory_reserve_list_t *next = target->reserve_list;
+  memory_reserve_list_t *prev = NULL;
+  while (next != NULL) {
+    prev = next;
+    next = next->next;
+    free(prev);
+  }
 }
 
 void sram_init_with_char(sram_t *sram, const char clear, unsigned size) {
