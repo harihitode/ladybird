@@ -943,6 +943,8 @@ static void csr_restore_trap(csr_t *csr) {
   lsu_tlb_clear(csr->lsu);
   lsu_icache_invalidate(csr->lsu);
   lsu_dcache_invalidate(csr->lsu);
+  // restore extension status to clean (required?)
+  csr->status_fs = CSR_EXTENSION_STATUS_CLEAN;
   if (from_mode == PRIVILEGE_MODE_M) {
     // pc
     csr->pc = csr->mepc;
