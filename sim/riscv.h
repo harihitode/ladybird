@@ -4,7 +4,7 @@
 #define A_EXTENSION 1
 #define C_EXTENSION 1
 #define D_EXTENSION 0 // not supported
-#define F_EXTENSION 0
+#define F_EXTENSION 1
 #define E_EXTENSION 0 // reduced integer
 #define M_EXTENSION 1
 #define S_EXTENSION 1 // supervisor mode
@@ -435,6 +435,9 @@
 const char *riscv_get_extension_string();
 const char *riscv_get_mnemonic(unsigned inst);
 unsigned riscv_decompress(unsigned inst);
+unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception);
+unsigned riscv_fdiv(unsigned src1, unsigned src2, unsigned char rm, unsigned char *exception);
+unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception);
 unsigned riscv_get_opcode(unsigned inst);
 unsigned riscv_get_rs1(unsigned inst);
 unsigned riscv_get_rs2(unsigned inst);

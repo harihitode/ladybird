@@ -432,13 +432,13 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     src2.u = core->fpr[result->rs2_regno];
     src3.u = core->fpr[result->rs3_regno];
     if (opcode == OPCODE_MADD) {
-      dst.f = src1.f * src2.f + src3.f;
+      dst.u = riscv_fmadd(src1.u, src2.u, src3.u, rm, &result->fflags);
     } else if (opcode == OPCODE_MSUB) {
-      dst.f = src1.f * src2.f - src3.f;
+      dst.u = riscv_fmadd(src1.u, src2.u, 0x80000000 ^ src3.u, rm, &result->fflags);
     } else if (opcode == OPCODE_NMSUB) {
-      dst.f = -src1.f * src2.f + src3.f;
+      dst.u = riscv_fmadd(0x80000000 ^ src1.u, src2.u, src3.u, rm, &result->fflags);
     } else {
-      dst.f = -src1.f * src2.f - src3.f;
+      dst.u = riscv_fmadd(0x80000000 ^ src1.u, src2.u, 0x80000000 ^ src3.u, rm, &result->fflags);
     }
     result->rd_data = dst.u;
     break;
@@ -455,19 +455,19 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     dst.u = 0;
     switch (riscv_get_funct7(inst)) {
     case 0x00: // FADD
-      dst.f = src1.f + src2.f;
+      dst.u = riscv_fmadd(0x3f800000, src1.u, src2.u, rm, &result->fflags);
       break;
     case 0x04: // FSUB
-      dst.f = src1.f - src2.f;
+      dst.u = riscv_fmadd(0x3f800000, src1.u, 0x80000000 ^ src2.u, rm, &result->fflags);
       break;
     case 0x08: // FMUL
-      dst.f = src1.f * src2.f;
+      dst.u = riscv_fmadd(src1.u, src2.u, 0x00000000, rm, &result->fflags);
       break;
     case 0x0c: // FDIV
-      dst.f = src1.f / src2.f;
+      dst.u = riscv_fdiv(src1.u, src2.u, rm, &result->fflags);
       break;
     case 0x2c: // FSQRT
-      dst.f = sqrtf(src1.f);
+      dst.u = riscv_fsqrt(src1.u, rm, &result->fflags);
       break;
     case 0x10: // FSGNJ
       switch (riscv_get_funct3(inst)) {
@@ -475,7 +475,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         dst.u = (src2.u & 0x80000000) | (src1.u & 0x7fffffff);
         break;
       case 0x1: // Negative
-        dst.u = ~(src2.u & 0x80000000) | (src1.u & 0x7fffffff);
+        dst.u = ((src2.u ^ 0x80000000) & 0x80000000) | (src1.u & 0x7fffffff);
         break;
       case 0x2: // Exclusive OR
         dst.u = ((src1.u ^ src2.u) & 0x80000000) | (src1.u & 0x7fffffff);
@@ -560,9 +560,9 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         if (isinf(src1.f) == 1) dst.u |= 0x00000080;
         if ((fpclassify(src1.f) == FP_NAN)) {
           if (!(src1.u & 0x00400000)) {
-            dst.u |= 0x00000200; // signaling NaN
+            dst.u |= 0x00000100; // signaling NaN
           } else {
-            dst.u |= 0x00000100; // quiet NaN
+            dst.u |= 0x00000200; // quiet NaN
           }
         }
         break;

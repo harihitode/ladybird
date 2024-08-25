@@ -1,6 +1,7 @@
 #include "riscv.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #define ALT_INST 0x40000000
 
@@ -814,6 +815,47 @@ const char *riscv_get_mnemonic(unsigned inst) {
     break;
   }
   return buf;
+}
+
+#define RISCV_PINF 0x7f800000
+#define RISCV_NINF 0xff800000
+#define RISCV_QNAN 0x7fc00000
+
+unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception) {
+  union { unsigned u; float f; } a, b, c, d;
+  a.u = src1;
+  b.u = src2;
+  c.u = src3;
+  d.f = a.f * b.f + c.f;
+  return d.u;
+}
+
+unsigned riscv_fdiv(unsigned src1, unsigned src2, unsigned char rm, unsigned char *exception) {
+  union { unsigned u; float f; } a, b, d;
+  a.u = src1;
+  b.u = src2;
+  if (b.u == 0x80000000) {
+    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_DZ;
+    d.u = RISCV_NINF;
+  } else if (b.u == 0x00000000) {
+    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_DZ;
+    d.u = RISCV_PINF;
+  } else {
+    d.f = a.f / b.f;
+  }
+  return d.u;
+}
+
+unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception) {
+  union { unsigned u; float f; } a, d;
+  a.u = src1;
+  if (0x80000000 & a.u) {
+    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+    d.u = RISCV_QNAN;
+  } else {
+    d.f = sqrtf(a.f);
+  }
+  return d.u;
 }
 
 unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
