@@ -118,6 +118,7 @@ typedef struct sim_t {
 
 // simulator general interface
 void sim_init(sim_t *);
+void sim_enable_timer(sim_t *);
 void sim_add_core(sim_t *);
 void sim_dtb_on(sim_t *, const char *dtb_path);
 void sim_config_on(sim_t *);

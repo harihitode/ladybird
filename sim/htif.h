@@ -2,6 +2,7 @@
 #define HTIF_H
 #include "sim.h"
 
+// Ordinary called by ecall (a7 holds the system call number)
 #define SYS_write 64
 #define SYS_exit 93
 #define SYS_stats 1234

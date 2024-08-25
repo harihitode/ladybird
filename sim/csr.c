@@ -18,10 +18,10 @@ void csr_init(csr_t *csr) {
   csr->trig = NULL;
   csr->hart_id = 0;
   csr->mode = PRIVILEGE_MODE_M;
-  csr->status_mpp = 0;
+  csr->status_mpp = PRIVILEGE_MODE_M;
   csr->status_mie = 0;
   csr->status_mpie = 0;
-  csr->status_spp = 0;
+  csr->status_spp = PRIVILEGE_MODE_S;
   csr->status_sie = 0;
   csr->status_spie = 0;
 #if F_EXTENSION
@@ -98,7 +98,7 @@ static unsigned csr_get_m_interrupts_pending(csr_t *csr) {
   unsigned extint = 0;
   unsigned timerint = 0;
   extint = (plic_get_interrupt(csr->plic, csr->hart_id * 2 + 0) == 0) ? 0 : 1;
-  timerint = (csr->aclint->mtime >= aclint_get_mtimecmp(csr->aclint, csr->hart_id)) ? 1 : 0;
+  timerint = (csr->aclint->timer_enable && csr->aclint->mtime >= aclint_get_mtimecmp(csr->aclint, csr->hart_id)) ? 1 : 0;
   swint = aclint_get_msip(csr->aclint, csr->hart_id);
   value |=
     (swint << CSR_INT_MSI_FIELD) |
@@ -952,7 +952,7 @@ static void csr_restore_trap(csr_t *csr) {
     csr->status_mpie = 1;
     // mode
     csr->mode = csr->status_mpp;
-    csr->status_mpp = 0;
+    csr->status_mpp = PRIVILEGE_MODE_M;
   } else {
     // pc
     csr->pc = csr->sepc;
@@ -962,7 +962,7 @@ static void csr_restore_trap(csr_t *csr) {
     csr->status_spie = 1;
     // mode
     csr->mode = csr->status_spp;
-    csr->status_spp = 0;
+    csr->status_spp = PRIVILEGE_MODE_S;
   }
 }
 

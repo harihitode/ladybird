@@ -1,5 +1,6 @@
 SRCS=elfloader.c sim.c memory.c csr.c mmio.c plic.c core.c lsu.c trigger.c riscv.c htif.c
 HDRS=sim.h memory.h elfloader.h csr.h mmio.h plic.h core.h lsu.h trigger.h riscv.h htif.h
+TARGET?=
 OBJS=$(SRCS:.c=.o)
 STUBSRCS=gdbstub/gdbstub.c
 STUBHDRS=gdbstub/gdbstub.h
@@ -42,11 +43,14 @@ launch_sim: $(OBJS) launch_sim.o
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
+run: launch_sim
+	./$< $(TARGET) --htif --tohost 0x80001000 --fromhost 0x80001040
+
 xv6: launch_sim $(DTBS)
-	./$< $(XV6KRNL) $(SIMFLAGS) --ebreak --disk $(XV6DISK) --uart-in $(COMMANDS)
+	./$< $(XV6KRNL) $(SIMFLAGS) --ebreak --timer --disk $(XV6DISK) --uart-in $(COMMANDS)
 
 linux: launch_sim $(DTBS)
-	./$< $(LINUXKRNL) $(SIMFLAGS) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90
+	./$< $(LINUXKRNL) $(SIMFLAGS) --disk $(LINUXDISK) --htif --tohost 0x80040f88 --fromhost 0x80040f90 --timer
 
 $(POJBS): sim.h
 

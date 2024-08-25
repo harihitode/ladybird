@@ -31,6 +31,7 @@ typedef struct aclint_t {
   unsigned long long *mtimecmp;
   unsigned char *msip;
   unsigned char *ssip;
+  unsigned char timer_enable;
   unsigned cycle_count;
 } aclint_t;
 
@@ -39,6 +40,7 @@ void aclint_add_hart(aclint_t *);
 char aclint_read(memory_target_t *, unsigned addr);
 void aclint_write(memory_target_t *, unsigned addr, char value);
 void aclint_cycle(aclint_t *);
+void aclint_enable_timer(aclint_t *);
 unsigned long long aclint_get_mtimecmp(aclint_t *, int hart_id);
 unsigned aclint_get_msip(aclint_t *, int hart_id);
 unsigned aclint_get_ssip(aclint_t *, int hart_id);

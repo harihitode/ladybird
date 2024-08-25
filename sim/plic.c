@@ -139,6 +139,7 @@ void aclint_init(aclint_t *aclint) {
   aclint->mtimecmp = NULL;
   aclint->msip = NULL;
   aclint->ssip = NULL;
+  aclint->timer_enable = 0;
   aclint->cycle_count = 0;
   memory_target_init((struct memory_target_t *)aclint, 0, (1 << 16), NULL, aclint_read, aclint_write);
 }
@@ -217,6 +218,10 @@ void aclint_cycle(aclint_t *aclint) {
   if (aclint->cycle_count++ % 10 == 0) {
     aclint->mtime++;
   }
+}
+
+void aclint_enable_timer(aclint_t *aclint) {
+  aclint->timer_enable = 1;
 }
 
 unsigned long long aclint_get_mtimecmp(aclint_t *aclint, int hart_id) {

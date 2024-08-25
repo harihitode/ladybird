@@ -117,6 +117,10 @@ void sim_init(sim_t *sim) {
   return;
 }
 
+void sim_enable_timer(sim_t *sim) {
+  aclint_enable_timer(sim->aclint);
+}
+
 int sim_load_elf(sim_t *sim, const char *elf_path) {
   int ret = 1;
   unsigned dcsr = sim_read_csr(sim, CSR_ADDR_D_CSR);

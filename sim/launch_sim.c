@@ -88,6 +88,8 @@ int main(int argc, char *argv[]) {
       stat_enable = 1;
     } else if (strcmp(argv[i], "--dump") == 0) {
       sim_set_step_callback(sim, dump_inst_callback);
+    } else if (strcmp(argv[i], "--timer") == 0) {
+      sim_enable_timer(sim);
     } else if (strcmp(argv[i], "--uart-in") == 0) {
       i++;
       if (i < argc) {
