@@ -438,6 +438,8 @@ unsigned riscv_decompress(unsigned inst);
 unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception);
 unsigned riscv_fdiv(unsigned src1, unsigned src2, unsigned char rm, unsigned char *exception);
 unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception);
+int riscv_issnan(unsigned src1);
+int riscv_isqnan(unsigned src1);
 unsigned riscv_get_opcode(unsigned inst);
 unsigned riscv_get_rs1(unsigned inst);
 unsigned riscv_get_rs2(unsigned inst);

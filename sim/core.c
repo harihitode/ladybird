@@ -502,13 +502,30 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->rd_is_fpr = 0;
       switch (riscv_get_funct3(inst)) {
       case 0x0: // FLE
-        dst.u = (src1.f <= src2.f) ? 1 : 0;
+        if (isnan(src1.f) || isnan(src2.f)) {
+          dst.u = 0;
+          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
+        } else {
+          dst.u = (src1.f <= src2.f) ? 1 : 0;
+        }
         break;
       case 0x1: // FLT
-        dst.u = (src1.f < src2.f) ? 1 : 0;
+        if (isnan(src1.f) || isnan(src2.f)) {
+          dst.u = 0;
+          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
+        } else {
+          dst.u = (src1.f < src2.f) ? 1 : 0;
+        }
         break;
       case 0x2: // FEQ
-        dst.u = (src1.f == src2.f) ? 1 : 0;
+        if (riscv_issnan(src1.u) || riscv_issnan(src2.u)) {
+          dst.u = 0;
+          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
+        } else if (isnan(src1.f) || isnan(src2.f)) {
+          dst.u = 0;
+        } else {
+          dst.u = (src1.f == src2.f) ? 1 : 0;
+        }
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -558,13 +575,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         if ((fpclassify(src1.f) == FP_SUBNORMAL) && !(src1.u & 0x80000000)) dst.u |= 0x00000020;
         if (isnormal(src1.f) && !(src1.u & 0x80000000)) dst.u |= 0x00000040;
         if (isinf(src1.f) == 1) dst.u |= 0x00000080;
-        if ((fpclassify(src1.f) == FP_NAN)) {
-          if (!(src1.u & 0x00400000)) {
-            dst.u |= 0x00000100; // signaling NaN
-          } else {
-            dst.u |= 0x00000200; // quiet NaN
-          }
-        }
+        if (riscv_issnan(src1.u)) dst.u |= 0x00000100; // signaling NaN
+        if (riscv_isqnan(src1.u)) dst.u |= 0x00000200; // quiet NaN
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -705,12 +717,19 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
 #if F_EXTENSION
   } else if (result->rd_is_fpr == 1) {
     core->fpr[result->rd_regno] = result->rd_data;
-    core->csr->fflags |= result->fflags;
     core->csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
 #endif
   } else if (result->rd_regno != 0) {
     core->gpr[result->rd_regno] = result->rd_data;
   }
+
+#if F_EXTENSION
+  if (result->fflags != 0) {
+    core->csr->fflags |= result->fflags;
+    core->csr->status_fs = CSR_EXTENSION_STATUS_DIRTY;
+  }
+#endif
+
   result->pc_next = pc_next;
   if (result->flush) {
     core_window_flush(core);

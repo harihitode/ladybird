@@ -858,6 +858,22 @@ unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception) 
   return d.u;
 }
 
+int riscv_issnan(unsigned src1) {
+  if (((0x7f800000 & src1) == 0x7f800000) && ((0x00400000 & src1) == 0) && (0x003fffff & src1) != 0) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+int riscv_isqnan(unsigned src1) {
+  if (((0x7f800000 & src1) == 0x7f800000) && ((0x00400000 & src1) != 0)) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
 unsigned riscv_get_rs1(unsigned inst) { return (inst >> 15) & 0x0000001f; }
 unsigned riscv_get_rs2(unsigned inst) { return (inst >> 20) & 0x0000001f; }
