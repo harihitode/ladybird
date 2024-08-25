@@ -817,10 +817,6 @@ const char *riscv_get_mnemonic(unsigned inst) {
   return buf;
 }
 
-#define RISCV_PINF 0x7f800000
-#define RISCV_NINF 0xff800000
-#define RISCV_QNAN 0x7fc00000
-
 unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception) {
   union { unsigned u; float f; } a, b, c, d;
   a.u = src1;
@@ -851,7 +847,7 @@ unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception) 
   a.u = src1;
   if (0x80000000 & a.u) {
     if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_NV;
-    d.u = RISCV_QNAN;
+    d.u = RISCV_CANONICAL_QNAN;
   } else {
     d.f = sqrtf(a.f);
   }

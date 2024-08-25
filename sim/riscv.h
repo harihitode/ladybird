@@ -432,6 +432,10 @@
 #define CSR_MATCH6_STORE 0x2
 #define CSR_MATCH6_LOAD 0x1
 
+#define RISCV_PINF 0x7f800000
+#define RISCV_NINF 0xff800000
+#define RISCV_CANONICAL_QNAN 0x7fc00000
+
 const char *riscv_get_extension_string();
 const char *riscv_get_mnemonic(unsigned inst);
 unsigned riscv_decompress(unsigned inst);

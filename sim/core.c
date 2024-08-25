@@ -488,10 +488,25 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
     case 0x14: // MINMAX
       switch (riscv_get_funct3(inst)) {
       case 0x0: // Minimum
-        dst.f = (src1.f < src2.f) ? src1.f : src2.f;
-        break;
       case 0x1: // Maximum
-        dst.f = (src1.f < src2.f) ? src2.f : src1.f;
+        if (isnan(src1.f) && isnan(src2.f)) {
+          dst.u = RISCV_CANONICAL_QNAN;
+        } else if (isnan(src1.f)) {
+          dst.u = src2.u;
+        } else if (isnan(src2.f)) {
+          dst.u = src1.u;
+        } else if (src1.u == 0x00000000 && src2.u == 0x80000000) {
+          dst.u = (riscv_get_funct3(inst) == 0) ? src2.u : src1.u;
+        } else if (src1.u == 0x80000000 && src2.u == 0x00000000) {
+          dst.u = (riscv_get_funct3(inst) == 0) ? src1.u : src2.u;
+        } else if (riscv_get_funct3(inst) == 0) {
+          dst.f = (src1.f < src2.f) ? src1.f : src2.f;
+        } else {
+          dst.f = (src1.f > src2.f) ? src1.f : src2.f;
+        }
+        if (riscv_issnan(src1.u) || riscv_issnan(src2.u)) {
+          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
+        }
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
