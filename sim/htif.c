@@ -44,3 +44,17 @@ void htif_callback(sim_t *sim, unsigned dcause, unsigned trigger_type,
     }
   }
 }
+
+void htif_riscv_test_callback(sim_t *sim, unsigned dcause, unsigned trigger_type,
+                              unsigned tdata1, unsigned tdata2, unsigned tdata3) {
+  unsigned addr = tdata2;
+  if (trigger_type == CSR_TDATA1_TYPE_MATCH6 && addr == sim->htif_tohost) {
+    unsigned a0 = sim_read_register(sim, REG_A0);
+    if (sim_read_register(sim, REG_A0) == 0) {
+      fprintf(stderr, "@@@ (''* RVTEST PASSED!\n");
+    } else {
+      fprintf(stderr, "@@@ (--* RVTEST FAILED at %u!\n", (a0 >> 1));
+    }
+    sim->state = quit;
+  }
+}

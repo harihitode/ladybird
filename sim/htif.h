@@ -8,5 +8,6 @@
 #define SYS_stats 1234
 
 void htif_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned tdata1, unsigned tdata2, unsigned tdata3);
+void htif_riscv_test_callback(sim_t *sim, unsigned dcause, unsigned trigger_type, unsigned tdata1, unsigned tdata2, unsigned tdata3);
 
 #endif

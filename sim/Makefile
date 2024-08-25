@@ -43,8 +43,8 @@ launch_sim: $(OBJS) launch_sim.o
 rspsim: $(OBJS) $(STUBOBJS) gdbstub_sys.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-run: launch_sim
-	./$< $(TARGET) --htif --tohost 0x80001000 --fromhost 0x80001040
+rvtest: launch_sim
+	./$< $(TARGET) --rvtest --tohost 0x80001000 --fromhost 0x80001040
 
 xv6: launch_sim $(DTBS)
 	./$< $(XV6KRNL) $(SIMFLAGS) --ebreak --timer --disk $(XV6DISK) --uart-in $(COMMANDS)

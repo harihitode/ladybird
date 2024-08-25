@@ -63,6 +63,7 @@ int main(int argc, char *argv[]) {
   char *uart_out_file_name = NULL;
   char *disk_file_name = NULL;
   int htif_enable = 0;
+  int rvtest_enable = 0;
   int stat_enable = 0;
   int num_cores = 1;
   FILE *statlog = NULL;
@@ -82,6 +83,8 @@ int main(int argc, char *argv[]) {
   for (int i = 2; i < argc; i++) {
     if (strcmp(argv[i], "--htif") == 0) {
       htif_enable = 1;
+    } else if (strcmp(argv[i], "--rvtest") == 0) {
+      rvtest_enable = 1;
     } else if (strcmp(argv[i], "--ebreak") == 0) {
       sim_write_csr(sim, CSR_ADDR_D_CSR, CSR_DCSR_EBREAK_M | CSR_DCSR_EBREAK_S | CSR_DCSR_EBREAK_U | PRIVILEGE_MODE_M);
     } else if (strcmp(argv[i], "--stat") == 0) {
@@ -125,7 +128,10 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (htif_enable) {
+  if (rvtest_enable) {
+    sim_set_debug_callback(sim, htif_riscv_test_callback);
+    sim_set_write_trigger(sim, sim->htif_tohost);
+  } else if (htif_enable) {
     sim_set_debug_callback(sim, htif_callback);
     sim_set_write_trigger(sim, sim->htif_tohost);
   }
