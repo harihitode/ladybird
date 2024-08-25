@@ -247,10 +247,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         result->rd_data = ((long long)src1 * (long long)src2) & 0xffffffff;
         break;
       case 0x1: // MULH (extended: signed * signedb)
-        result->rd_data = ((long long)src1 * (long long)src2) >> 32;
+        result->rd_data = (((long long)(int)src1 * (long long)(int)src2)) >> 32;
         break;
       case 0x2: // MULHSU (extended: signed * unsigned)
-        result->rd_data = ((long long)src1 * (unsigned long long)src2) >> 32;
+        result->rd_data = ((long long)(int)src1 * (unsigned long long)src2) >> 32;
         break;
       case 0x3: // MULHU (extended: unsigned * unsigned)
         result->rd_data = ((unsigned long long)src1 * (unsigned long long)src2) >> 32;
@@ -258,6 +258,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       case 0x4: // DIV
         if (src2 == 0) {
           result->rd_data = -1;
+        } else if (src1 == 0x80000000 && src2 == 0xffffffff) {
+          result->rd_data = 0x80000000; // edge-case: a kind of overflow
         } else {
           result->rd_data = (int)src1 / (int)src2;
         }
@@ -272,6 +274,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       case 0x6: // REM
         if (src2 == 0) {
           result->rd_data = src1;
+        } else if (src1 == 0x80000000 && src2 == 0xffffffff) {
+          result->rd_data = 0; // edge-case: a kind of overflow
         } else {
           result->rd_data = (int)src1 % (int)src2;
         }
