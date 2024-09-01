@@ -817,41 +817,16 @@ const char *riscv_get_mnemonic(unsigned inst) {
   return buf;
 }
 
-unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception) {
-  union { unsigned u; float f; } a, b, c, d;
-  a.u = src1;
-  b.u = src2;
-  c.u = src3;
-  d.f = a.f * b.f + c.f;
-  return d.u;
+static unsigned char fp_get_sign(unsigned a) {
+  return (a >> 31) & 0x00000001;
 }
 
-unsigned riscv_fdiv(unsigned src1, unsigned src2, unsigned char rm, unsigned char *exception) {
-  union { unsigned u; float f; } a, b, d;
-  a.u = src1;
-  b.u = src2;
-  if (b.u == 0x80000000) {
-    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_DZ;
-    d.u = RISCV_NINF;
-  } else if (b.u == 0x00000000) {
-    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_DZ;
-    d.u = RISCV_PINF;
-  } else {
-    d.f = a.f / b.f;
-  }
-  return d.u;
+static unsigned char fp_get_exponent(unsigned a) {
+  return (a >> 23) & 0x000000ff;
 }
 
-unsigned riscv_fsqrt(unsigned src1, unsigned char rm, unsigned char *exception) {
-  union { unsigned u; float f; } a, d;
-  a.u = src1;
-  if (0x80000000 & a.u) {
-    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_NV;
-    d.u = RISCV_CANONICAL_QNAN;
-  } else {
-    d.f = sqrtf(a.f);
-  }
-  return d.u;
+static unsigned fp_get_mantissa(unsigned a) {
+  return a & 0x007fffff;
 }
 
 int riscv_issnan(unsigned src1) {
@@ -868,6 +843,571 @@ int riscv_isqnan(unsigned src1) {
   } else {
     return 0;
   }
+}
+
+int riscv_iszero(unsigned src1) {
+  if (fp_get_exponent(src1) == 0x00000000 && fp_get_mantissa(src1) == 0x0) {
+    return (fp_get_sign(src1) == 1) ? -1 : 1;
+  } else {
+    return 0;
+  }
+}
+
+int riscv_isinf(unsigned src1) {
+  if (fp_get_exponent(src1) == 0x000000ff && fp_get_mantissa(src1) == 0x0) {
+    return (fp_get_sign(src1) == 1) ? -1 : 1;
+  } else {
+    return 0;
+  }
+}
+
+unsigned char riscv_inexact(unsigned long long mantissa) {
+  unsigned char guard = (mantissa >> 31) & 0x01;
+  unsigned char round = (mantissa >> 30) & 0x01;
+  unsigned char sticky = (mantissa & 0x0000000003ffffff) ? 1 : 0;
+  return (guard | round | sticky) ? 1 : 0;
+}
+
+unsigned char riscv_rounding(unsigned long long mantissa, unsigned char sign_flag, unsigned char rm) {
+  unsigned char roundup = 0;
+  unsigned char lsb = (mantissa >> 32) & 0x01;
+  unsigned char guard = (mantissa >> 31) & 0x01;
+  unsigned char round = (mantissa >> 30) & 0x01;
+  unsigned char sticky = (mantissa & 0x0000000003ffffff) ? 1 : 0;
+  switch (rm) {
+  case FEXT_ROUNDING_MODE_RNE:
+    roundup = guard & (lsb | round | sticky);
+    break;
+  case FEXT_ROUNDING_MODE_RTZ: // round to zero
+    roundup = 0;
+    break;
+  case FEXT_ROUNDING_MODE_RDN: // round to negative inf
+    roundup = ((guard | round | sticky) & sign_flag) ? 1 : 0;
+    break;
+  case FEXT_ROUNDING_MODE_RUP: // round to positive inf
+    roundup = ((guard | round | sticky) & (!sign_flag)) ? 1 : 0;
+    break;
+  case FEXT_ROUNDING_MODE_RMM: // round to magnitude (large abs)
+    roundup = guard;
+    break;
+  default:
+    roundup = 0;
+    break;
+  }
+  return roundup;
+}
+
+static unsigned uint32_get_leadingzero(unsigned a) {
+  unsigned leading_zero = 0;
+  for (leading_zero = 0; leading_zero < 32; leading_zero++) {
+    if (a & (0x80000000 >> leading_zero)) {
+      break;
+    }
+  }
+  return leading_zero;
+}
+
+struct uint128_t {
+  unsigned a;
+  unsigned b;
+  unsigned c;
+  unsigned d;
+};
+
+static unsigned uint128_get_leadingzero(struct uint128_t a) {
+  unsigned leading_zero = 0;
+  leading_zero += uint32_get_leadingzero(a.a);
+  if (leading_zero != 32) goto fin;
+  leading_zero += uint32_get_leadingzero(a.b);
+  if (leading_zero != 64) goto fin;
+  leading_zero += uint32_get_leadingzero(a.c);
+  if (leading_zero != 92) goto fin;
+  leading_zero += uint32_get_leadingzero(a.d);
+fin:
+  return leading_zero;
+}
+
+struct uint128_t uint128_shift_right(struct uint128_t src, int shamt) {
+  struct uint128_t result;
+  if (shamt >= 128 || shamt <= -128) {
+    result.a = 0;
+    result.b = 0;
+    result.c = 0;
+    result.d = 0;
+  } else if (shamt == 0) {
+    result = src;
+  } else if (shamt < 128 && shamt >= 96) {
+    result.a = 0;
+    result.b = 0;
+    result.c = 0;
+    result.d = (unsigned long long)src.a >> (shamt - 96);
+  } else if (shamt < 96 && shamt >= 64) {
+    result.a = 0;
+    result.b = 0;
+    result.c = (unsigned long long)src.a >> (shamt - 64);
+    result.d = ((unsigned long long)src.a << (64 - (shamt - 32))) | ((unsigned long long)src.b >> (shamt - 64));
+  } else if (shamt < 64 && shamt >= 32) {
+    result.a = 0;
+    result.b = src.a >> (shamt - 32);
+    result.c = ((unsigned long long)src.a << (32 - (shamt - 32))) | ((unsigned long long)src.b >> (shamt - 32));
+    result.d = ((unsigned long long)src.b << (32 - (shamt - 32))) | ((unsigned long long)src.c >> (shamt - 32));
+  } else if (shamt < 32 && shamt > 0) {
+    result.a = (unsigned long long)src.a >> shamt;
+    result.b = ((unsigned long long)src.a << (32 - shamt)) | ((unsigned long long)src.b >> shamt);
+    result.c = ((unsigned long long)src.b << (32 - shamt)) | ((unsigned long long)src.c >> shamt);
+    result.d = ((unsigned long long)src.c << (32 - shamt)) | ((unsigned long long)src.d >> shamt);
+  } else if (shamt > -32 && shamt < 0) {
+    result.a = ((unsigned long long)src.a << -shamt) | ((unsigned long long)src.b >> (32 + shamt));
+    result.b = ((unsigned long long)src.b << -shamt) | ((unsigned long long)src.c >> (32 + shamt));
+    result.c = ((unsigned long long)src.c << -shamt) | ((unsigned long long)src.d >> (32 + shamt));
+    result.d = (unsigned long long)src.d << -shamt;
+  } else if (shamt > -64 && shamt <= -32) {
+    result.a = ((unsigned long long)src.b << (-32 - shamt)) | ((unsigned long long)src.c >> (64 + shamt));
+    result.b = ((unsigned long long)src.c << (-32 - shamt)) | ((unsigned long long)src.d >> (64 + shamt));
+    result.c = (unsigned long long)src.d << (-32 - shamt);
+    result.d = 0;
+  } else if (shamt > -96 && shamt <= -64) {
+    result.a = ((unsigned long long)src.c << (-64 - shamt)) | ((unsigned long long)src.d >> (96 + shamt));
+    result.b = (unsigned long long)src.d << (-64 - shamt);
+    result.c = 0;
+    result.d = 0;
+  } else if (shamt > -128 && shamt <= -96) {
+    result.a = (unsigned long long)src.d << (-96 - shamt);
+    result.b = 0;
+    result.c = 0;
+    result.d = 0;
+  } else {
+    result.a = 0;
+    result.b = 0;
+    result.c = 0;
+    result.d = 0;
+  }
+  return result;
+}
+
+struct uint128_t uint128_add(struct uint128_t src1, struct uint128_t src2) {
+  struct uint128_t result;
+  unsigned long long result_d = (unsigned long long)src1.d + (unsigned long long)src2.d;
+  unsigned long long result_c = (unsigned long long)src1.c + (unsigned long long)src2.c + (result_d >> 32);
+  unsigned long long result_b = (unsigned long long)src1.b + (unsigned long long)src2.b + (result_c >> 32);
+  unsigned long long result_a = (unsigned long long)src1.a + (unsigned long long)src2.a + (result_b >> 32);
+  result.a = result_a & 0xffffffff;
+  result.b = result_b & 0xffffffff;
+  result.c = result_c & 0xffffffff;
+  result.d = result_d & 0xffffffff;
+  return result;
+}
+
+struct uint128_t uint128_neg(struct uint128_t src1) {
+  struct uint128_t plsone, result;
+  plsone.a = 0;
+  plsone.b = 0;
+  plsone.c = 0;
+  plsone.d = 1;
+  src1.a = ~src1.a;
+  src1.b = ~src1.b;
+  src1.c = ~src1.c;
+  src1.d = ~src1.d;
+  result = uint128_add(src1, plsone);
+  return result;
+}
+
+struct uint128_t uint128_sub(struct uint128_t src1, struct uint128_t src2) {
+  struct uint128_t result;
+  src2 = uint128_neg(src2);
+  result = uint128_add(src1, src2);
+  return result;
+}
+
+struct uint128_t uint128_mul(struct uint128_t src1, struct uint128_t src2) {
+  struct uint128_t result;
+  unsigned long long dd_0 = (unsigned long long)src1.d * src2.d;
+  unsigned long long dc_32 = (unsigned long long)src1.d * src2.c;
+  unsigned long long db_64 = (unsigned long long)src1.d * src2.b;
+  unsigned long long da_96 = (unsigned long long)src1.d * src2.a;
+
+  unsigned long long cd_32 = (unsigned long long)src1.c * src2.d;
+  unsigned long long cc_64 = (unsigned long long)src1.c * src2.c;
+  unsigned long long cb_96 = (unsigned long long)src1.c * src2.b;
+
+  unsigned long long bd_64 = (unsigned long long)src1.b * src2.d;
+  unsigned long long bc_96 = (unsigned long long)src1.b * src2.c;
+
+  unsigned long long ad_96 = (unsigned long long)src1.a * src2.d;
+
+  unsigned long long result_d = dd_0;
+  unsigned long long result_c = dc_32 + cd_32 + (result_d >> 32);
+  unsigned long long result_b = db_64 + cc_64 + bd_64 + (result_c >> 32);
+  unsigned long long result_a = da_96 + cb_96 + bc_96 + ad_96 + (result_b >> 32);
+  result.a = result_a & 0xffffffff;
+  result.b = result_b & 0xffffffff;
+  result.c = result_c & 0xffffffff;
+  result.d = result_d & 0xffffffff;
+  return result;
+}
+
+unsigned riscv_fmadd(unsigned src1, unsigned src2, unsigned src3, unsigned char rm, unsigned char *exception) {
+  unsigned result = 0;
+  unsigned char src1_sign = fp_get_sign(src1);
+  unsigned char src2_sign = fp_get_sign(src2);
+  unsigned char src3_sign = fp_get_sign(src3);
+  unsigned char src1_exponent = fp_get_exponent(src1);
+  unsigned char src2_exponent = fp_get_exponent(src2);
+  unsigned char src3_exponent = fp_get_exponent(src3);
+  unsigned src1_mantissa = fp_get_mantissa(src1);
+  unsigned src2_mantissa = fp_get_mantissa(src2);
+  unsigned src3_mantissa = fp_get_mantissa(src3);
+  unsigned char is_subtract = (src1_sign ^ src2_sign ^ src3_sign) ? 1 : 0;
+
+  unsigned char src1_is_zero = src1_exponent == 0 && src1_mantissa == 0;
+  unsigned char src2_is_zero = src2_exponent == 0 && src2_mantissa == 0;
+  unsigned char src3_is_zero = src3_exponent == 0 && src3_mantissa == 0;
+  unsigned char src1_is_inf = src1_exponent == 255 && src1_mantissa == 0;
+  unsigned char src2_is_inf = src2_exponent == 255 && src2_mantissa == 0;
+  unsigned char src3_is_inf = src3_exponent == 255 && src3_mantissa == 0;
+  unsigned char src1_is_nan = src1_exponent == 255 && src1_mantissa != 0;
+  unsigned char src2_is_nan = src2_exponent == 255 && src2_mantissa != 0;
+  unsigned char src3_is_nan = src3_exponent == 255 && src3_mantissa != 0;
+
+  unsigned char result_is_nan = src1_is_nan || src2_is_nan || src3_is_nan ||
+    (src1_is_zero && src2_is_inf) || (src1_is_inf && src2_is_zero) ||
+    (is_subtract && (src1_is_inf || src2_is_inf) && src3_is_inf);
+  unsigned char result_is_inf = src1_is_inf || src2_is_inf || src3_is_inf;
+  unsigned char result_mul_sign = (src1_sign ^ src2_sign) ? 1 : 0;
+
+  if (result_is_nan) {
+    result = RISCV_CANONICAL_QNAN;
+    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+  } else if (result_is_inf) {
+    // infinite from inputs
+    if (src3_is_inf) {
+      result = (src3_sign << 31) | (0x000000ff << 23);
+    } else {
+      result = (result_mul_sign << 31) | (0x000000ff << 23);
+    }
+  } else {
+    unsigned src1_exponent_value = (src1_exponent == 0) ? 1 : src1_exponent;
+    unsigned src2_exponent_value = (src2_exponent == 0) ? 1 : src2_exponent;
+    unsigned src3_exponent_value = (src3_exponent == 0) ? 1 : src3_exponent;
+    unsigned char src1_is_subnormal = (src1_exponent == 0 && src1_mantissa != 0);
+    unsigned char src2_is_subnormal = (src2_exponent == 0 && src2_mantissa != 0);
+    unsigned char src3_is_subnormal = (src3_exponent == 0 && src3_mantissa != 0);
+    unsigned src1_mantissa_value = src1_is_subnormal ? src1_mantissa : (src1_exponent != 0 ? (0x00800000 | src1_mantissa) : 0x0);
+    unsigned src2_mantissa_value = src2_is_subnormal ? src2_mantissa : (src2_exponent != 0 ? (0x00800000 | src2_mantissa) : 0x0);
+    unsigned src3_mantissa_value = src3_is_subnormal ? src3_mantissa : (src3_exponent != 0 ? (0x00800000 | src3_mantissa) : 0x0);
+    unsigned result_mul_exponent = src1_exponent_value + src2_exponent_value - 127;
+    int addend_shamt = src3_exponent_value - result_mul_exponent + 23; // 23: mantissa len
+    unsigned char addend_sticky = (addend_shamt >= 0) ? 0 : ((addend_shamt < -26) ? (src3_mantissa_value != 0) : (src3_mantissa_value << (26 + addend_shamt)) != 0);
+    unsigned char result_is_addend = ((addend_shamt > 49) || src1_is_zero || src2_is_zero) && !src3_is_zero;
+    struct uint128_t mul_lhs, mul_rhs, addend, result_mul, result_fma, result_fma_abs, result_fma_shifted, result_fma_shifted_out;
+    mul_lhs.a = 0;
+    mul_lhs.b = 0;
+    mul_lhs.c = 0;
+    mul_lhs.d = src1_mantissa_value << 2;
+    mul_rhs.a = 0;
+    mul_rhs.b = 0;
+    mul_rhs.c = 0;
+    mul_rhs.d = src2_mantissa_value << 1;
+    addend.a = 0;
+    addend.b = 0;
+    addend.c = 0;
+    addend.d = src3_mantissa_value;
+    addend = uint128_shift_right(addend, -51);
+    addend = uint128_shift_right(addend, 49 - addend_shamt - 1); // 1 for sticky
+    addend.d |= addend_sticky;
+    result_mul = uint128_mul(mul_lhs, mul_rhs);
+    if (is_subtract) {
+      result_fma = uint128_sub(result_mul, addend);
+    } else {
+      result_fma = uint128_add(result_mul, addend);
+    }
+    unsigned char result_fma_sign = (result_fma.b & 0x00001000) ? 1 : 0; // result_fma[76]: sign bit
+    result_fma_abs = (result_fma_sign) ? uint128_neg(result_fma) : result_fma;
+    unsigned char result_sign = (result_mul_sign ^ result_fma_sign) ? 1 : 0;
+    unsigned leadingzero = uint128_get_leadingzero(result_fma_abs) - (128 - 76);
+    int result_exponent_value = result_mul_exponent - leadingzero + 26;
+    unsigned char result_is_subnormal = (result_exponent_value <= 0) ? 1 : 0;
+    int result_fma_shamt = (result_is_subnormal) ? 26 - result_mul_exponent : 51 - leadingzero;
+    // calculate final result (shifting and rounding)
+    result_fma_shifted = uint128_shift_right(result_fma_abs, result_fma_shamt);
+    result_fma_shifted.d &= 0x00ffffff; // 24bit (shadow + mantissa)
+    result_fma_shifted_out = uint128_shift_right(result_fma_abs, -(76 - result_fma_shamt));
+    result_fma_shifted_out.a &= 0;
+    result_fma_shifted_out.b &= 0x00000fff; // 76bit
+    result_fma_shifted_out.c &= 0xffffffff;
+    result_fma_shifted_out.d &= 0xffffffff;
+    unsigned char result_lsb = (result_fma_shifted.d & 0x2) ? 1 : 0;
+    unsigned char result_guard = (result_fma_shifted.d & 0x1) ? 1 : 0;
+    unsigned char result_sticky = (result_fma_shifted_out.a != 0) || (result_fma_shifted_out.b != 0) || (result_fma_shifted_out.c != 0) || (result_fma_shifted_out.d != 0);
+    unsigned char roundup = 0;
+    switch (rm) {
+    case FEXT_ROUNDING_MODE_RNE:
+      roundup = result_guard && (result_lsb || result_sticky);
+      break;
+    case FEXT_ROUNDING_MODE_RTZ: // round to zero
+      roundup = 0;
+      break;
+    case FEXT_ROUNDING_MODE_RDN: // round to negative inf
+      roundup = ((result_guard | result_sticky) & result_sign) ? 1 : 0;
+      break;
+    case FEXT_ROUNDING_MODE_RUP: // round to positive inf
+      roundup = ((result_guard | result_sticky) & (!result_sign)) ? 1 : 0;
+      break;
+    case FEXT_ROUNDING_MODE_RMM: // round to magnitude (large abs)
+      roundup = result_guard;
+      break;
+    default:
+      roundup = 0;
+      break;
+    }
+    if (exception && (result_guard || result_sticky)) {
+      *exception |= FEXT_ACCURUED_EXCEPTION_NX;
+    }
+    unsigned char expinc = (result_fma_shifted.d >= 0x00ffffff) ? 1 : 0;
+    unsigned result_mantissa = ((result_fma_shifted.d >> 1) & 0x007fffff) + roundup;
+    unsigned result_exponent = (result_is_subnormal) ? 0 : result_exponent_value + expinc;
+    unsigned char result_is_zero = (result_fma.a == 0) && (result_fma.b == 0) && (result_fma.c == 0) && (result_fma.d == 0);
+    if (result_exponent >= 255) {
+      // go infinite during calculation
+      result = (result_sign << 31) | (0x000000ff << 23);
+    } else if (result_is_addend) {
+      result = src3;
+    } else if (result_is_zero) {
+      result = (!is_subtract && src3_sign) ? 0x80000000 : 0x00000000;
+    } else {
+      result = (result_sign << 31) | ((result_exponent & 0xff) << 23) | (result_mantissa & 0x007fffff);
+    }
+  }
+  return result;
+}
+
+unsigned riscv_fdiv_fsqrt(unsigned src1, unsigned src2, unsigned char rm, unsigned char is_sqrt, unsigned char *exception) {
+  unsigned result;
+  unsigned char src1_sign = fp_get_sign(src1);
+  unsigned char src1_exponent = fp_get_exponent(src1);
+  unsigned src1_mantissa = fp_get_mantissa(src1);
+  int src1_exponent_value = (src1_exponent == 0) ? -(int)uint32_get_leadingzero(src1_mantissa) : (int)src1_exponent;
+  unsigned src1_mantissa_value = (src1_exponent == 0) ? (src1_mantissa << 1) << uint32_get_leadingzero(src1_mantissa) : (0x00800000 | src1_mantissa);
+  unsigned char src1_is_zero = riscv_iszero(src1);
+  unsigned char src1_is_inf = (riscv_isinf(src1) == 0) ? 0 : 1;
+  unsigned char src1_is_nan = (riscv_isqnan(src1) || riscv_issnan(src1)) ? 1 : 0;
+  unsigned char src1_is_neg = (src1_sign && src1 != 0x80000000) ? 1 : 0;
+  unsigned char src2_sign = fp_get_sign(src2);
+  unsigned char src2_exponent = fp_get_exponent(src2);
+  unsigned src2_mantissa = fp_get_mantissa(src2);
+  int src2_exponent_value = (src2_exponent == 0) ? -(int)uint32_get_leadingzero(src2_mantissa) : (int)src2_exponent;
+  unsigned src2_mantissa_value = (src2_exponent == 0) ? (src2_mantissa << 1) << uint32_get_leadingzero(src2_mantissa) : (0x00800000 | src2_mantissa);
+  unsigned char src2_is_zero = riscv_iszero(src2);
+  unsigned char src2_is_inf = (riscv_isinf(src2) == 0) ? 0 : 1;
+  unsigned char src2_is_nan = (riscv_isqnan(src2) || riscv_issnan(src2)) ? 1 : 0;
+
+  unsigned char result_is_nan = (is_sqrt == 0) ? (src1_is_nan || src2_is_nan || (src1_is_zero && src2_is_zero) || (src1_is_inf && src2_is_inf)) : (src1_is_nan || src1_is_neg);
+  unsigned char result_is_inf = (is_sqrt == 0) ? (src1_is_inf || src2_is_zero) : (!src1_sign && src1_is_inf);
+  unsigned char result_is_zero = (is_sqrt == 0) ? (src1_is_zero || src2_is_inf) : src1_is_zero;
+  unsigned char result_sign = (is_sqrt == 0 && (src1_sign ^ src2_sign) != 0) ? 1 : 0;
+
+  unsigned char dividend_normalize = (src1_mantissa_value < src2_mantissa_value) ? 1 : 0;
+  int virtual_exponent = (int)src1_exponent_value - (int)src2_exponent_value + 127 - (int)dividend_normalize;
+  int subnormal = (is_sqrt == 0 && virtual_exponent <= -24) ? 1 : 0;
+
+  if (result_is_inf) {
+    // Edge: 0 division
+    if (is_sqrt == 0 && src2_is_zero) {
+      if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_DZ;
+      result = (src2 & 0x80000000) ? RISCV_NINF : RISCV_PINF;
+    } else {
+      result = (result_sign) ? RISCV_NINF : RISCV_PINF;
+    }
+  } else if (result_is_nan) {
+    // Edge: sqrt of negative
+    if (exception) *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+    result = RISCV_CANONICAL_QNAN;
+  } else if (result_is_zero) {
+    if (is_sqrt == 0) {
+      result = (result_sign) ? 0x80000000 : 0x00000000;
+    } else {
+      result = (src1_sign) ? 0x80000000 : 0x00000000;
+    }
+  } else {
+    unsigned counter = (is_sqrt == 0) ? 24 : 22;
+    int remainder = (is_sqrt == 0) ? (dividend_normalize ? (src1_mantissa_value << 1) : src1_mantissa_value) : ((src1_exponent_value & 0x1) ? (src1_mantissa_value << 1) - 0x01e40000 : (src1_mantissa_value << 2) - 0x02400000);
+    unsigned quotient = (is_sqrt == 0) ? 0x0 : ((src1_exponent_value & 0x1) ? 0x01600000 : 0x01800000);
+    for (int i = counter; i >= 0; i -= 2) {
+      unsigned dividend = (is_sqrt == 0) ? ((src2_mantissa_value >> 20) & 0x07) : (((quotient >> 25) & 0x1) << 3) | ((quotient >> 21) & 0x07);
+      int srt_rem = (remainder >> 21) & 0x3f;
+      srt_rem = ((srt_rem & 0x20) == 0) ? srt_rem : (0xffffffc0 | srt_rem);
+      int q = 0;
+      int th12 = (dividend < 1) ? 6 : ((dividend < 2) ? 7: ((dividend < 4) ? 8 : ((dividend < 5) ? 9 : ((dividend < 6) ? 10 : 11))));
+      int th01 = (dividend < 2) ? 2 : ((dividend < 6) ? 3 : 4);
+      if (srt_rem < -th12) {
+        q = -2;
+      } else if (srt_rem < -th01) {
+        q = -1;
+      } else if (srt_rem < th01) {
+        q = 0;
+      } else if (srt_rem < th12) {
+        q = 1;
+      } else {
+        q = 2;
+      }
+      switch (q) {
+      case 2:
+        if (is_sqrt == 0) {
+          remainder = (int)(remainder << 2) - (int)(src2_mantissa_value << 3);
+        } else {
+          remainder = (int)(remainder << 2) - (int)(quotient << 2) - (int)(4 << i);
+        }
+        break;
+      case 1:
+        if (is_sqrt == 0) {
+          remainder = (int)(remainder << 2) - (int)(src2_mantissa_value << 2);
+        } else {
+          remainder = (int)(remainder << 2) - (int)(quotient << 1) - (int)(1 << i);
+        }
+        break;
+      case -1:
+        if (is_sqrt == 0) {
+          remainder = (int)(remainder << 2) + (int)(src2_mantissa_value << 2);
+        } else {
+          remainder = (int)(remainder << 2) + (int)(quotient << 1) - (int)(1 << i);
+        }
+        break;
+      case -2:
+        if (is_sqrt == 0) {
+          remainder = (int)(remainder << 2) + (int)(src2_mantissa_value << 3);
+        } else {
+          remainder = (int)(remainder << 2) + (int)(quotient << 2) - (int)(4 << i);
+        }
+        break;
+      default:
+        remainder = remainder << 2;
+        break;
+      }
+      quotient = quotient + (q << i);
+    }
+    unsigned long long before_round = (subnormal == 1) ? ((unsigned long long)(((0x1 << 24) | ((unsigned long long)quotient & 0x00ffffff)) << 1)) >> (unsigned)(-virtual_exponent) : (((unsigned long long)quotient & 0x00ffffff) << 24);
+    unsigned char before_round_lsb = (before_round & 0x02000000) ? 1 : 0;
+    unsigned char before_round_guard = (before_round & 0x01000000) ? 1 : 0;
+    unsigned char before_round_sticky = ((before_round & 0x00ffffff) || (remainder != 0));
+    unsigned char roundup = 0;
+    switch (rm) {
+    case FEXT_ROUNDING_MODE_RNE:
+      roundup = before_round_guard && ((before_round_lsb && !before_round_sticky) || (before_round & 0x00ffffff) || (remainder > 0));
+      break;
+    case FEXT_ROUNDING_MODE_RTZ: // round to zero
+      roundup = 0;
+      break;
+    case FEXT_ROUNDING_MODE_RDN: // round to negative inf
+      roundup = ((before_round_guard | before_round_sticky) & result_sign) ? 1 : 0;
+      break;
+    case FEXT_ROUNDING_MODE_RUP: // round to positive inf
+      roundup = ((before_round_guard | before_round_sticky) & (!result_sign)) ? 1 : 0;
+      break;
+    case FEXT_ROUNDING_MODE_RMM: // round to magnitude (large abs)
+      roundup = before_round_guard;
+      break;
+    default:
+      roundup = 0;
+      break;
+    }
+    unsigned char expinc = (roundup && ((before_round >> 25) & 0x007fffff)) ? 1 : 0;
+    unsigned result_mantissa = (((before_round >> 25) & 0x007fffff) + roundup) & 0x007fffff;
+    int result_exponent = (is_sqrt == 0) ? (subnormal ? 0 : virtual_exponent + expinc) : (src1_exponent_value >> 1) + (src1_exponent & 0x1) + 63;
+    result_is_inf |= ((is_sqrt == 0) ? ((virtual_exponent > 255) || (result_exponent == 0xff)) : result_is_inf);
+    if (result_is_inf) {
+      result = ((result_sign << 31) & 0x80000000) | ((0xff << 23) & 0x7f800000);
+      if (exception && (before_round_guard || before_round_sticky)) {
+        *exception = FEXT_ACCURUED_EXCEPTION_NV;
+      }
+    } else {
+      result = ((result_sign << 31) & 0x80000000) | ((result_exponent << 23) & 0x7f800000) | (result_mantissa & 0x007fffff);
+      if (exception && (before_round_guard || before_round_sticky)) {
+        *exception = FEXT_ACCURUED_EXCEPTION_NX;
+      }
+    }
+  }
+  return result;
+}
+
+unsigned riscv_fcvtws(unsigned src1, unsigned char rm, unsigned char is_unsigned, unsigned char *exception) {
+  unsigned result = 0;
+  unsigned char sign = fp_get_sign(src1);
+  unsigned char exponent = fp_get_exponent(src1);
+  unsigned mantissa = fp_get_mantissa(src1);
+  unsigned mantissa_value = (0x00800000 | mantissa) << 8; // shadow + 8 shift
+  unsigned char src1_is_neg = sign;
+  unsigned char src1_is_nan = riscv_isqnan(src1) || riscv_issnan(src1);
+  // exponent 126 (e= -1) -> zero
+  // exponent 127 (e=  0) -> shift >> 23 (= mantissa len)       [31 shift for mantissa_value]
+  // exponont 150 (e= 23) -> shift 0                            [ 8 shift for mantissa_value]
+  // exponont 158 (e= 31) -> shift << 8 (if signed -> overflow) [ 0 shift for mantissa_value]
+  // exponont 159 (e= 32) -> inf (including shadow 1 bit)
+  int shift = (127 + 31) - exponent;
+  unsigned long long mantissa_value_shifted = ((unsigned long long)mantissa_value << 32) >> shift;
+  unsigned cvt_integer_part = 0;
+  if (shift == 0) {
+    if (is_unsigned) {
+      cvt_integer_part = (src1_is_neg) ? 0x00000000 : (mantissa_value_shifted >> 32) & 0xffffffff;
+    } else {
+      cvt_integer_part = (src1_is_neg) ? 0x80000000 : 0x7fffffff; // INT_MAX
+    }
+  } else if (shift < 0) {
+    if (is_unsigned) {
+      cvt_integer_part = (!src1_is_nan && src1_is_neg) ? 0x00000000 : 0xffffffff; // UNSIGNED INT_MAX
+    } else {
+      cvt_integer_part = (!src1_is_nan && src1_is_neg) ? 0x80000000 : 0x7fffffff; // INT_MAX
+    }
+  } else {
+    cvt_integer_part = (mantissa_value_shifted >> 32) & 0xffffffff;
+  }
+  unsigned char roundup = riscv_rounding(mantissa_value_shifted, src1_is_neg, rm);
+  if (shift < 1) {
+    result = cvt_integer_part;
+  } else {
+    result = cvt_integer_part + roundup;
+    if (src1_is_neg && is_unsigned) {
+      result = 0;
+    } else if (src1_is_neg && !is_unsigned) {
+      result = -result;
+    }
+  }
+  if (exception) {
+    *exception = 0;
+    if ((shift < 0) || // overflow or either src1 is nan or inf
+        (!is_unsigned && shift == 0 && (!src1_is_neg || mantissa != 0)) || // rounding result is overflow (signed conversion)
+        (is_unsigned && src1_is_neg && (shift <= 31 || roundup)) // rounding result is negative (unsiged conversion)
+        ) {
+      *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+    } else if (riscv_inexact(mantissa_value_shifted)) {
+      *exception |= FEXT_ACCURUED_EXCEPTION_NX;
+    }
+  }
+  return result;
+}
+
+unsigned riscv_fcvtsw(unsigned src1, unsigned char rm, unsigned char is_unsigned, unsigned char *exception) {
+  unsigned result = 0;
+  unsigned char src1_is_neg = (!is_unsigned && (0x80000000 & src1)) ? 1 : 0;
+  unsigned src1_abs = (src1_is_neg) ? (~src1 + 1) : src1;
+  unsigned leading_zero = uint32_get_leadingzero(src1_abs);
+  unsigned src1_shifted = (leading_zero == 32) ? 0 : (src1_abs << leading_zero);
+  // extract 23bit (the 24th bit is shadow bit)
+  unsigned mantissa = (src1_shifted >> 8) & (0x007fffff);
+  unsigned long long mantissa_long = ((unsigned long long)mantissa << 32) >> 8;
+  // leading_zero = 32 (i.e. 0x00000000) ... src1 = 0  (expo =   0)
+  // leading_zero = 31 (i.e. 0x00000001) ... e =  0    (expo = 127)
+  // leading_zero = 0  (i.e. 0x80000000) ... e = 31    (expo = 158)
+  unsigned char exponent = (src1 == 0) ? 0 : (31 - leading_zero) + 127;
+  unsigned char roundup = riscv_rounding(mantissa_long, src1_is_neg, rm);
+  unsigned char expinc = (roundup && mantissa == 0x007fffff) ? 1 : 0;
+
+  exponent = exponent + expinc;
+  mantissa = (mantissa + roundup) & 0x007fffff;
+  result = (src1_is_neg << 31) | (exponent << 23) | mantissa;
+  if (exception && riscv_inexact(mantissa_long)) {
+    *exception = FEXT_ACCURUED_EXCEPTION_NX;
+  }
+  return result;
 }
 
 unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }

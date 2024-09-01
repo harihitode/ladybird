@@ -422,7 +422,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   case OPCODE_NMSUB:
   case OPCODE_NMADD: {
     union { unsigned u; float f; } src1, src2, src3, dst;
-    unsigned char rm = (core->csr->frm == FEXT_ROUNDING_MODE_DYN) ? riscv_get_rm(inst) : core->csr->frm;
+    unsigned char rm = (riscv_get_rm(inst) == FEXT_ROUNDING_MODE_DYN) ? core->csr->frm : riscv_get_rm(inst);
     result->rs1_regno = riscv_get_rs1(inst);
     result->rs2_regno = riscv_get_rs2(inst);
     result->rs3_regno = riscv_get_rs3(inst);
@@ -445,7 +445,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
   }
   case OPCODE_OP_FP: {
     union { unsigned u; int i; float f; } src1, src2, dst;
-    unsigned char rm = (core->csr->frm == FEXT_ROUNDING_MODE_DYN) ? riscv_get_rm(inst) : core->csr->frm;
+    unsigned char rm = (riscv_get_rm(inst) == FEXT_ROUNDING_MODE_DYN) ? core->csr->frm : riscv_get_rm(inst);
     result->rs1_regno = riscv_get_rs1(inst);
     result->rs2_regno = riscv_get_rs2(inst);
     result->rd_regno = riscv_get_rd(inst);
@@ -464,10 +464,10 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       dst.u = riscv_fmadd(src1.u, src2.u, 0x00000000, rm, &result->fflags);
       break;
     case 0x0c: // FDIV
-      dst.u = riscv_fdiv(src1.u, src2.u, rm, &result->fflags);
+      dst.u = riscv_fdiv_fsqrt(src1.u, src2.u, rm, 0, &result->fflags);
       break;
     case 0x2c: // FSQRT
-      dst.u = riscv_fsqrt(src1.u, rm, &result->fflags);
+      dst.u = riscv_fdiv_fsqrt(src1.u, 0, rm, 1, &result->fflags);
       break;
     case 0x10: // FSGNJ
       switch (riscv_get_funct3(inst)) {
@@ -551,10 +551,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->rd_is_fpr = 0;
       switch (result->rs2_regno) {
       case 0x0: // FCVT.W.S
-        dst.i = (int)src1.f;
-        break;
       case 0x1: // FCVT.WU.S
-        dst.u = (unsigned)src1.f;
+        dst.u = riscv_fcvtws(src1.u, rm, result->rs2_regno, &result->fflags);
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -565,10 +563,8 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       src1.u = core->gpr[result->rs1_regno];
       switch (result->rs2_regno) {
       case 0x0: // FCVT.S.W
-        dst.f = (float)src1.i;
-        break;
       case 0x1: // FCVT.S.WU
-        dst.f = (float)src1.u;
+        dst.u = riscv_fcvtsw(src1.u, rm, result->rs2_regno, &result->fflags);
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
