@@ -345,7 +345,6 @@ package ladybird_riscv_helper;
     return result.inst; // TODO
   endfunction
 
-
   function automatic result_t riscv_decode(input result_t result);
     automatic logic [2:0] funct3;
     automatic logic [4:0] funct5;
@@ -385,6 +384,60 @@ package ladybird_riscv_helper;
       ret.branch_offset = {{19{ret.inst[31]}}, ret.inst[31], ret.inst[7], ret.inst[30:25], ret.inst[11:8], 1'b0};
     end
     return ret;
+  endfunction
+
+  function automatic logic riscv_src1_is_reg(input logic [XLEN-1:0] inst);
+    if (inst[19:15] == '0) begin
+      return '0;
+    end else begin
+      if (inst[6:2] inside {OPCODE_AUIPC, OPCODE_LUI, OPCODE_JAL, OPCODE_MISC_MEM}) begin
+        return '0;
+      end else if (inst[6:2] == OPCODE_SYSTEM) begin
+        if (inst[14:12] inside {FUNCT3_CSRRWI, FUNCT3_CSRRSI, FUNCT3_CSRRCI}) begin
+          return '0;
+        end else begin
+          return '1;
+        end
+      end else begin
+        return '1;
+      end
+    end
+  endfunction
+
+  function automatic logic riscv_src2_is_reg(input logic [XLEN-1:0] inst);
+    if (inst[24:20] == '0) begin
+      return '0;
+    end else begin
+      if (inst[6:2] inside {OPCODE_OP_IMM, OPCODE_AUIPC, OPCODE_LUI, OPCODE_JAL, OPCODE_JALR, OPCODE_LOAD, OPCODE_MISC_MEM, OPCODE_SYSTEM}) begin
+        return '0;
+      end else begin
+        return '1;
+      end
+    end
+  endfunction
+
+  function automatic logic riscv_dst_is_reg(input logic [XLEN-1:0] inst);
+    if (inst[11:7] == '0) begin
+      // zero register
+      return '0;
+    end else begin
+      if ((inst[6:2] == OPCODE_LOAD) ||
+          (inst[6:2] == OPCODE_OP_IMM) ||
+          (inst[6:2] == OPCODE_AUIPC) ||
+          (inst[6:2] == OPCODE_LUI) ||
+          (inst[6:2] == OPCODE_OP) ||
+          (inst[6:2] == OPCODE_JALR) ||
+          (inst[6:2] == OPCODE_JAL)
+          ) begin
+        return '1;
+      end else if (inst[6:2] == OPCODE_SYSTEM && inst[14:12] != 'd0) begin
+        // means CSR instructions
+        return '1;
+      end else begin
+        // Other opcodes have no effect for their commit
+        return '0;
+      end
+    end
   endfunction
 
 `ifdef LADYBIRD_SIMULATION
