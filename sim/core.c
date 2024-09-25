@@ -489,24 +489,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       switch (riscv_get_funct3(inst)) {
       case 0x0: // Minimum
       case 0x1: // Maximum
-        if (isnan(src1.f) && isnan(src2.f)) {
-          dst.u = RISCV_CANONICAL_QNAN;
-        } else if (isnan(src1.f)) {
-          dst.u = src2.u;
-        } else if (isnan(src2.f)) {
-          dst.u = src1.u;
-        } else if (src1.u == 0x00000000 && src2.u == 0x80000000) {
-          dst.u = (riscv_get_funct3(inst) == 0) ? src2.u : src1.u;
-        } else if (src1.u == 0x80000000 && src2.u == 0x00000000) {
-          dst.u = (riscv_get_funct3(inst) == 0) ? src1.u : src2.u;
-        } else if (riscv_get_funct3(inst) == 0) {
-          dst.f = (src1.f < src2.f) ? src1.f : src2.f;
-        } else {
-          dst.f = (src1.f > src2.f) ? src1.f : src2.f;
-        }
-        if (riscv_issnan(src1.u) || riscv_issnan(src2.u)) {
-          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
-        }
+        dst.u = riscv_fmin_fmax(src1.u, src2.u, riscv_get_funct3(inst), &result->fflags);
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -517,30 +500,13 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
       result->rd_is_fpr = 0;
       switch (riscv_get_funct3(inst)) {
       case 0x0: // FLE
-        if (isnan(src1.f) || isnan(src2.f)) {
-          dst.u = 0;
-          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
-        } else {
-          dst.u = (src1.f <= src2.f) ? 1 : 0;
-        }
+        dst.u = riscv_fle(src1.u, src2.u, &result->fflags);
         break;
       case 0x1: // FLT
-        if (isnan(src1.f) || isnan(src2.f)) {
-          dst.u = 0;
-          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
-        } else {
-          dst.u = (src1.f < src2.f) ? 1 : 0;
-        }
+        dst.u = riscv_flt(src1.u, src2.u, &result->fflags);
         break;
       case 0x2: // FEQ
-        if (riscv_issnan(src1.u) || riscv_issnan(src2.u)) {
-          dst.u = 0;
-          result->fflags |= FEXT_ACCURUED_EXCEPTION_NV;
-        } else if (isnan(src1.f) || isnan(src2.f)) {
-          dst.u = 0;
-        } else {
-          dst.u = (src1.f == src2.f) ? 1 : 0;
-        }
+        dst.u = riscv_feq(src1.u, src2.u, &result->fflags);
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;
@@ -578,16 +544,7 @@ void core_step(core_t *core, unsigned pc, struct core_step_result *result, unsig
         dst.u = src1.u;
         break;
       case 0x1: // Classification
-        if (isinf(src1.f) == -1) dst.u |= 0x00000001;
-        if (isnormal(src1.f) && (src1.u & 0x80000000)) dst.u |= 0x00000002;
-        if ((fpclassify(src1.f) == FP_SUBNORMAL) && (src1.u & 0x80000000)) dst.u |= 0x00000004;
-        if ((fpclassify(src1.f) == FP_ZERO) && (src1.u & 0x80000000)) dst.u |= 0x00000008;
-        if ((fpclassify(src1.f) == FP_ZERO) && !(src1.u & 0x80000000)) dst.u |= 0x00000010;
-        if ((fpclassify(src1.f) == FP_SUBNORMAL) && !(src1.u & 0x80000000)) dst.u |= 0x00000020;
-        if (isnormal(src1.f) && !(src1.u & 0x80000000)) dst.u |= 0x00000040;
-        if (isinf(src1.f) == 1) dst.u |= 0x00000080;
-        if (riscv_issnan(src1.u)) dst.u |= 0x00000100; // signaling NaN
-        if (riscv_isqnan(src1.u)) dst.u |= 0x00000200; // quiet NaN
+        dst.u = riscv_fclass(src1.u);
         break;
       default:
         result->exception_code = TRAP_CODE_ILLEGAL_INSTRUCTION;

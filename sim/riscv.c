@@ -829,7 +829,7 @@ static unsigned fp_get_mantissa(unsigned a) {
   return a & 0x007fffff;
 }
 
-int riscv_issnan(unsigned src1) {
+static int riscv_issnan(unsigned src1) {
   if (((0x7f800000 & src1) == 0x7f800000) && ((0x00400000 & src1) == 0) && (0x003fffff & src1) != 0) {
     return 1;
   } else {
@@ -837,7 +837,7 @@ int riscv_issnan(unsigned src1) {
   }
 }
 
-int riscv_isqnan(unsigned src1) {
+static int riscv_isqnan(unsigned src1) {
   if (((0x7f800000 & src1) == 0x7f800000) && ((0x00400000 & src1) != 0)) {
     return 1;
   } else {
@@ -845,7 +845,11 @@ int riscv_isqnan(unsigned src1) {
   }
 }
 
-int riscv_iszero(unsigned src1) {
+static int riscv_isnan(unsigned src1) {
+  return riscv_issnan(src1) | riscv_isqnan(src1);
+}
+
+static int riscv_iszero(unsigned src1) {
   if (fp_get_exponent(src1) == 0x00000000 && fp_get_mantissa(src1) == 0x0) {
     return (fp_get_sign(src1) == 1) ? -1 : 1;
   } else {
@@ -853,7 +857,7 @@ int riscv_iszero(unsigned src1) {
   }
 }
 
-int riscv_isinf(unsigned src1) {
+static int riscv_isinf(unsigned src1) {
   if (fp_get_exponent(src1) == 0x000000ff && fp_get_mantissa(src1) == 0x0) {
     return (fp_get_sign(src1) == 1) ? -1 : 1;
   } else {
@@ -861,14 +865,14 @@ int riscv_isinf(unsigned src1) {
   }
 }
 
-unsigned char riscv_inexact(unsigned long long mantissa) {
+static unsigned char riscv_inexact(unsigned long long mantissa) {
   unsigned char guard = (mantissa >> 31) & 0x01;
   unsigned char round = (mantissa >> 30) & 0x01;
   unsigned char sticky = (mantissa & 0x0000000003ffffff) ? 1 : 0;
   return (guard | round | sticky) ? 1 : 0;
 }
 
-unsigned char riscv_rounding(unsigned long long mantissa, unsigned char sign_flag, unsigned char rm) {
+static unsigned char riscv_rounding(unsigned long long mantissa, unsigned char sign_flag, unsigned char rm) {
   unsigned char roundup = 0;
   unsigned char lsb = (mantissa >> 32) & 0x01;
   unsigned char guard = (mantissa >> 31) & 0x01;
@@ -1329,6 +1333,76 @@ unsigned riscv_fdiv_fsqrt(unsigned src1, unsigned src2, unsigned char rm, unsign
   return result;
 }
 
+unsigned riscv_fmin_fmax(unsigned src1, unsigned src2, unsigned char is_fmax, unsigned char *exception) {
+  unsigned ret = 0;
+  union { unsigned i; float f; } s1, s2;
+  s1.i = src1;
+  s2.i = src2;
+  if (riscv_isnan(src1) && riscv_isnan(src2)) {
+    ret = RISCV_CANONICAL_QNAN;
+  } else if (riscv_isnan(src1)) {
+    ret = src2;
+  } else if (riscv_isnan(src2)) {
+    ret = src1;
+  } else if (src1 == 0x00000000 && src2 == 0x80000000) {
+    ret = (is_fmax == 0) ? src2 : src1;
+  } else if (src1 == 0x80000000 && src2 == 0x00000000) {
+    ret = (is_fmax == 0) ? src1 : src2;
+  } else if (is_fmax == 0) {
+    ret = (s1.f < s2.f) ? src1 : src2;
+  } else {
+    ret = (s1.f > s2.f) ? src1 : src2;
+  }
+  if (riscv_issnan(src1) || riscv_issnan(src2)) {
+    *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+  }
+  return ret;
+}
+
+unsigned riscv_fle(unsigned src1, unsigned src2, unsigned char *exception) {
+  unsigned ret = 0;
+  union { unsigned i; float f; } s1, s2;
+  s1.i = src1;
+  s2.i = src2;
+  if (riscv_isnan(src1) || riscv_isnan(src2)) {
+    ret = 0;
+    *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+  } else {
+    ret = (s1.f <= s2.f) ? 1 : 0;
+  }
+  return ret;
+}
+
+unsigned riscv_flt(unsigned src1, unsigned src2, unsigned char *exception) {
+  unsigned ret = 0;
+  union { unsigned i; float f; } s1, s2;
+  s1.i = src1;
+  s2.i = src2;
+  if (riscv_isnan(src1) || riscv_isnan(src2)) {
+    ret = 0;
+    *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+  } else {
+    ret = (s1.f < s2.f) ? 1 : 0;
+  }
+  return ret;
+}
+
+unsigned riscv_feq(unsigned src1, unsigned src2, unsigned char *exception) {
+  unsigned ret = 0;
+  union { unsigned i; float f; } s1, s2;
+  s1.i = src1;
+  s2.i = src2;
+  if (riscv_issnan(src1) || riscv_issnan(src2)) {
+    ret = 0;
+    *exception |= FEXT_ACCURUED_EXCEPTION_NV;
+  } else if (riscv_isnan(src1) || riscv_isnan(src2)) {
+    ret = 0;
+  } else {
+    ret = (s1.f == s2.f) ? 1 : 0;
+  }
+  return ret;
+}
+
 unsigned riscv_fcvtws(unsigned src1, unsigned char rm, unsigned char is_unsigned, unsigned char *exception) {
   unsigned result = 0;
   unsigned char sign = fp_get_sign(src1);
@@ -1408,6 +1482,22 @@ unsigned riscv_fcvtsw(unsigned src1, unsigned char rm, unsigned char is_unsigned
     *exception = FEXT_ACCURUED_EXCEPTION_NX;
   }
   return result;
+}
+
+unsigned riscv_fclass(unsigned src1) {
+  union { unsigned i; float f; } s = { src1 };
+  unsigned ret = 0;
+  if (riscv_isinf(src1) == -1) ret |= 0x00000001;
+  if (isnormal(s.f) && (src1 & 0x80000000)) ret |= 0x00000002;
+  if ((fpclassify(s.f) == FP_SUBNORMAL) && (src1 & 0x80000000)) ret |= 0x00000004;
+  if ((fpclassify(s.f) == FP_ZERO) && (src1 & 0x80000000)) ret |= 0x00000008;
+  if ((fpclassify(s.f) == FP_ZERO) && !(src1 & 0x80000000)) ret |= 0x00000010;
+  if ((fpclassify(s.f) == FP_SUBNORMAL) && !(src1 & 0x80000000)) ret |= 0x00000020;
+  if (isnormal(s.f) && !(src1 & 0x80000000)) ret |= 0x00000040;
+  if (riscv_isinf(src1) == 1) ret |= 0x00000080;
+  if (riscv_issnan(src1)) ret |= 0x00000100; // signaling NaN
+  if (riscv_isqnan(src1)) ret |= 0x00000200; // quiet NaN
+  return ret;
 }
 
 unsigned riscv_get_opcode(unsigned inst) { return inst & 0x0000007f; }
