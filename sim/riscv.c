@@ -1314,7 +1314,7 @@ unsigned riscv_fdiv_fsqrt(unsigned src1, unsigned src2, unsigned char rm, unsign
       roundup = 0;
       break;
     }
-    unsigned char expinc = (roundup && ((before_round >> 25) & 0x007fffff)) ? 1 : 0;
+    unsigned char expinc = (roundup && (((before_round >> 25) & 0x007fffff) == 0x007fffff)) ? 1 : 0;
     unsigned result_mantissa = (((before_round >> 25) & 0x007fffff) + roundup) & 0x007fffff;
     int result_exponent = (is_sqrt == 0) ? (subnormal ? 0 : virtual_exponent + expinc) : (src1_exponent_value >> 1) + (src1_exponent & 0x1) + 63;
     result_is_inf |= ((is_sqrt == 0) ? ((virtual_exponent > 255) || (result_exponent == 0xff)) : result_is_inf);
