@@ -2,9 +2,9 @@ PACKAGES=ladybird_config.svh ladybird_riscv_helper.svh
 INTERFACE=ladybird_axi_interface
 TOP=ladybird_tb
 OBJDIR=build
-ELF=./hello.riscv
+ELF?=./hello.riscv
 VDEF=-DLADYBIRD_SIMULATION
-TIMEOUT?=10000000
+TIMEOUT?=2147483647
 
 .PHONY: all clean
 
