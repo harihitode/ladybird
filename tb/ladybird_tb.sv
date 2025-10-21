@@ -81,6 +81,7 @@ module ladybird_tb
         break;
       end
     end
+    $display("timeout %08x", timeout);
     $finish;
   end
 endmodule
