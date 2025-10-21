@@ -48,7 +48,16 @@ module ladybird_simulation_memory
 
   always_comb begin
     for (int i = 0; i < AXI_DATA_W / 8; i++) begin
-      axi.rdata[i*8+:8] = memory_model[request_q.addr + (AXI_DATA_W / 8 * current_beat) + i];
+      automatic int unsigned addr = request_q.addr + (AXI_DATA_W / 8 * current_beat) + i;
+      // UART LSR (Line Status Register) emulation at 0x10000005
+      // Always return TX_IDLE (bit 5) and RX_READY (bit 0) set
+      if (addr == 32'h10000005) begin
+        axi.rdata[i*8+:8] = 8'h21; // LSR_TX_IDLE | LSR_RX_READY
+      end else if (memory_model.exists(addr)) begin
+        axi.rdata[i*8+:8] = memory_model[addr];
+      end else begin
+        axi.rdata[i*8+:8] = 8'h00;
+      end
     end
   end
 
@@ -122,9 +131,10 @@ module ladybird_simulation_memory
       end else begin
         current_beat <= '0;
       end
-      // if (state_q == READING) begin
-      //   $display("LOAD: %08x %08x\n", request_q.addr, axi.rdata);
-      // end
+      // UART THR (Transmit Holding Register) emulation at 0x10000000
+      if (state_q == WRITING && request_q.addr == 32'h10000000 && axi.wvalid) begin
+        $write("%c", axi.wdata[7:0]);
+      end
     end
   end
 
