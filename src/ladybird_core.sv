@@ -386,9 +386,11 @@ module ladybird_core
     inst_disas = ladybird_riscv_helper::riscv_disas(inst);
   end
   always_ff @(posedge clk) begin
+`ifdef LADYBIRD_DUMP_INSTRUCTION
     if ((state == D_FETCH) && inst_valid) begin
       $display($time, " %08x, %08x, %s", pc, inst, inst_disas);
     end
+`endif
     if ((mmu_req) && (mmu_addr == 32'h9000_FFA0)) begin
       $display($time, " BREAK POINT, %08x, %08x, %x", mmu_lw_data, mmu_sw_data, mmu_we);
       $finish;
