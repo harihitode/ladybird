@@ -126,7 +126,8 @@ module ladybird_mmu
   assign i_ready = (state_q == IDLE) ? ~pc_valid : '0;
   // AW channel
   assign axi.awid = request_q.id;
-  assign axi.awaddr = request_q.addr;
+  // Word-align the address for AXI bus (clear lower 2 bits)
+  assign axi.awaddr = {request_q.addr[XLEN-1:2], 2'b00};
   assign axi.awlen = '0;
   assign axi.awsize = ladybird_axi::axi_burst_size_32;
   assign axi.awburst = ladybird_axi::axi_incrementing_burst;
@@ -135,7 +136,19 @@ module ladybird_mmu
   assign axi.awprot = '0;
   assign axi.awvalid = (state_q == AW_CHANNEL) ? '1 : '0;
   // W channel
-  assign axi.wdata = request_q.data;
+  // Shift write data to the correct byte lane based on address alignment
+  always_comb begin
+    if (request_q.funct == ladybird_riscv_helper::FUNCT3_SB) begin
+      // Store Byte: replicate byte to all lanes, wstrb selects the correct one
+      axi.wdata = {4{request_q.data[7:0]}};
+    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_SH) begin
+      // Store Halfword: replicate halfword to both positions
+      axi.wdata = {2{request_q.data[15:0]}};
+    end else begin
+      // Store Word: use data as-is
+      axi.wdata = request_q.data;
+    end
+  end
   always_comb begin
     axi.wstrb = '0;
     if (request_q.we) begin
@@ -163,7 +176,8 @@ module ladybird_mmu
   assign axi.bready = (state_q == B_CHANNEL) ? '1 : '0;
   // AR channel
   assign axi.arid = request_q.id;
-  assign axi.araddr = request_q.addr;
+  // Word-align the address for AXI bus (clear lower 2 bits)
+  assign axi.araddr = {request_q.addr[XLEN-1:2], 2'b00};
   assign axi.arlen = '0;
   assign axi.arsize = ladybird_axi::axi_burst_size_32;
   assign axi.arburst = ladybird_axi::axi_incrementing_burst;
@@ -193,13 +207,13 @@ module ladybird_mmu
         2'b10: rdata = {{24{1'b0}}, axi.rdata[23:16]};
         default: rdata = {{24{1'b0}}, axi.rdata[31:24]};
       endcase
-    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_LB) begin
+    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_LH) begin
       if (request_q.addr[1] == 1'b0) begin
         rdata = {{16{axi.rdata[15]}}, axi.rdata[15:0]};
       end else begin
         rdata = {{16{axi.rdata[31]}}, axi.rdata[31:16]};
       end
-    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_LBU) begin
+    end else if (request_q.funct == ladybird_riscv_helper::FUNCT3_LHU) begin
       if (request_q.addr[1] == 1'b0) begin
         rdata = {{16{1'b0}}, axi.rdata[15:0]};
       end else begin
